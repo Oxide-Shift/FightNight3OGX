@@ -21,7 +21,7 @@ import java.nio.file.*;
 import java.util.Map;
 
 public final class CornerActivity extends Activity implements DisplayManager.DisplayListener, InputManager.InputDeviceListener {
-    private static final int DISC=1, SAVE=2, EXPORT_FOLDER=3, WRITE_SAVE=4;
+    private static final int DISC=1, SAVE=2, EXPORT_FOLDER=3, WRITE_SAVE=4, BACKUP_FOLDER=5;
     private static final class Engine {
         volatile boolean importing;
         volatile long buildStarted;
@@ -71,6 +71,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     private final Runnable release=()->{touchKey=null;sendPad();};
     private MediaPlayer music;
     private SaveBackups backups;
+    private boolean folderPromptShown;
     private long lastRoundMusic;
     private int musicPosition;
     private String html,lastJson="";
@@ -106,13 +107,10 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                 this::saveOptions,this::prepareSaveExport,this::launch,this::showCard,()->{
             prefs.edit().remove("save").apply();engine.note="Default save selected";
         },updates::tap);
-        if(discBuild!=null)menu.enableBenchmark(()->{
-            if(engine.importing || active() || updates.installing())return;
-            discBuild.repeatBenchmark();launch();
-        });
         rumble=new PadRumble(this);
         menu.soundtrack.setOnCheckedChangeListener((v,on)->{prefs.edit().putBoolean("music",on).apply();syncMusic();});
         menu.fightMusic.setOnCheckedChangeListener((v,on)->{prefs.edit().putBoolean("fightMusic",on).apply();syncMusic();});
+        menu.saveFolder.setOnClickListener(v->chooseBackupFolder());
         body.addView(menu);back.setVisibility(View.GONE);
         root.post(this::immersive);
         if(state!=null && state.getBoolean("game") && engine.frame!=null)showGame();
@@ -130,6 +128,21 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         if(engine.importing||active())return;
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivityForResult(intent,type);
+    }
+    private void chooseBackupFolder(){
+        Intent picker=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION|Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        if(backups.folder()!=null)picker.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI,backups.folder());
+        startActivityForResult(picker,BACKUP_FOLDER);
+    }
+    private void offerBackupFolder(){
+        if(folderPromptShown || !hasWindowFocus() || isFinishing() || isDestroyed())return;
+        folderPromptShown=true;
+        if(backups.hasFolder())return;
+        new AlertDialog.Builder(this).setTitle("Where should we back up your career?")
+                .setMessage("Choose a folder you can find after reinstalling. Each in-game save updates a ZIP with your career and achievements.")
+                .setPositiveButton("Choose folder",(d,w)->chooseBackupFolder())
+                .setNegativeButton("Later",null).show();
     }
     private void saveOptions(){
         if(updates.installing())return;
@@ -181,7 +194,8 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     }
     private void findExport(){
         String saved=prefs.getString("exportFolder","");
-        if(saved.isEmpty())pickExportFolder();else scanExportFolder(Uri.parse(saved));
+        Uri folder=saved.isEmpty()?backups.folder():Uri.parse(saved);
+        if(folder==null)pickExportFolder();else scanExportFolder(folder);
     }
     private void scanExportFolder(Uri tree){
         if(engine.importing || active())return;
@@ -211,6 +225,16 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
+        if(request==BACKUP_FOLDER){
+            if(result==RESULT_OK && data!=null && data.getData()!=null){
+                Uri uri=data.getData();
+                try{
+                    getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                    backups.select(uri,saves());
+                }catch(SecurityException e){engine.note="Folder access unavailable. Choose a writable folder under Save & sound.";}
+            }
+            return;
+        }
         if(request==WRITE_SAVE){
             if(result==RESULT_OK && data!=null && data.getData()!=null)writeSaveExport(data.getData());
             else{stagedExport().delete();engine.note="";}
@@ -340,7 +364,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
             CrashReports reports=crashReports;
             next.onCrash((exit,pc,event,round,pixels,soft)->reports.record("game",exit,pc,event,round,pixels,soft?"software":"vulkan"));
             SharedPreferences medals=getSharedPreferences("achievements",MODE_PRIVATE);
-            next.achievements=new Achievements(key->medals.getBoolean(key,false),key->medals.edit().putBoolean(key,true).apply());
+            next.achievements=new Achievements(key->medals.getBoolean(key,false),key->{medals.edit().putBoolean(key,true).apply();backups.snapshot(save);});
             next.setFrameFile(frame);
             int quality=menu.qualityValue(),height=FightMenu.HEIGHTS[menu.resolution.getSelectedItemPosition()];
             if(height==0){
@@ -564,7 +588,10 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
             data.put("output",screen.output());
             if(!live && "Closed".equals(data.get("link")))setup();
         }else if(viewingCard)back.setText("Return to fight setup");
-        if(!live && resumed && awake && !viewingGame && !viewingCard && !engine.importing && !updates.installing())crashReports.refresh();
+        if(!live && resumed && awake && !viewingGame && !viewingCard && !engine.importing && !updates.installing()){
+            crashReports.refresh();
+            if(!crashReports.showing())offerBackupFolder();
+        }
         if(local==null)return;
         String json=new JSONObject(data).toString();
         if(!json.equals(lastJson)){lastJson=json;WebView v=local;if(v!=null)v.evaluateJavascript("window.cornerUpdate && window.cornerUpdate("+json+")",null);}

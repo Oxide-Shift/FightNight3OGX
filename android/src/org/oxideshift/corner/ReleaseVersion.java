@@ -20,7 +20,7 @@ final class ReleaseVersion implements Comparable<ReleaseVersion> {
                 Integer.parseInt(m.group(1)),Integer.parseInt(m.group(2)),Integer.parseInt(m.group(3)),
                 order,m.group(5)==null?0:Integer.parseInt(m.group(5))});
     }
-    String asset(){return "FightNight-Round3-Thor-"+name+".apk";}
+    String asset(){return "FightNight3OGX-"+name+".apk";}
     @Override public int compareTo(ReleaseVersion other){
         for(int i=0;i<parts.length;i++){
             int result=Integer.compare(parts[i],other.parts[i]);

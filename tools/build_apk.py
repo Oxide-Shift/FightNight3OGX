@@ -35,7 +35,7 @@ def main():
     private.mkdir(parents=True, exist_ok=True)
     app = project / "android"
     java = jdk / "java.exe"
-    output = private / "FightNight-Round3-Android-test.apk"
+    output = private / "FightNight3OGX-Android-test.apk"
     abi = "x86_64" if args.emulator else "arm64-v8a"
     machine = 62 if args.emulator else 183
     if args.setup:
@@ -46,14 +46,16 @@ def main():
     elif args.disc_kit:
         if args.emulator:
             parser.error("The on-device compiler requires ARM64")
-        output = private / "FightNight3OGX-DiscImport.apk"
+        from xml.etree import ElementTree
+        version = ElementTree.parse(app / "AndroidManifest.xml").getroot().get("{http://schemas.android.com/apk/res/android}versionName")
+        output = private / ("FightNight3OGX-" + version + ".apk")
     else:
         with args.host.open("rb") as f:
             hdr = f.read(64)
         if hdr[:6] != b"\x7fELF\x02\x01" or hdr[16:18] != b"\x03\x00" or int.from_bytes(hdr[18:20], "little") != machine:
             parser.error(f"Expected a little-endian {abi} ELF PIE")
     if args.emulator:
-        output = private / "FightNight-Round3-Emulator-test.apk"
+        output = private / "FightNight3OGX-Emulator-test.apk"
     with tempfile.TemporaryDirectory(dir=private) as tmp:
         work = Path(tmp)
         classes, dex = work / "classes", work / "dex"
@@ -88,6 +90,7 @@ def main():
                     shutil.copyfile(app/"res"/name,res/name)
                 shutil.copyfile(app / "res/values/colors.xml", res / "values/colors.xml")
                 shutil.copyfile(app / "res/raw/corner_unlock.wav", res / "raw/corner_unlock.wav")
+                shutil.copyfile(app / "assets/crash-inbox.pem",assets / "crash-inbox.pem")
                 shutil.copyfile(app / "assets/thor-controls.dxt3",assets / "thor-controls.dxt3")
                 shutil.copyfile(app / "assets/corner.html", assets / "corner.html")
             run(sdk / "aapt2.exe", "compile", "--dir", res, "-o", resources)

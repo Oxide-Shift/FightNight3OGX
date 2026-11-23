@@ -70,8 +70,11 @@ final class AchievementDisplay {
         int id=menuSounds[cue.ordinal()];
         if(released || !loaded.get(id))return;
         if(navigationStream!=0){sounds.stop(navigationStream);navigationStream=0;}
-        if(cue==DiscMenuSounds.Cue.HORIZONTAL || cue==DiscMenuSounds.Cue.VERTICAL){
-            navigationStream=sounds.play(id,.16f,.16f,1,0,1f);
+        if(cue==DiscMenuSounds.Cue.HORIZONTAL){
+            sounds.play(id,.22f,.22f,1,0,1f);
+        }else if(cue==DiscMenuSounds.Cue.VERTICAL || cue==DiscMenuSounds.Cue.SCORECARD_PAGE){
+            float volume=cue==DiscMenuSounds.Cue.SCORECARD_PAGE?.13f:.16f;
+            navigationStream=sounds.play(id,volume,volume,1,0,1f);
         }else sounds.play(id,.45f,.45f,1,0,1f);
     }
     private void open(){
@@ -79,7 +82,9 @@ final class AchievementDisplay {
         neutralPad.run();
         Dialog dialog=new Dialog(activity,android.R.style.Theme_Material_NoActionBar_Fullscreen);
         AchievementGallery page=new AchievementGallery(activity,fonts,awards,top.getWidth(),artwork.get(),this::leave,this::play);
-        dialog.setContentView(page);
+        FrameLayout layers=new FrameLayout(activity);
+        layers.addView(page);
+        dialog.setContentView(layers);
         dialog.setOnKeyListener((d,code,key)->{
             if(code==KeyEvent.KEYCODE_BUTTON_B || code==KeyEvent.KEYCODE_BACK){
                 if(key.getAction()==KeyEvent.ACTION_UP)leave();
@@ -97,8 +102,33 @@ final class AchievementDisplay {
         w.getDecorView().setSystemUiVisibility(activity.getWindow().getDecorView().getSystemUiVisibility());
         dialog.show();w.setLayout(-1,-1);play(DiscMenuSounds.Cue.FORWARD);
         if(ValueAnimator.areAnimatorsEnabled()){
-            page.setTranslationX(top.getWidth());page.animate().translationX(0).setDuration(235)
-                    .setInterpolator(new DecelerateInterpolator()).start();
+            android.graphics.Bitmap[] art=artwork.get();
+            android.graphics.Bitmap portrait=art!=null && art.length>3?art[3]:null;
+            if(portrait!=null){
+                // Crop the illustration above the original disc's loading meter.
+                View walkout=new View(activity){
+                    final android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
+                    final android.graphics.Rect crop=new android.graphics.Rect();
+                    final android.graphics.Rect dest=new android.graphics.Rect();
+                    @Override protected void onDraw(android.graphics.Canvas c){
+                        int w=portrait.getWidth(),h=portrait.getHeight()*72/100;
+                        float scale=Math.max(getWidth()/(float)w,getHeight()/(float)h);
+                        if(scale<=0)return;
+                        int sw=Math.max(1,Math.round(getWidth()/scale)),sh=Math.max(1,Math.round(getHeight()/scale));
+                        crop.set((w-sw)/2,(h-sh)/2,(w+sw)/2,(h+sh)/2);
+                        dest.set(0,0,getWidth(),getHeight());c.drawBitmap(portrait,crop,dest,paint);
+                    }
+                };
+                walkout.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                layers.setBackgroundColor(0xff170603);page.setAlpha(0);
+                layers.addView(walkout);walkout.setAlpha(0);
+                walkout.animate().alpha(1).setDuration(100).withEndAction(()->{
+                    page.setAlpha(1);
+                    walkout.animate().alpha(0).setStartDelay(70).setDuration(185)
+                        .withEndAction(()->layers.removeView(walkout)).start();}).start();
+            }else{
+                page.setAlpha(0);page.animate().alpha(1).setDuration(150).start();
+            }
         }
     }
     private void leave(){

@@ -10,7 +10,7 @@ public final class ReleaseAssetSmoke {
     private static void check(boolean condition){if(!condition)throw new AssertionError();}
     public static void main(String[] args)throws Exception{
         ReleaseAsset asset=ReleaseAsset.parse("v0.4.0-alpha.26",3,DIGEST);
-        check(asset!=null && asset.path().equals("/apk/FightNight-Round3-Thor-0.4.0-alpha.26.apk"));
+        check(asset!=null && asset.path().equals("/apk/FightNight3OGX-0.4.0-alpha.26.apk"));
         check(ReleaseAsset.parse("v0.4.0/elsewhere",3,DIGEST)==null);
         check(ReleaseAsset.parse("v1.0.0",0,DIGEST)==null);
         check(ReleaseAsset.parse("v1.0.0",268435457L,DIGEST)==null);

@@ -55,7 +55,9 @@ public final class HakuSaveSmoke {
             String restoredSlot=GameLibrary.importSave(new ByteArrayInputStream(backup.toByteArray()),root,restored::addAll);
             if(!restored.equals(awards) || !Arrays.equals(PROFILE,Files.readAllBytes(root.resolve("save-slots").resolve(restoredSlot)
                     .resolve("UDATA/45410086/"+SLOT+"/NAMEAS"))))throw new AssertionError("Career and achievements backup round trip");
-            Files.write(titleData,new byte[]{3,2,1,0});
+            java.nio.file.attribute.FileTime originalTime=Files.getLastModifiedTime(titleData);
+            Files.write(titleData,new byte[]{1,2,3});
+            Files.setLastModifiedTime(titleData,originalTime);
             if(fingerprint.equals(GameLibrary.saveFingerprint(active,awards)))throw new AssertionError("Save change was missed");
             Path portable=root.resolve("portable.zip");Files.write(portable,exported.toByteArray());
             try(ZipFile z=new ZipFile(portable.toFile())){

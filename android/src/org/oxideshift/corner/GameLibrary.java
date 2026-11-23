@@ -143,7 +143,7 @@ public final class GameLibrary {
     static final String MEDALS="FightNight3OGX/achievements-v1.txt";
     static String saveFingerprint(Path slot,Set<String> awards)throws IOException{
         // Inspect only the game's title folders. Native renderer caches never participate.
-        java.util.TreeMap<String,String> files=new java.util.TreeMap<>();
+        java.util.TreeMap<String,Path> files=new java.util.TreeMap<>();
         boolean profile=false;
         for(String area:new String[]{"UDATA","TDATA"}){
             Path tree=childIgnoreCase(slot,area),title=tree==null?null:childIgnoreCase(tree,TITLE);
@@ -151,8 +151,7 @@ public final class GameLibrary {
             try(java.util.stream.Stream<Path> walk=Files.walk(title)){
                 for(Path path:(Iterable<Path>)walk.filter(p->Files.isRegularFile(p,LinkOption.NOFOLLOW_LINKS))::iterator){
                     Path relative=title.relativize(path);
-                    java.nio.file.attribute.BasicFileAttributes attrs=Files.readAttributes(path,java.nio.file.attribute.BasicFileAttributes.class);
-                    files.put(area+"/"+relative,attrs.lastModifiedTime()+"/"+attrs.size());
+                    files.put(area+"/"+relative,path);
                     if(area.equals("UDATA")&&relative.getNameCount()>=2)profile=true;
                 }
             }
@@ -160,8 +159,14 @@ public final class GameLibrary {
         if(!profile)return "";
         try{
             java.security.MessageDigest digest=java.security.MessageDigest.getInstance("SHA-256");
-            for(Map.Entry<String,String> file:files.entrySet()){
-                digest.update((file.getKey()+"\0"+file.getValue()+"\n").getBytes("UTF-8"));
+            java.security.MessageDigest content=java.security.MessageDigest.getInstance("SHA-256");
+            byte[] buffer=new byte[65536];
+            for(Map.Entry<String,Path> file:files.entrySet()){
+                digest.update((file.getKey()+"\0").getBytes("UTF-8"));
+                try(InputStream input=Files.newInputStream(file.getValue())){
+                    for(int n;(n=input.read(buffer))!=-1;)content.update(buffer,0,n);
+                }
+                digest.update(content.digest());
             }
             return java.util.Base64.getEncoder().encodeToString(digest.digest(String.join("\n",new TreeSet<>(awards)).getBytes("UTF-8")));
         }catch(java.security.NoSuchAlgorithmException e){throw new AssertionError(e);}

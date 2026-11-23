@@ -44,9 +44,19 @@ final class AchievementGallery extends LinearLayout {
         pad(mast,wide?22:10,3);
         addView(mast,new LayoutParams(-1,-2));
         if(art!=null){
-            ImageView logo=new ImageView(c);logo.setImageBitmap(art[1]);logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            logo.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-            LayoutParams size=new LayoutParams(dp(c,wide?85:63),dp(c,wide?75:56));size.rightMargin=dp(c,12);mast.addView(logo,size);
+            View logo=new View(c){
+                final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
+                final RectF pos=new RectF();
+                @Override protected void onDraw(Canvas canvas){
+                    float w=getWidth(),h=getHeight();
+                    pos.set(w*.38f,0,w,h);
+                    if(art[2]!=null)canvas.drawBitmap(art[2],null,pos,ink);
+                    pos.set(0,h*.14f,w*.79f,h*.94f);
+                    if(art[1]!=null)canvas.drawBitmap(art[1],null,pos,ink);
+                }
+            };
+            logo.setContentDescription("Fight Night Round 3");
+            LayoutParams size=new LayoutParams(dp(c,wide?108:79),dp(c,wide?75:56));size.rightMargin=dp(c,10);mast.addView(logo,size);
         }
         LinearLayout heading=stack(c);mast.addView(heading,new LayoutParams(0,-2,1));
         TextView title=text(c,"ACHIEVEMENTS",wide?42:30,GOLD,f.title);
@@ -143,7 +153,8 @@ final class AchievementGallery extends LinearLayout {
                 boolean page=code==KeyEvent.KEYCODE_PAGE_UP || code==KeyEvent.KEYCODE_PAGE_DOWN;
                 int direction=code==KeyEvent.KEYCODE_DPAD_DOWN || code==KeyEvent.KEYCODE_PAGE_DOWN?1:-1;
                 if(event.getAction()==KeyEvent.ACTION_DOWN && scroll.canScrollVertically(direction)){
-                    if(event.getRepeatCount()==0)sound.accept(DiscMenuSounds.Cue.VERTICAL);
+                    if(event.getRepeatCount()==0)sound.accept(selected==Achievements.Category.JUDGES.ordinal()
+                            ?DiscMenuSounds.Cue.SCORECARD_PAGE:DiscMenuSounds.Cue.VERTICAL);
                     scroll.smoothScrollBy(0,direction*(page?scroll.getHeight():dp(getContext(),72)));
                 }
                 return true;

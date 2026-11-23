@@ -113,7 +113,10 @@ public final class DiscImage {
         }
         executableReady.run();
         int done = 1;
-        for (Map.Entry<String,long[]> file : files.entrySet()) {
+        // Translation is already running. Read the remaining assets in physical disc order.
+        List<Map.Entry<String,long[]>> order=new ArrayList<>(files.entrySet());
+        order.sort(Comparator.comparingLong(entry->entry.getValue()[0]));
+        for (Map.Entry<String,long[]> file : order) {
             if(file.getKey().equals("default.xbe"))continue;
             Path path = stage.resolve(file.getKey()).normalize();
             if (!path.startsWith(stage)) throw new IOException("Invalid disc path");

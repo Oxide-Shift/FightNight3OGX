@@ -28,13 +28,13 @@ final class FightMenu extends LinearLayout {
     final Button card,defaultSave,updates;
     final Switch soundtrack,fightMusic;
     final TextView backupStatus;
+    final Button saveFolder;
     final Spinner rumble;
     final Spinner renderer,resolution,aspect;
     final PresetStrip quality,pacing;
     final Switch antiAlias;
     final ToggleButton vsync;
     private GraphicsPreset preset;
-    private Button benchmarkAgain;
     private boolean sessionActive;
     private DiscFonts faces=DiscFonts.FALLBACK;
     private boolean landscape,requestedArt;
@@ -114,6 +114,7 @@ final class FightMenu extends LinearLayout {
         fightMusic=new Switch(c);fightMusic.setText("Ring Focus during fights · 4%");fightMusic.setTextColor(PAPER);
         fightMusic.setTypeface(faces.body);fightMusic.setMinHeight(dp(46));
         fightMusic.setChecked(prefs.getBoolean("fightMusic",false));details.addView(fightMusic);
+        saveFolder=button("Choose save backup folder",()->{},false);details.addView(saveFolder);
         backupStatus=label("Automatic backups · Downloads / Fight Night Round 3",13,MUTED);details.addView(backupStatus);
         LinearLayout strength=new LinearLayout(c);details.addView(strength);
         rumble=choice(strength,"Controller rumble",new String[]{"Off","Light","Medium","Full"},
@@ -123,11 +124,6 @@ final class FightMenu extends LinearLayout {
         arrange(c.getResources().getConfiguration().orientation==2);
     }
 
-    void enableBenchmark(Runnable run){
-        benchmarkAgain=button("Time another full build",run,false);
-        benchmarkAgain.setVisibility(GONE);
-        panel.addView(benchmarkAgain,panel.indexOfChild(play)+1);
-    }
     private int dp(float n){return Math.round(n*getResources().getDisplayMetrics().density);}
     private LinearLayout column(){
         LinearLayout box=new LinearLayout(getContext());box.setOrientation(VERTICAL);return box;
@@ -276,7 +272,6 @@ final class FightMenu extends LinearLayout {
     void showState(String message,boolean ready,boolean busy,boolean active,boolean canPlay,
                    boolean customSave,boolean hasLower,boolean needsBuild){
         if(!message.contentEquals(state.getText()))state.setText(message);
-        if(benchmarkAgain!=null)benchmarkAgain.setVisibility(ready && !busy && !active && !needsBuild?VISIBLE:GONE);
         play.setVisibility(ready||active?VISIBLE:GONE);play.setEnabled(active||(ready&&!busy&&canPlay));
         String action=active?"Resume bout":needsBuild?"Prepare game":"Enter the ring";if(!action.contentEquals(play.getText()))play.setText(action);
         disc.setVisibility(active||!ready?VISIBLE:GONE);disc.setEnabled(active||!busy);
@@ -330,7 +325,8 @@ final class FightMenu extends LinearLayout {
             Bitmap[] mainSprites=null;
             try{
                 int[][] pixels=TraxArt.mainMenu(game);
-                mainSprites=new Bitmap[pixels.length];
+                mainSprites=new Bitmap[pixels.length+1];
+                mainSprites[pixels.length]=portrait;
                 for(int i=0;i<pixels.length;i++)mainSprites[i]=Bitmap.createBitmap(pixels[i],
                         TraxArt.MENU_WIDTH[i],TraxArt.MENU_HEIGHT[i],Bitmap.Config.ARGB_8888);
             }catch(IOException ignored){}

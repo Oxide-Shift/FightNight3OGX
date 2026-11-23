@@ -10,7 +10,7 @@ from build_disc_kit import NATIVES
 
 def audit(apk):
     required = {"AndroidManifest.xml", "classes.dex", "resources.arsc", "res/raw/corner_unlock.wav",
-                "assets/thor-controls.dxt3", "assets/corner.html", "assets/ring-focus-loop.ogg", "assets/BoxingBell.txt",
+                "assets/crash-inbox.pem", "assets/thor-controls.dxt3", "assets/corner.html", "assets/ring-focus-loop.ogg", "assets/BoxingBell.txt",
                 "assets/disc-kit.zip", "assets/disc-kit.id"}
     required.update({"res/drawable-nodpi-v4/corner_glove.png","res/mipmap-xxxhdpi-v4/fight_night.png","res/mipmap-anydpi-v26/fight_night.xml"})
     required.update("lib/arm64-v8a/" + name for name in NATIVES)

@@ -11,7 +11,7 @@ final class ReleaseVersionSmoke {
             if(ReleaseVersion.parse(bad)!=null)throw new AssertionError(bad);
         ReleaseVersion version=ReleaseVersion.parse("v0.4.0-alpha.23");
         if(version.compareTo(ReleaseVersion.parse("0.4.0-alpha.23"))!=0 ||
-                !version.asset().equals("FightNight-Round3-Thor-0.4.0-alpha.23.apk"))
+                !version.asset().equals("FightNight3OGX-0.4.0-alpha.23.apk"))
             throw new AssertionError("Thor release asset");
         System.out.println("Release tag order and Thor APK filename passed");
     }

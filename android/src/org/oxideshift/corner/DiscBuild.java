@@ -14,10 +14,8 @@ final class DiscBuild {
     final File runner;
     final boolean benchmark;
     private static volatile String completedBenchmark;
-    private volatile boolean repeatRequested;
     File playableModule(){return preparedModule(folder);}
-    boolean needsPreparation(){return repeatRequested || !playableModule().isFile() || (benchmark && !folder.getName().equals(completedBenchmark));}
-    void repeatBenchmark(){repeatRequested=true;completedBenchmark=null;}
+    boolean needsPreparation(){return !playableModule().isFile() || (benchmark && !folder.getName().equals(completedBenchmark));}
 
     DiscBuild(Context context) throws IOException {
         app=context.getApplicationContext();
@@ -35,6 +33,12 @@ final class DiscBuild {
 
     static File preparedModule(File folder){
         File current=new File(folder,"libfightnight_game.so");
+        // Alpha 47 permits a seventh compiler process on capable devices.
+        // Both schedules produced the same ARM64 binary.
+        if(!current.isFile() && folder.getName().equals("c1894a564908041f5bb0f54a77f5e8517d99262b7c81ecfb66cf2f49cd5a0d81")){
+            File previous=preparedModule(new File(folder.getParentFile(),"48d9ad8b971f20a77f7695e15661d2b47240d62793e13616735a2e32647ceee7"));
+            if(previous.isFile() && previous.length()>64)return previous;
+        }
         // Alpha 46 changes worker scheduling and patch lookup. Its generated files
         // matched Alpha 45 byte for byte, with the same compiler and runtime.
         if(!current.isFile() && folder.getName().equals("48d9ad8b971f20a77f7695e15661d2b47240d62793e13616735a2e32647ceee7")){
@@ -92,7 +96,6 @@ final class DiscBuild {
 
     synchronized String prepare(File xbe, GameLibrary.Status status)throws Exception{
         if(!needsPreparation())return "Xbox game ready";
-        final boolean benchmark=this.benchmark || repeatRequested;
         final long started=android.os.SystemClock.elapsedRealtime();
         long translating=0,compiling=0;
         File trial=new File(folder,"timed-build");
@@ -147,7 +150,7 @@ final class DiscBuild {
         }finally{p.destroy();}
         if(benchmark){
             Files.move(output.toPath(),module.toPath(),StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
-            completedBenchmark=folder.getName();repeatRequested=false;
+            completedBenchmark=folder.getName();
         }
         final long finished=android.os.SystemClock.elapsedRealtime();
         // The module lives under files/, so Android clearing cache cannot require another disc build.

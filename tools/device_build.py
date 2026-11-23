@@ -20,7 +20,8 @@ def workers():
     except (OSError, TypeError, ValueError):
         return min(3, count)
     # Leave memory and at least one CPU for Android and the foreground launcher.
-    return max(1, min(6, count-1, (available-640*1024)//(400*1024)))
+    limit = 7 if available >= 4 * 1024 * 1024 else 6
+    return max(1, min(limit, count-1, (available-640*1024)//(400*1024)))
 
 
 def objects_ready(out):
