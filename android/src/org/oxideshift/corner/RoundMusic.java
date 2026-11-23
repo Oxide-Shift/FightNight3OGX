@@ -34,6 +34,7 @@ final class RoundMusic implements AutoCloseable {
     }
     private final Listener listener;
     private boolean playing,closed;
+    private volatile boolean menuScene=true;
     private String first="",choice="",preview="";
     // File reads can announce the next song while the current song is still audible.
     synchronized void requested(String stem,boolean audition){
@@ -53,7 +54,8 @@ final class RoundMusic implements AutoCloseable {
     }
     private static boolean isExpanded(String stem){return java.util.Arrays.asList(FightBroadcast.EXPANDED).contains(stem);}
     void start(){new Thread(this::run,"fight-ea-trax").start();}
-    synchronized void transport(String stem,boolean play){
+    synchronized void transport(String stem,boolean play,boolean inMenu){
+        menuScene=inMenu;
         if(first.isEmpty() && !stem.isEmpty())first=stem;
         playing=play;
         notifyAll();
@@ -96,7 +98,7 @@ final class RoundMusic implements AutoCloseable {
                     .setSampleRate(DiscTrax.RATE).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
                     .setBufferSizeInBytes(Math.max(min,DiscTrax.RATE)).setTransferMode(AudioTrack.MODE_STREAM).build();
             try{
-                if(out.getState()!=AudioTrack.STATE_INITIALIZED || out.setVolume(.12f)!=AudioTrack.SUCCESS)
+                if(out.getState()!=AudioTrack.STATE_INITIALIZED)
                     throw new IOException("Cannot open EA Trax output");
                 listener.prepared(this);
                 if(ready(out))stream(disc,out);
@@ -116,6 +118,7 @@ final class RoundMusic implements AutoCloseable {
         long written=0,head=0,previousHead=0;
         java.util.ArrayDeque<Cue> cues=new java.util.ArrayDeque<>();
         boolean fadeIn=false;
+        SceneMix mix=new SceneMix(menuScene);
         while(ready(out)){
             if(mixed!=expanded){mixed=expanded;queue.clear();}
             if(queue.isEmpty()){
@@ -141,6 +144,7 @@ final class RoundMusic implements AutoCloseable {
                         }
                         fadeIn=false;
                     }
+                    mix.apply(pcm,frames,menuScene);
                     for(int at=0;at<frames*2;){
                         if(!ready(out))return;
                         int n=out.write(pcm,at,frames*2-at,AudioTrack.WRITE_BLOCKING);
@@ -155,6 +159,25 @@ final class RoundMusic implements AutoCloseable {
                 }
             }
             next=takeChoice();
+        }
+    }
+    /** Gains relative to decoded stereo PCM. Stock menu captures measure 0.22 at the default mix. */
+    static final class SceneMix {
+        static final float MENU=.22f,FIGHT=.15f;
+        static final int FADE_FRAMES=DiscTrax.RATE*3/4;
+        private float current,target,step;
+        private int remaining;
+        SceneMix(boolean menu){current=target=menu?MENU:FIGHT;}
+        void apply(short[] pcm,int frames,boolean menu){
+            float requested=menu?MENU:FIGHT;
+            if(target!=requested){
+                target=requested;step=(target-current)/FADE_FRAMES;remaining=FADE_FRAMES;
+            }
+            for(int i=0;i<frames*2;i+=2){
+                if(remaining>0)current=target-step*(--remaining);
+                pcm[i]=(short)Math.round(pcm[i]*current);
+                pcm[i+1]=(short)Math.round(pcm[i+1]*current);
+            }
         }
     }
     private static final class Cue {

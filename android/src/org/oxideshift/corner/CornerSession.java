@@ -146,7 +146,7 @@ public final class CornerSession {
     }
     synchronized boolean continuousMusic(){return musicPlayer!=null && bankReady && (fightMusic || musicMenu);}
     private void syncTrack(){
-        if(musicPlayer!=null)musicPlayer.transport(retailStem,bankReady && !sleeping && introMovie==0 && (fightMusic || musicMenu));
+        if(musicPlayer!=null)musicPlayer.transport(retailStem,bankReady && !sleeping && introMovie==0 && (fightMusic || musicMenu),musicMenu);
     }
     synchronized void musicOptions(boolean fight,boolean expanded){
         if(terminal || cancelled || menuDisc==null || (fightMusic==fight && expandedMusic==expanded))return;

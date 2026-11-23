@@ -72,9 +72,18 @@ final class AchievementGallery extends LinearLayout {
         tally=text(c,"",13,PAPER,f.body);tally.setShadowLayer(2,1,1,0xff130501);heading.addView(tally);
         if(music!=null){
             tally.setText("EA TRAX");
-            scroll=new ScrollView(c);addView(scroll,new LayoutParams(-1,0,1));
+            scroll=new ScrollView(c);
+            // The controller selection is drawn by each row. Android also highlights a focused ScrollView.
+            scroll.setDefaultFocusHighlightEnabled(false);
+            scroll.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+            addView(scroll,new LayoutParams(-1,0,1));
             cards=stack(c);pad(cards,wide?22:10,8);scroll.addView(cards);
-            selected=0;showMusicRows();
+            selected=0;
+            for(int i=0;i<OPTIONS.length;i++){
+                LayoutParams size=new LayoutParams(-1,-2);size.bottomMargin=dp(c,4);
+                cards.addView(new MusicRow(c,i),size);
+            }
+            showMusicRows();
             footer=controls(c);addView(footer,new LayoutParams(-1,-2));return;
         }
         LinearLayout nav=stack(c);pad(nav,wide?18:7,2);nav.setBackgroundColor(0xbb230a04);addView(nav,new LayoutParams(-1,-2));
@@ -117,23 +126,34 @@ final class AchievementGallery extends LinearLayout {
         bar.addView(new MenuPrompt(c,1,fonts.stencil,close),new LayoutParams(0,-2,1));
         return bar;
     }
-    private void showMusicRows(){
-        Context c=getContext();cards.removeAllViews();
-        for(int i=0;i<OPTIONS.length;i++){
-            final int index=i;boolean active=selected==i,enabled=music.enabled(i);
-            LinearLayout row=new LinearLayout(c);row.setGravity(Gravity.CENTER_VERTICAL);pad(row,14,10);
-            row.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                    active?new int[]{0xf576260b,0xdd431306,0xbc270b05}:new int[]{0xe32d1008,0xc3220c05,0xa61b0804}));
-            LayoutParams size=new LayoutParams(-1,-2);size.bottomMargin=dp(c,4);cards.addView(row,size);
-            LinearLayout label=stack(c);row.addView(label,new LayoutParams(0,-2,1));
-            label.addView(text(c,OPTIONS[i].toUpperCase(java.util.Locale.ROOT),wide?25:21,active?GOLD:PAPER,fonts.title));
-            label.addView(text(c,DESCRIPTIONS[i],wide?16:14,SILVER,fonts.body));
-            TextView state=text(c,enabled?"ON":"OFF",21,enabled?GOLD:SILVER,fonts.stencil);
-            pad(state,8,2);row.addView(state);
-            row.setSelected(active);row.setSoundEffectsEnabled(false);
-            row.setContentDescription(OPTIONS[i]+", "+(enabled?"on":"off"));
-            row.setOnClickListener(v->toggleMusic(index));
+    private final class MusicRow extends LinearLayout {
+        private final int index;
+        private final TextView title,state;
+        MusicRow(Context c,int index){
+            super(c);this.index=index;
+            setGravity(Gravity.CENTER_VERTICAL);pad(this,14,10);
+            setDefaultFocusHighlightEnabled(false);setSoundEffectsEnabled(false);
+            android.graphics.drawable.StateListDrawable background=new android.graphics.drawable.StateListDrawable();
+            background.addState(new int[]{android.R.attr.state_selected},new GradientDrawable(
+                    GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0xf576260b,0xdd431306,0xbc270b05}));
+            background.addState(new int[0],new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                    new int[]{0xe32d1008,0xc3220c05,0xa61b0804}));
+            setBackground(background);
+            LinearLayout label=stack(c);addView(label,new LayoutParams(0,-2,1));
+            title=text(c,OPTIONS[index].toUpperCase(java.util.Locale.ROOT),wide?25:21,PAPER,fonts.title);
+            label.addView(title);label.addView(text(c,DESCRIPTIONS[index],wide?16:14,SILVER,fonts.body));
+            state=text(c,"",21,SILVER,fonts.stencil);pad(state,8,2);addView(state);
+            setOnClickListener(v->toggleMusic(index));
         }
+        void update(){
+            boolean active=selected==index,enabled=music.enabled(index);
+            setSelected(active);title.setTextColor(active?GOLD:PAPER);
+            state.setText(enabled?"ON":"OFF");state.setTextColor(enabled?GOLD:SILVER);
+            setContentDescription(OPTIONS[index]+", "+(enabled?"on":"off"));
+        }
+    }
+    private void showMusicRows(){
+        for(int i=0;i<cards.getChildCount();i++)((MusicRow)cards.getChildAt(i)).update();
     }
     private void selectMusic(int index){
         if(selected==index)return;

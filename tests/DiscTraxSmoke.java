@@ -33,7 +33,31 @@ public final class DiscTraxSmoke {
         big.writeInt(start);big.writeInt(b.size());big.writeBytes("a.asf");big.writeByte(0);b.writeTo(big);
         return packed.toByteArray();
     }
+    private static short mix(RoundMusic.SceneMix mix,boolean menu,int frames){
+        short[] pcm=new short[2*frames];
+        for(int i=0;i<pcm.length;i+=2){pcm[i]=20000;pcm[i+1]=-20000;}
+        mix.apply(pcm,frames,menu);
+        for(int i=0;i<pcm.length;i+=2)if(Math.abs(pcm[i]+pcm[i+1])>1)
+            throw new AssertionError("Stereo balance during fade");
+        return pcm[pcm.length-2];
+    }
+    private static void sceneLevels(){
+        RoundMusic.SceneMix mix=new RoundMusic.SceneMix(true);
+        int fade=RoundMusic.SceneMix.FADE_FRAMES;
+        if(mix(mix,true,1)!=4400)throw new AssertionError("Original menu level");
+        int half=mix(mix,false,fade/2);
+        if(Math.abs(half-3700)>1 || Math.abs(mix(mix,true,1)-half)>1)
+            throw new AssertionError("Continuous reversal during loading");
+        if(mix(mix,true,fade)!=4400 || mix(mix,false,1)!=4400)
+            throw new AssertionError("Fade starts at the previous level");
+        for(int i=1;i<fade;i+=441)mix(mix,false,Math.min(441,fade-i));
+        if(mix(mix,false,1)!=3000 || mix(mix,true,fade)!=4400)
+            throw new AssertionError("Fight level and menu restoration");
+        if(mix(new RoundMusic.SceneMix(false),false,1)!=3000)
+            throw new AssertionError("Starting inside a fight");
+    }
     public static void main(String[] args)throws Exception{
+        sceneLevels();
         Path f=Files.createTempFile("round-trax-test",".big");short[] pcm=new short[64];
         try{
             Files.write(f,archive(false));
