@@ -28,7 +28,7 @@ final class TraxArt {
     static int[][] mainMenu(File game)throws IOException{
         return screenTextures(game,"mainmenu",new String[]{"1","16","26"},MENU_WIDTH,MENU_HEIGHT);
     }
-    private static int[][] screenTextures(File game,String screen,String[] ids,int[] widths,int[] heights)throws IOException{
+    static int[][] screenTextures(File game,String screen,String[] ids,int[] widths,int[] heights)throws IOException{
         byte[] xsh=textureBank(game,"overlay.viv","screengroups/"+screen+"/"+screen+".big",screen+".xsh",2*1024*1024);
         int[][] result=new int[ids.length][];
         if(xsh.length<16 || le(xsh,0)!=0x58504853)throw invalid();

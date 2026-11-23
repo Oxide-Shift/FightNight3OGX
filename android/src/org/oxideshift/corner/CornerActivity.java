@@ -505,7 +505,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         updates.refresh(menu.updates);
         if(ready)menu.loadDiscPoster(game());
         if(ready && ringside!=null)ringside.useFonts(menu.fonts());
-        if(ringside!=null){ringside.setCornerArt(menu.cornerArt());ringside.setTrainingArt(menu.trainingArt());ringside.setTraxArt(menu.traxArt());}
+        if(ringside!=null){ringside.setCornerArt(menu.cornerArt());ringside.setTrainingArt(menu.trainingArt());ringside.setCareerArt(menu.careerArt());ringside.setTraxArt(menu.traxArt());}
         if(viewingGame&&screen!=null){
             if(awake && live && achievementDisplay!=null)achievementDisplay.refresh(lowerPanel);
             data.put("output",screen.output());

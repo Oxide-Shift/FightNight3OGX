@@ -14,7 +14,7 @@ import java.io.IOException;
 final class FightMenu extends LinearLayout {
     static final int INK=0xff17120f, PAPER=0xfff5ebd5, MUTED=0xffd2bfa1;
     static final int[] HEIGHTS={480,720,1080,0,900};
-    private static final int GOLD=0xffebbd70, LINE=0xff71604a, TILE=0xff302821, RED=0xff873a2c;
+    private static final int GOLD=GameInk.GOLD, LINE=0xff71604a, TILE=0xff302821, RED=0xff873a2c;
     private final SharedPreferences prefs;
     private final Poster poster;
     private final ScrollView settingsPane;
@@ -41,6 +41,8 @@ final class FightMenu extends LinearLayout {
     private Bitmap[] mainMenuArt;
     Bitmap[] mainMenuArt(){return mainMenuArt;}
     private Bitmap[] trainingArt;
+    private CareerArt careerArt;
+    CareerArt careerArt(){return careerArt;}
     private Bitmap[] traxArt;
     Bitmap[] traxArt(){return traxArt;}
 
@@ -66,7 +68,7 @@ final class FightMenu extends LinearLayout {
         disc=button("Choose Xbox ISO",pick,true);panel.addView(disc);
 
         LinearLayout rateHeader=row();rateHeader.setGravity(Gravity.CENTER_VERTICAL);
-        TextView rateLabel=label("FRAME RATE",12,GOLD);rateLabel.setLetterSpacing(.10f);
+        TextView rateLabel=sectionLabel("FRAME RATE");
         rateHeader.addView(rateLabel,new LayoutParams(0,-2,1));
         vsync=new ToggleButton(c,null,android.R.attr.borderlessButtonStyle);
         vsync.setAllCaps(false);vsync.setTextOn("VSync  On");vsync.setTextOff("VSync  Off");
@@ -132,8 +134,12 @@ final class FightMenu extends LinearLayout {
         TextView view=new TextView(getContext());view.setText(s);view.setTextSize(size);
         view.setTextColor(color);view.setTypeface(faces.body);return view;
     }
-    private void section(String text){
+    private TextView sectionLabel(String text){
         TextView caption=label(text,12,GOLD);caption.setLetterSpacing(.10f);
+        caption.setTag("section");caption.setTypeface(faces.stencil);return caption;
+    }
+    private void section(String text){
+        TextView caption=sectionLabel(text);
         caption.setPadding(0,dp(10),0,dp(4));panel.addView(caption);
     }
     private Button disclosure(String text,LinearLayout contents){
@@ -291,7 +297,7 @@ final class FightMenu extends LinearLayout {
         }catch(IOException ignored){return null;}
     }
     private void applyFonts(View v){
-        if(v instanceof TextView)((TextView)v).setTypeface(v==play||v==heading||v==disc?faces.stencil:faces.body);
+        if(v instanceof TextView)((TextView)v).setTypeface(v==play||v==heading||v==disc||v instanceof RadioButton||"section".equals(v.getTag())?faces.stencil:faces.body);
         if(v instanceof ViewGroup){
             ViewGroup g=(ViewGroup)v;
             for(int i=0;i<g.getChildCount();i++)applyFonts(g.getChildAt(i));
@@ -309,6 +315,7 @@ final class FightMenu extends LinearLayout {
                 for(int i=0;i<photos.length;i++)photos[i]=Bitmap.createBitmap(pixels[i],TraxArt.CAMP_WIDTH[i],TraxArt.CAMP_WIDTH[i],Bitmap.Config.ARGB_8888);
             }catch(IOException ignored){}
             final Bitmap[] camp=photos;
+            CareerArt career=new CareerArt(game);
             Bitmap[] music=null;
             try{
                 int[][] pixels=TraxArt.load(game);music=new Bitmap[pixels.length];
@@ -325,7 +332,7 @@ final class FightMenu extends LinearLayout {
             final Bitmap[] importedMenu=mainSprites;
             post(()->{
                 mainMenuArt=importedMenu;
-                trainingArt=camp;traxArt=sprites;faces=fonts;cornerArt=photo;poster.setArt(title);setupArt.portrait=portrait;setupArt.invalidateSelf();applyFonts(panel);
+                careerArt=career;trainingArt=camp;traxArt=sprites;faces=fonts;cornerArt=photo;poster.setArt(title);setupArt.portrait=portrait;setupArt.invalidateSelf();applyFonts(panel);
                 for(Spinner picker:new Spinner[]{renderer,resolution,aspect,rumble})
                     ((ArrayAdapter<?>)picker.getAdapter()).notifyDataSetChanged();
             });

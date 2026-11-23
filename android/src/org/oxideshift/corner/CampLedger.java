@@ -14,17 +14,22 @@ final class CampLedger extends LinearLayout {
     private static final int PAPER=GameInk.PAPER, INK=GameInk.DARK, RED=GameInk.NAME_RED, GOLD=0xffa86b20;
     private final TextView heading, amount, caption, balance;
     private final CaseRack rack;
+    private final LinearLayout trophyPanel;
+    private final StoreTicket ticket;
+    void setArt(CareerArt art){ticket.setArt(art);}
     CampLedger(Context context,DiscFonts fonts){
         super(context);
         setOrientation(VERTICAL);
-        setPadding(dp(15),dp(6),dp(12),dp(8));
-        setBackground(new CornerInk(PAPER,RED));
+        ticket=new StoreTicket(context,fonts);addView(ticket,new LayoutParams(-1,-2));
+        trophyPanel=new LinearLayout(context);trophyPanel.setOrientation(VERTICAL);addView(trophyPanel);
+        trophyPanel.setPadding(dp(15),dp(6),dp(12),dp(8));
+        trophyPanel.setBackground(new CornerInk(PAPER,RED));
         heading=line(fonts.stencil,12,RED);
         heading.setLetterSpacing(.08f);
         amount=line(fonts.stencil,25,INK);
         rack=new CaseRack(context);
-        addView(rack,new LayoutParams(-1,dp(17)));
-        caption=line(Typeface.DEFAULT,15,INK);
+        trophyPanel.addView(rack,new LayoutParams(-1,dp(17)));
+        caption=line(fonts.body,15,INK);
         balance=line(fonts.stencil,15,RED);
         setVisibility(GONE);
     }
@@ -32,7 +37,7 @@ final class CampLedger extends LinearLayout {
     private TextView line(Typeface face,int size,int color){
         TextView v=new TextView(getContext());
         v.setTypeface(face);v.setTextSize(size);v.setTextColor(color);v.setIncludeFontPadding(false);
-        addView(v);return v;
+        trophyPanel.addView(v);return v;
     }
     private static void bind(TextView view,String value){
         if(!value.contentEquals(view.getText()))view.setText(value);
@@ -43,6 +48,8 @@ final class CampLedger extends LinearLayout {
         boolean shop=page!=null && page.is("fightstore");
         if(!trophy && !shop){setVisibility(GONE);return false;}
         setVisibility(VISIBLE);
+        trophyPanel.setVisibility(trophy?VISIBLE:GONE);
+        ticket.setVisibility(shop?VISIBLE:GONE);
         rack.setVisibility(trophy && desk.trophies()>=0?VISIBLE:GONE);
         if(trophy){
             int mask=desk.trophies(),slot=desk.selectedTrophy();
@@ -52,13 +59,7 @@ final class CampLedger extends LinearLayout {
             bind(caption,slot>=0 && mask>=0?"Trophy "+(slot+1)+"   "+((mask & (1<<slot))!=0?"Earned":"Locked"):page.note);
             bind(balance,"");
         }else{
-            CareerDesk.Budget quote=desk.storeBudget();
-            int cost=quote==null?-1:quote.cost, cash=quote==null?-1:quote.cash;
-            bind(heading,"ITEM PRICE");
-            bind(amount,cost>=0?CareerDesk.money(cost):"");
-            bind(caption,cash>=0?"Career wallet    "+CareerDesk.money(cash):cost<0?page.note:"");
-            bind(balance,cost<0 || cash<0?"":cash<cost?"Short by    "+CareerDesk.money(cost-cash):
-                    "After purchase    "+CareerDesk.money(cash-cost));
+            ticket.show(page,desk.storeBudget());
         }
         return true;
     }

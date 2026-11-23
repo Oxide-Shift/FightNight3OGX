@@ -77,14 +77,13 @@ final class AchievementGallery extends LinearLayout {
         LinearLayout bar=new LinearLayout(c);bar.setGravity(Gravity.CENTER_VERTICAL);
         pad(bar,10,2);bar.setBackgroundColor(0xff310e07);
         for(int step:new int[]{-1,1}){
-            TextView move=text(c,step<0?"LB   PREV":"RB   NEXT",16,PAPER,fonts.title);
-            move.setGravity(Gravity.CENTER);move.setSoundEffectsEnabled(false);
-            move.setContentDescription(step<0?"Previous category":"Next category");
-            move.setOnClickListener(v->showCategory((selected+tabs.length+step)%tabs.length));
-            bar.addView(move,new LayoutParams(0,dp(c,48),1));
+            MenuPrompt move=new MenuPrompt(c,step<0?PadIcon.Cap.LB:PadIcon.Cap.RB,
+                    step<0?"Prev":"Next",fonts.stencil,
+                    ()->showCategory((selected+tabs.length+step)%tabs.length));
+            move.setContentDescription(step<0?"LB, previous category":"RB, next category");
+            bar.addView(move,new LayoutParams(0,-2,1));
         }
-        MenuPrompt back=new MenuPrompt(c,1,fonts.title,close);back.setSoundEffectsEnabled(false);
-        bar.addView(back,new LayoutParams(dp(c,100),dp(c,48)));
+        bar.addView(new MenuPrompt(c,1,fonts.stencil,close),new LayoutParams(0,-2,1));
         return bar;
     }
     private void showCategory(int index){
@@ -140,10 +139,12 @@ final class AchievementGallery extends LinearLayout {
                 }
                 return true;
             case KeyEvent.KEYCODE_DPAD_UP:case KeyEvent.KEYCODE_DPAD_DOWN:
-                int direction=code==KeyEvent.KEYCODE_DPAD_DOWN?1:-1;
+                case KeyEvent.KEYCODE_PAGE_UP:case KeyEvent.KEYCODE_PAGE_DOWN:
+                boolean page=code==KeyEvent.KEYCODE_PAGE_UP || code==KeyEvent.KEYCODE_PAGE_DOWN;
+                int direction=code==KeyEvent.KEYCODE_DPAD_DOWN || code==KeyEvent.KEYCODE_PAGE_DOWN?1:-1;
                 if(event.getAction()==KeyEvent.ACTION_DOWN && scroll.canScrollVertically(direction)){
                     if(event.getRepeatCount()==0)sound.accept(DiscMenuSounds.Cue.VERTICAL);
-                    scroll.smoothScrollBy(0,direction*dp(getContext(),72));
+                    scroll.smoothScrollBy(0,direction*(page?scroll.getHeight():dp(getContext(),72)));
                 }
                 return true;
             default:return false;

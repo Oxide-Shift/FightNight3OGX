@@ -20,6 +20,8 @@ final class ContractReport extends LinearLayout {
 
     private static final int PAPER=GameInk.PAPER, INK=GameInk.DARK;
     private static final int OWN=0xff3c513b, RIVAL=GameInk.NAME_RED;
+    private final CareerBackdrop stock=new CareerBackdrop(PAPER,0xdde6d49c,0x91d7bd7d);
+    void setArt(CareerArt art){stock.setArt(art==null?null:art.contract);}
     private final Browse browse;
     private final TextView opponent, record, purse, plan, gesture;
     private final LinearLayout figures;
@@ -34,27 +36,28 @@ final class ContractReport extends LinearLayout {
         this.browse=browse;
         slop=ViewConfiguration.get(context).getScaledTouchSlop();
         setOrientation(VERTICAL);
-        setBackground(new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
-                new int[]{0xffd8c68d,PAPER,0xffb7a365}));
+        setBackground(stock);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
         LinearLayout mast=new LinearLayout(context);
         mast.setOrientation(VERTICAL);
         mast.setPadding(dp(12),dp(4),dp(12),dp(4));
-        mast.setBackground(new CornerInk(0xff30221c,0xffac422b));
+        mast.setBackground(new CornerInk(0xff3d160e,GameInk.ORANGE));
         addView(mast);
-        TextView label=type("SCOUTING REPORT",fonts.stencil,12,GameInk.ORANGE);
+        TextView label=type("SCOUTING REPORT",fonts.stencil,16,GameInk.GOLD);
         label.setLetterSpacing(.12f);
         LinearLayout top=new LinearLayout(context);
         top.setGravity(Gravity.CENTER_VERTICAL);
         mast.addView(top);
         top.addView(label,new LayoutParams(0,-2,1));
-        gesture=type("Swipe for offers\nTap for full report",fonts.stencil,12,GameInk.MUTED);
-        gesture.setGravity(Gravity.END);
+        gesture=type("Swipe for offers\nTap for full report",fonts.body,13,0xffffe2b1);
+        gesture.setGravity(Gravity.END);gesture.setPadding(dp(8),0,0,0);
         top.addView(gesture);
-        opponent=type("",fonts.stencil,27,GameInk.NAME_RED);
+        opponent=type("",fonts.title,33,GameInk.NAME_RED);
         opponent.setPadding(dp(12),dp(5),dp(12),0);addView(opponent);
         record=type("",fonts.stencil,16,INK);
-        record.setPadding(dp(12),0,dp(12),dp(2));addView(record);
+        record.setPadding(dp(12),0,dp(12),dp(4));addView(record);
+        View rule=new View(context);rule.setBackgroundColor(0xff8e713d);
+        LayoutParams ruleSize=new LayoutParams(-1,dp(1));ruleSize.setMargins(dp(12),0,dp(12),0);addView(rule,ruleSize);
         figures=new LinearLayout(context);
         figures.setOrientation(VERTICAL);
         figures.setPadding(dp(12),dp(6),dp(12),dp(6));

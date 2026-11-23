@@ -1,9 +1,7 @@
 package org.oxideshift.corner;
 
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.graphics.*;
-import android.graphics.drawable.RippleDrawable;
 import android.view.*;
 import android.widget.*;
 import java.util.function.BooleanSupplier;
@@ -22,7 +20,7 @@ final class CutmanDesk extends LinearLayout {
         addView(sweep,new LayoutParams(-1,0,1));
         LinearLayout tools=new LinearLayout(ctx);
         tools.setBaselineAligned(false);tools.setGravity(Gravity.CENTER_VERTICAL);
-        tools.setBackgroundColor(0xff35231c);
+        tools.setBackgroundColor(0xff310e07);
         addView(tools,new LayoutParams(-1,-2));
         tool(tools,"Left side","Treat the left side",CornerControls.Key.LEFT_SIDE,fonts,ready,keys);
         tool(tools,"Switch tool","Switch between cuts and swelling",CornerControls.Key.Y,fonts,ready,keys);
@@ -31,17 +29,12 @@ final class CutmanDesk extends LinearLayout {
 
     private void tool(LinearLayout row,String name,String description,CornerControls.Key key,
                       DiscFonts fonts,BooleanSupplier ready,CornerControls.Output keys){
-        Button button=new Button(getContext(),null,android.R.attr.borderlessButtonStyle);
-        button.setText(name);button.setAllCaps(true);button.setTypeface(fonts.stencil);
-        button.setTextColor(GameInk.GOLD);button.setTextSize(23);
-        button.setAutoSizeTextTypeUniformWithConfiguration(15,23,1,android.util.TypedValue.COMPLEX_UNIT_SP);
-        button.setGravity(Gravity.CENTER);button.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
-        button.setIncludeFontPadding(false);button.setMinWidth(0);button.setMinimumWidth(0);
-        button.setMaxLines(1);button.setHorizontallyScrolling(false);
-        button.setPadding(dp(4),0,dp(4),0);
-        button.setBackground(new RippleDrawable(ColorStateList.valueOf(0x66e6a24b),null,null));
+        PadIcon.Cap cap=key==CornerControls.Key.Y?PadIcon.Cap.Y:
+                key==CornerControls.Key.LEFT_SIDE?PadIcon.Cap.LEFT:PadIcon.Cap.RIGHT;
+        MenuPrompt button=new MenuPrompt(getContext(),cap,name,fonts.stencil,()->{
+            if(ready.getAsBoolean())keys.press(key);
+        });
         button.setContentDescription(description);
-        button.setOnClickListener(v->{if(ready.getAsBoolean())keys.press(key);});
         row.addView(button,new LayoutParams(0,dp(58),1));
     }
 

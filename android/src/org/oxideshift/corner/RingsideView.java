@@ -52,6 +52,20 @@ final class RingsideView extends LinearLayout {
     private ContractReport contract;
     private TrainingSheet training;
     private Bitmap[] trainingArt;
+    private CareerArt careerArt;
+    private final CareerBackdrop gymWall=new CareerBackdrop(INK,0xeb211008,0xa92d130a);
+    private final CareerBackdrop shopWall=new CareerBackdrop(INK,0xdf1e1009,0x8034190a);
+    private final CareerBackdrop contractWall=new CareerBackdrop(INK,0xe022120b,0xb33b1f0e);
+    void setCareerArt(CareerArt art){
+        if(careerArt==art)return;
+        careerArt=art;
+        gymWall.setArt(art==null?null:art.training);
+        shopWall.setArt(art==null?null:art.store);
+        contractWall.setArt(art==null?null:art.contract);
+        if(training!=null)training.setBackdrop(art);
+        if(contract!=null)contract.setArt(art);
+        if(ledger!=null)ledger.setArt(art);
+    }
     void setTrainingArt(Bitmap[] art){
         if(trainingArt==art)return;
         trainingArt=art;if(training!=null)training.setArt(art);
@@ -59,7 +73,7 @@ final class RingsideView extends LinearLayout {
     private TrainingSheet trainingSheet(){
         TrainingSheet sheet=new TrainingSheet(getContext(),usedFonts==null?DiscFonts.FALLBACK:usedFonts,
                 getWidth()<=dp(360) || getHeight()<=dp(320));
-        sheet.setArt(trainingArt);return sheet;
+        sheet.setArt(trainingArt);sheet.setBackdrop(careerArt);return sheet;
     }
     private CampLedger ledger;
     private boolean careerGuide;
@@ -175,6 +189,7 @@ final class RingsideView extends LinearLayout {
         careerActions.setPadding(dp(6),0,dp(6),0);
         addView(careerActions,new LayoutParams(-1,-2));
         menuDock=new LinearLayout(ctx);menuDock.setOrientation(VERTICAL);
+        menuDock.setBackgroundColor(0xff310e07);
         menuDock.setPadding(dp(8),0,dp(8),dp(3));addView(menuDock,new LayoutParams(-1,-2));
         build();
     }
@@ -348,7 +363,7 @@ final class RingsideView extends LinearLayout {
         usedFonts=fonts;
         headline=fonts.stencil;
         openingSlate.stencil(headline);launchHint.setTypeface(headline);
-        makeFighters();songTitle.setTypeface(headline);songArtist.setTypeface(headline);build();hero.invalidate();
+        makeFighters();songTitle.setTypeface(headline);songArtist.setTypeface(fonts.body);build();hero.invalidate();
     }
     void setCornerArt(Bitmap photo){
         if(cornerArt!=photo){cornerArt=photo;invalidate();}
@@ -392,7 +407,7 @@ final class RingsideView extends LinearLayout {
         launchHint.setVisibility(showingHome?VISIBLE:GONE);
         hero.setVisibility(showingHome?GONE:VISIBLE);
         rule.setVisibility(showingHome?GONE:VISIBLE);
-        desk.setVisibility(showingHome?GONE:VISIBLE);
+        desk.setVisibility(showingHome?GONE:VISIBLE);desk.setBackground(null);
         boolean intro=!showingHome && scene==Scene.INTRO;
         openingSlate.setVisibility(intro?VISIBLE:GONE);
         if(intro){
@@ -406,6 +421,7 @@ final class RingsideView extends LinearLayout {
         }else if(scene==Scene.LOADING || scene==Scene.TRAINING){
             careerPage=session==null?null:session.career.page;
             if(careerPage!=null && careerPage.is("drill")){
+                desk.setBackground(gymWall);
                 hero.career=true;compactCareer=true;hero.title=careerPage.title;
                 hero.setVisibility(GONE);rule.setVisibility(GONE);
                 training=trainingSheet();
@@ -462,6 +478,7 @@ final class RingsideView extends LinearLayout {
                 content.addView(scouting,sheet);
                 contract=new ContractReport(getContext(),usedFonts==null?DiscFonts.FALLBACK:usedFonts,
                         forward->browseOffer(forward));
+                contract.setArt(careerArt);
                 contract.setOnClickListener(v->{
                     if(activeOfferFrame()!=null){pad.press(Key.X);}
                 });
@@ -469,9 +486,11 @@ final class RingsideView extends LinearLayout {
                 training=trainingSheet();
                 content.addView(training,new LayoutParams(-1,-2));
                 ledger=new CampLedger(getContext(),usedFonts==null?DiscFonts.FALLBACK:usedFonts);
+                ledger.setArt(careerArt);
                 content.addView(ledger,new LayoutParams(-1,-2));
                 careerGuide=false;
                 menuHint=type("",18,GameInk.MUTED);
+                menuHint.setTypeface(usedFonts==null?DiscFonts.FALLBACK.body:usedFonts.body);
                 menuHint.setMaxWidth(dp(570));menuHint.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
                 menuHint.setLineSpacing(dp(2),1f);menuHint.setPadding(dp(10),dp(8),dp(10),dp(8));
                 content.addView(menuHint,new LayoutParams(-1,-2));
@@ -524,13 +543,16 @@ final class RingsideView extends LinearLayout {
         displayedCamp=camp;
         if(contract!=null)contract.show(page,offers?desk.selectedOffer():null);
         boolean atTraining=TrainingSheet.handles(page);
+        boolean shop=page!=null && page.is("fightstore");
+        Drawable wall=shop?shopWall:offers?contractWall:atTraining?gymWall:null;
+        if(this.desk.getBackground()!=wall)this.desk.setBackground(wall);
         if(training!=null)training.show(desk,page);
         boolean atLedger=ledger!=null && ledger.show(desk,page);
         menuHint.setVisibility(offers || atTraining || (atLedger && !careerDetails)?GONE:VISIBLE);
-        hero.setVisibility(offers || atTraining?GONE:VISIBLE);rule.setVisibility(offers || atTraining?GONE:VISIBLE);
+        hero.setVisibility(offers || atTraining || shop?GONE:VISIBLE);rule.setVisibility(hero.getVisibility());
         if(scouting!=null){
             scouting.show(central || (deeper && !dedicated)?camp:null);
-            menuDock.setVisibility(!atTraining && scene==Scene.MENU && footerMask!=0?VISIBLE:GONE);
+            menuDock.setVisibility(scene==Scene.MENU && footerMask!=0?VISIBLE:GONE);
         }
         boolean guide=dedicated || (central && camp==null) || setup || (currentPage!=null && "Career Mode".equals(currentPage.title));
         if(guide!=careerGuide || dedicated!=compactCareer){
@@ -587,12 +609,11 @@ final class RingsideView extends LinearLayout {
     private void buildCareerActions(CareerDesk.Page page,boolean central){
         careerActions.removeAllViews();
         boolean visible=page!=null && !central && !page.is("mcon") && !page.is("drill") &&
-                !page.is("train") && !page.is("trophycase");
+                !page.is("train") && !page.is("trophycase") && !page.is("fightstore");
         careerActions.setVisibility(visible?VISIBLE:GONE);
         if(!visible)return;
         LinearLayout line=new LinearLayout(getContext());careerActions.addView(line,new LayoutParams(-1,-2));
-        String detail=page.is("fightstore")?"Buying notes":"Corner notes";
-        careerAction(line,careerDetails?"Overview":detail,()->{
+        careerAction(line,careerDetails?"Overview":"Corner notes",()->{
             if(session==null || session.career.page!=page)return;
             careerDetails=!careerDetails;buildCareerActions(page,false);describeMenu();
         });
@@ -768,7 +789,6 @@ final class RingsideView extends LinearLayout {
         screen.timing.observe(next,session==null?0:session.boutNumber(),card==null?0:card.round,
                 card!=null && card.round>0 && card.last()==card.round,layout==Scene.FINAL);
         int route=scene==next?cues.route(next):BroadcastCues.NONE;
-        if(route==BroadcastCues.FOOTER && session!=null && TrainingSheet.handles(session.career.page))route=BroadcastCues.NONE;
         if(route==BroadcastCues.FOOTER)route=(footerMask&mask)==0?BroadcastCues.NONE:route|((footerMask&mask)<<8);
         if(route==BroadcastCues.TRACK || route==BroadcastCues.CUTMAN || route==BroadcastCues.MANUAL)route=BroadcastCues.NONE;
         if((route&255)==BroadcastCues.FOOTER && contract!=null && contract.getVisibility()==VISIBLE &&

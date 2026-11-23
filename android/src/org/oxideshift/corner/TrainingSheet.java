@@ -18,6 +18,8 @@ final class TrainingSheet extends LinearLayout {
     private final TextView[] values=new TextView[8];
     private final Meter[] meters=new Meter[8];
     private final ImageView portrait;
+    private final CareerBackdrop mastArt=new CareerBackdrop(0xff722311,0xe9340c04,0x28592a10);
+    void setBackdrop(CareerArt art){mastArt.setArt(art==null?null:art.training);}
     private Bitmap[] photos;
     private int photoIndex;
     void setArt(Bitmap[] art){
@@ -29,18 +31,20 @@ final class TrainingSheet extends LinearLayout {
     TrainingSheet(Context context,DiscFonts fonts,boolean compact){
         super(context);setOrientation(VERTICAL);
         setBackground(new GradientDrawable(GradientDrawable.Orientation.TL_BR,
-                new int[]{0xff5a2013,0xff32170f,0xff191311}));
-        FrameLayout header=new FrameLayout(context);addView(header,new LayoutParams(-1,-2));
+                new int[]{0xff4c190d,0xff281109,0xff160b07}));
+        FrameLayout header=new FrameLayout(context);header.setBackground(mastArt);
+        addView(header,new LayoutParams(-1,-2));
         portrait=new ImageView(context);portrait.setScaleType(ImageView.ScaleType.CENTER_CROP);
         portrait.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
-        header.addView(portrait,new FrameLayout.LayoutParams(dp(compact?78:116),dp(compact?54:74),Gravity.RIGHT|Gravity.CENTER_VERTICAL));
+        header.addView(portrait,new FrameLayout.LayoutParams(dp(compact?100:142),dp(compact?56:76),Gravity.RIGHT|Gravity.CENTER_VERTICAL));
         LinearLayout mast=new LinearLayout(context);mast.setOrientation(VERTICAL);
         mast.setBackground(new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{0xff49190e,0xfc49190e,0x0049190e}));
-        mast.setPadding(dp(12),dp(6),dp(compact?64:96),dp(6));header.addView(mast);
-        stage=label(fonts.body,compact?11:13,GameInk.GOLD);stage.setLetterSpacing(.09f);mast.addView(stage);
-        title=label(fonts.stencil,compact?24:30,GameInk.TEXT);mast.addView(title);
-        View keyline=new View(context);keyline.setBackgroundColor(0xffa64924);addView(keyline,new LayoutParams(-1,dp(2)));
+                new int[]{0x38301007,0x85301007,0x00301007}));
+        mast.setMinimumHeight(dp(compact?56:76));mast.setGravity(Gravity.CENTER_VERTICAL);
+        mast.setPadding(dp(12),dp(6),dp(compact?96:136),dp(6));header.addView(mast);
+        stage=label(fonts.stencil,compact?13:15,GameInk.GOLD);stage.setLetterSpacing(.09f);mast.addView(stage);
+        title=label(fonts.title,compact?25:33,0xffffe2a8);title.setShadowLayer(dp(2),1,2,0xff210a04);mast.addView(title);
+        View keyline=new View(context);keyline.setBackgroundColor(GameInk.ORANGE);addView(keyline,new LayoutParams(-1,dp(2)));
         LinearLayout body=new LinearLayout(context);body.setOrientation(VERTICAL);
         body.setPadding(dp(12),dp(5),dp(12),dp(7));addView(body);
         cue=label(fonts.body,compact?13:16,GameInk.TEXT);body.addView(cue);
@@ -54,7 +58,7 @@ final class TrainingSheet extends LinearLayout {
             for(int col=0;col<2;col++){
                 int k=i+4*col;
                 LinearLayout cell=new LinearLayout(context);cell.setOrientation(VERTICAL);
-                cell.setPadding(dp(6),dp(compact?1:3),dp(6),dp(compact?2:5));cell.setBackgroundColor(i%2==0?0xff332019:0xff281b16);
+                cell.setPadding(dp(6),dp(compact?1:3),dp(6),dp(compact?2:5));cell.setBackgroundColor(i%2==0?0xff431a0d:0xff30130b);
                 LayoutParams slot=new LayoutParams(0,-2,1);slot.setMargins(0,0,dp(col==0?3:0),dp(1));row.addView(cell,slot);
                 LinearLayout labels=new LinearLayout(context);labels.setGravity(Gravity.CENTER_VERTICAL);cell.addView(labels);
                 TextView name=label(fonts.body,compact?13:16,GameInk.MUTED);name.setText(STATS[k]);

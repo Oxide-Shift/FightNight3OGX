@@ -25,6 +25,7 @@ final class AchievementDisplay {
     private final int chime;
     private final int[] menuSounds=new int[DiscMenuSounds.Cue.values().length];
     private boolean released;
+    private int navigationStream;
     private final android.util.SparseBooleanArray loaded=new android.util.SparseBooleanArray();
     private final java.util.function.Supplier<android.graphics.Bitmap[]> artwork;
     private boolean soundReady,soundLoading;
@@ -67,8 +68,11 @@ final class AchievementDisplay {
     }
     private synchronized void play(DiscMenuSounds.Cue cue){
         int id=menuSounds[cue.ordinal()];
-        float volume=(cue==DiscMenuSounds.Cue.HORIZONTAL || cue==DiscMenuSounds.Cue.VERTICAL)?.22f:.45f;
-        if(!released && loaded.get(id))sounds.play(id,volume,volume,1,0,1f);
+        if(released || !loaded.get(id))return;
+        if(navigationStream!=0){sounds.stop(navigationStream);navigationStream=0;}
+        if(cue==DiscMenuSounds.Cue.HORIZONTAL || cue==DiscMenuSounds.Cue.VERTICAL){
+            navigationStream=sounds.play(id,.16f,.16f,1,0,1f);
+        }else sounds.play(id,.45f,.45f,1,0,1f);
     }
     private void open(){
         if(gallery!=null)return;

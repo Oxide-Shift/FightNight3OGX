@@ -8,7 +8,7 @@ import java.security.*;
 /** PCM excerpts of the front-end events, decoded only from the supported imported disc. */
 final class DiscMenuSounds {
     enum Cue {
-        FORWARD(2), BACK(3), HORIZONTAL(21), VERTICAL(22);
+        FORWARD(2), BACK(3), HORIZONTAL(18), VERTICAL(14);
         final int bankIndex;
         Cue(int bankIndex){this.bankIndex=bankIndex;}
     }
