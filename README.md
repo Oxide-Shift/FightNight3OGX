@@ -10,23 +10,39 @@ Play the original Xbox edition of *Fight Night Round 3* on Android. On an AYN Th
 
 ## What do you get over emulation?
 
-**A second screen that earns its place.** Glance down during a round to compare punches landed and thrown, check stamina and follow the clock. When the bell rings, choose **Manual**, select a treatment and swipe over the injury on the lower touchscreen. The top screen stays on your boxer while you work.
+### Fight the round, then work the corner
+
+Gatti and Ward are trading in the screenshot above. The punch totals below tell you whether all that pressure is paying off. You can check both fighters’ stamina and the round clock without pausing the bout.
+
+At the bell, pick **Manual** to take the cutman’s stool. Choose the injured side and a treatment on the lower screen, then sweep across the pad. Watch the swelling on your boxer’s face up top while the seconds tick down.
 
 <p align="center"><img src="https://github.com/user-attachments/assets/6eede393-5f04-48f6-b687-21863533cab5" width="565" alt="A cutman works on the boxer's face while a large swipe pad, treatment controls and the remaining time occupy the lower display."></p>
 
-**More information before you sign a fight.** In Career Central, tap a matchup to compare purses, records, power, speed and stamina. At the heavy bag, see which attributes the drill can improve and compare the estimate with what you actually gained. In the Fight Store, try the gloves on up top and check how much cash you’ll have left for a trainer below.
+### Build a career between bouts
+
+Before you sign a contract, compare the purse and your opponent’s record, then check the scouting report for an advantage in power, speed or stamina. The Fight Store uses the same two-screen setup. Try on the gloves up top and see what the purchase would leave in your wallet below.
 
 <p align="center"><img src="docs/screenshots/career-desks.jpg" width="820" alt="Two lower-screen career views. A scouting sheet compares power, speed and stamina against Micky Ward. The Fight Store shows how a $1,200 purchase changes a $3,450 wallet."></p>
 
-*Two lower-screen career views with sample data. The scouting report sizes up Micky Ward. The Fight Store shows what a $1,200 purchase leaves in a $3,450 wallet.*
+*Two example career screens. On the left, the scouting report sizes up Micky Ward. On the right, a $1,200 purchase would leave $2,250 for the rest of camp.*
+
+At the heavy bag, the upper screen shows the drill while the training sheet below lists the projected changes across eight attributes. After the session, check what your boxer actually gained.
 
 <p align="center"><img src="https://github.com/user-attachments/assets/8f05b173-4967-4bf2-8672-9a1fee44b1f7" width="565" alt="A boxer lines up at the heavy bag while the training sheet below shows potential changes to eight attributes."></p>
 
-**Something to chase after the belt.** Open **Achievements** in the Xbox main menu. Get off the canvas and win for *Back from the canvas*, land at least 75% of 40 or more punches for *Thread the needle*, or take a career boxer to 10–0 for *Unblemished*. There are **100 illustrated awards** worth **6,155 Fight Score**, including eight classic Xbox 360 career awards with their original point values. When a badge pops, the ribbon shows its score and the feat that earned it. Your unlocks travel with your career backup.
+### Chase all 100 achievements
+
+Open **Achievements** in the Xbox main menu. Get off the canvas and win for *Back from the canvas*, land at least 75% of 40 or more punches for *Thread the needle*, or take a career boxer to 10–0 for *Unblemished*. There are **100 illustrated awards** worth **6,155 Fight Score**, including eight classic Xbox 360 career awards with their original point values. When a badge pops, the ribbon shows its score and the feat that earned it. Your unlocks travel with your career backup.
 
 <p align="center"><img src="docs/screenshots/achievements.jpg" width="820" alt="The Finishes shelf shows earned and locked achievements against the red Fight Night menu. Illustrated LB, RB and B prompts below switch shelves or return to the game."></p>
 
-**A soundtrack you can take into the ring.** Open **Music** in the main menu to carry EA Trax into fights. The song stays at entrance volume through the walkouts and drops to 12% when the opening round clock starts. Turn on **FN3 Expanded Music** to add seven tracks by FN3OGX, including *Blood + Sweat* and *The Contender*.
+<p align="center"><img src="docs/screenshots/achievement-unlock.png" width="465" alt="Second wind unlock ribbon. Earn 75 Fight Score by hitting the canvas twice and still winning the fight."></p>
+
+*Second wind is worth 75 points. You can get dropped twice and still leave the ring with something to show for it.*
+
+### Take EA Trax into the ring
+
+Open **Music** in the main menu to carry EA Trax into fights. The song stays at entrance volume through the walkouts and drops to 12% when the opening round clock starts. Turn on **FN3 Expanded Music** to add seven tracks by FN3OGX, including *Blood + Sweat* and *The Contender*.
 
 ## Picture and performance
 
