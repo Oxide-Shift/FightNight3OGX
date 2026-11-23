@@ -12,7 +12,9 @@
 
 Get off the canvas and come back to win for **Back from the canvas**. Land 75% of at least 40 punches for **Thread the needle**. Take a career boxer to 10–0 and **Unblemished** is yours.
 
-The **Achievements** entry sits right in the game’s main menu. Its seven shelves hold **52 original challenges** and **eight classic Xbox 360 career awards** worth **1,000 G** in your local cabinet. A boxing bell marks an unlock. Flip shelves with LB and RB or use the lower touchscreen. Your awards travel with your career backup.
+The **Achievements** entry sits right in the game’s main menu. Its seven shelves hold **52 original challenges** and **eight classic Xbox 360 career awards** worth **1,000 G** in your local cabinet. Every award has its own illustrated boxing badge. A bell rings as your badge and achievement title slide into view. Flip shelves with LB and RB or use the lower touchscreen. Your awards travel with your career backup.
+
+<p align="center"><img src="docs/screenshots/achievement-unlock.png" width="360" alt="A boxer rises from the canvas on the Back from the canvas achievement badge."></p>
 
 <p align="center"><img src="docs/screenshots/achievements.jpg" width="820" alt="The Finishes shelf shows earned and locked achievements against the red Fight Night menu. Illustrated LB, RB and B prompts below switch shelves or return to the game."></p>
 
@@ -42,7 +44,7 @@ On the **AYN Thor**, the tested dual-screen handheld, the upper display stays wi
 
 Select **Vulkan, 1080p, High and a 60 FPS target** for the sharpest Thor preset. High adds sharpening and 4× texture filtering. **VSync** starts on. You can toggle it, enable 2× MSAA or choose a 30 or 45 FPS target. Actual frame rate depends on the device and the action in the ring.
 
-The launcher’s two original Ring Focus tracks crossfade quietly. Turn on **EA Trax during fights** in **Save & sound** to hear the 12 original Xbox soundtrack songs shuffled under live rounds at 12% volume. The songs stream from your imported disc and resume across rounds. On Thor, six controller-loading screens also show the handheld alongside the game’s original prompts.
+The launcher’s two original Ring Focus tracks crossfade quietly. Turn on **EA Trax during fights** in **Save & sound** to carry the menu song through loading, walkouts, rounds and the corner at 12% volume. When a song ends, the next one rolls in from your imported disc and the Trax strip names it on the lower screen. On Thor, six controller-loading screens also show the handheld alongside the game’s original prompts.
 
 ## Get in the ring
 
@@ -57,7 +59,7 @@ A full fresh install on a Thor Pro took **1 minute 39 seconds** on Alpha 46. Fig
 
 ### Keep your career
 
-Each Xbox profile gets a folder with its in-game name. Save as **Matt** and you'll find timestamped ZIPs under **Matt/**. Switch profiles and that player's saves go into their own folder. Each verified ZIP is a complete restore point for that profile, including shared game settings and cabinet awards. Check the last completed backup or change its destination under **Save & sound**. If you skip choosing a folder, backups go to **Downloads/Fight Night Round 3**.
+Each Xbox profile gets a folder with its in-game name. For example, a profile named **User** gets timestamped backups in **User/**. Switch profiles and that player's saves go into their own folder. Each verified ZIP is a complete restore point for that profile, including shared game settings and cabinet awards. Check the last completed backup or change its destination under **Save & sound**. If you skip choosing a folder, backups go to **Downloads/Fight Night Round 3**.
 
 After a reinstall, choose the same backup folder. Fight Setup selects the newest usable career across its profile folders and older loose ZIPs. To play another profile or roll back, open **Import Xbox save** and choose a different backup. Fight Setup can also import a hakuX career.
 

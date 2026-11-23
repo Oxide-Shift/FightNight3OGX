@@ -25,7 +25,7 @@
      g_eax = (uint32_t)xbox_NtReadFile(handle, NULL, NULL, NULL, &ios,
                  XBOX_TO_NATIVE(buffer_va), length, poff);
  
-+    if (g_eax == 0) fight_music_read(STACK_ARG(0), poff ? (uint64_t)off.QuadPart : UINT64_MAX, (uint32_t)ios.Information);
++    if (g_eax == 0) fight_music_read(STACK_ARG(0), poff ? (uint64_t)off.QuadPart : UINT64_MAX, (uint32_t)ios.Information, XBOX_TO_NATIVE(buffer_va));
 +
      /* What a read actually delivered. A decoder that rejects its input cannot
       * say whether the bytes were wrong or the read was, and the two look

@@ -23,6 +23,7 @@ public final class CornerSession {
     synchronized void setSleeping(boolean value){
         if(sleeping==value || terminal || cancelled)return;
         sleeping=value;
+        syncTrack();
         commands.offer(value?"SLEEP":"WAKE");
         if(!value){received=System.nanoTime();flushPad();}
         updateHeartbeat();
@@ -127,6 +128,49 @@ public final class CornerSession {
     synchronized boolean openingSlate(){return starting || introMovie!=0;}
     synchronized void reachedMenu(){starting=false;introMovie=0;if(!inLiveBout())lastEvent="MENU";}
     private long lastSongEvent;
+    private RoundMusic musicPlayer;
+    private boolean musicOption,bankReady;
+    private String retailStem="";
+    private Runnable songObserver;
+    private java.util.function.Consumer<String> menuSelection;
+    synchronized void onMenuSelection(java.util.function.Consumer<String> observe){menuSelection=observe;}
+    synchronized void previewTrack(String stem){
+        if(continuousMusic() && stem.equals(retailStem))musicPlayer.requested(stem,true);
+    }
+    synchronized void onSong(Runnable observer){songObserver=observer;}
+    private void publishSong(FightBroadcast.Song value){
+        song=value;
+        if(songObserver!=null)songObserver.run();
+    }
+    synchronized boolean continuousMusic(){return musicPlayer!=null && bankReady;}
+    private void syncTrack(){
+        if(musicPlayer!=null)musicPlayer.transport(retailStem,bankReady && !sleeping && introMovie==0);
+    }
+    synchronized void musicOption(boolean enabled){
+        if(musicOption==enabled || terminal || cancelled || menuDisc==null)return;
+        musicOption=enabled;bankReady=false;
+        if(!enabled){
+            if(musicPlayer!=null)musicPlayer.close();
+            musicPlayer=null;commands.offer("TRAXVOICE 0");publishSong(null);return;
+        }
+        musicPlayer=new RoundMusic(menuDisc,new RoundMusic.Listener(){
+            public void prepared(RoundMusic player){
+                synchronized(CornerSession.this){if(player==musicPlayer)commands.offer("TRAXVOICE 1");}
+            }
+            public void audible(RoundMusic player,String stem){
+                synchronized(CornerSession.this){
+                    FightBroadcast.Song track=FightBroadcast.song(stem);
+                    if(player==musicPlayer && bankReady && track!=null)publishSong(track.at(uptime.getAsLong()));
+                }
+            }
+            public void failed(RoundMusic player){
+                synchronized(CornerSession.this){
+                    if(player==musicPlayer){musicPlayer=null;bankReady=false;commands.offer("TRAXVOICE 0");publishSong(null);}
+                }
+            }
+        });
+        musicPlayer.start();
+    }
     synchronized int introMovie(){return introMovie;}
     private int trax;
     synchronized void setTrax(boolean ready){
@@ -235,7 +279,7 @@ public final class CornerSession {
             faultPc=line.substring(13);return;
         }
         if(line.equals("FNR3/1 INTRO 1") || line.equals("FNR3/1 INTRO 2") || line.equals("FNR3/1 INTRO 0")){
-            introMovie=line.charAt(line.length()-1)-'0';starting=false;return;
+            introMovie=line.charAt(line.length()-1)-'0';starting=false;syncTrack();return;
         }
         if(line.equals("FNR3/1 ASLEEP") || line.equals("FNR3/1 AWAKE")){
             if(timingLog!=null)timingLog.accept(line.substring(7));
@@ -382,12 +426,33 @@ public final class CornerSession {
             }
             return;
         }
+        if(line.equals("FNR3/1 MUSICBANK 1") || line.equals("FNR3/1 MUSICBANK 0")){
+            if(musicPlayer!=null){
+                bankReady=line.endsWith("1");
+                if(!bankReady){musicPlayer.close();musicPlayer=null;commands.offer("TRAXVOICE 0");}
+                syncTrack();
+            }
+            return;
+        }
+        if(line.startsWith("FNR3/1 SONG ")){
+            String stem=line.substring("FNR3/1 SONG ".length());
+            if(FightBroadcast.song(stem)!=null){
+                boolean changed=!retailStem.isEmpty() && !retailStem.equals(stem);
+                retailStem=stem;syncTrack();
+                if(changed && musicPlayer!=null){
+                    musicPlayer.requested(stem,false);
+                    if(menuSelection!=null)menuSelection.accept(stem);
+                }
+            }
+            return;
+        }
         if(line.startsWith("FNR3/1 TRAX ")){
+            if(continuousMusic())return;
             long now=uptime.getAsLong();
             FightBroadcast.Song update=FightBroadcast.Song.parse(line.substring(12),now);
             if(update!=null){
                 if(song==null || !song.title.equals(update.title) || !song.artist.equals(update.artist) ||
-                        now-lastSongEvent>=30000)song=update;
+                        now-lastSongEvent>=30000)publishSong(update);
                 lastSongEvent=now;
             }
             return;
@@ -508,6 +573,8 @@ public final class CornerSession {
             synchronized (this) {
                 if(clock!=null){clock.shutdownNow();clock=null;}
                 if(motors!=null)motors.changed(0,0,0);
+                if(musicPlayer!=null){musicPlayer.close();musicPlayer=null;}
+                bankReady=false;songObserver=null;menuSelection=null;
                 terminal = true; phase = cancelled ? "Stopped by user" : "Host stopped";
                 if (process != null && process.isAlive()) process.destroyForcibly();
                 if (reason == null || reason.isEmpty()) reason = cancelled ? "Session ended" :

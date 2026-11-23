@@ -159,6 +159,7 @@ final class FightBroadcast {
         final String title,artist;
         final long started;
         private Song(String title,String artist,long started){this.title=title;this.artist=artist;this.started=started;}
+        Song at(long now){return new Song(title,artist,now);}
         static Song parse(String payload){return parse(payload,0);}
         static Song parse(String payload,long now){
             int split=payload.indexOf(' ');

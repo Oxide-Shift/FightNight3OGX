@@ -126,7 +126,7 @@ final class AchievementGallery extends LinearLayout {
                     earned?new int[]{0xef5b210a,0xcf361005,0xae260c05}:new int[]{0xde250c06,0xc3230b05,0x97200a05}));
             LayoutParams slot=new LayoutParams(0,-1,1);slot.setMargins(dp(c,2),dp(c,2),dp(c,2),dp(c,2));
             line.addView(row,slot);
-            row.addView(new Medal(c,earned,a.category),new LayoutParams(dp(c,34),dp(c,40)));
+            row.addView(new Medal(c,earned,a),new LayoutParams(dp(c,34),dp(c,40)));
             LinearLayout copy=stack(c);copy.setPadding(dp(c,8),0,0,0);row.addView(copy,new LayoutParams(0,-2,1));
             TextView name=text(c,a.title.toUpperCase(java.util.Locale.ROOT),19,earned?GOLD:0xffffe8c1,fonts.title);
             name.setShadowLayer(1,0,1,0xff24160c);copy.addView(name);
@@ -196,37 +196,47 @@ final class AchievementGallery extends LinearLayout {
     static View ribbon(Context c,DiscFonts f,Achievements.Award a){
         LinearLayout banner=new LinearLayout(c);banner.setGravity(Gravity.CENTER_VERTICAL);
         banner.setBackground(plate(0xfb29221e,0xffbb8a4e));pad(banner,12,7);
-        banner.addView(new Medal(c,true,a.category),new LayoutParams(dp(c,37),dp(c,40)));
+        banner.addView(new Medal(c,true,a),new LayoutParams(dp(c,48),dp(c,48)));
         LinearLayout words=stack(c);words.setPadding(dp(c,9),0,0,0);banner.addView(words);
         TextView kicker=text(c,a.points>0?"ACHIEVEMENT UNLOCKED   "+a.points+" G":"ACHIEVEMENT UNLOCKED",12,GOLD,f.body);kicker.setLetterSpacing(.08f);words.addView(kicker);
         words.addView(text(c,a.title,22,PAPER,f.stencil));
         banner.setContentDescription("Achievement unlocked. "+a.title);return banner;
     }
     private static final class Medal extends View {
-        private final boolean earned;private final Achievements.Category group;
-        private final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);private final Path shape=new Path();
-        Medal(Context c,boolean earned,Achievements.Category group){super(c);this.earned=earned;this.group=group;}
-        private void polygon(Canvas c,float... pts){
-            shape.reset();shape.moveTo(pts[0],pts[1]);for(int i=2;i<pts.length;i+=2)shape.lineTo(pts[i],pts[i+1]);
-            shape.close();c.drawPath(shape,p);
+        private static final String[] CELLS={
+            "BURGER_KING","DODGE","EVERLAST","UNDER_ARMOUR","ESPN_WNF","ESPN_FNF","ESPN_PPV","EA_SPORTS",
+            "FIRST_WIN","STOPPAGE","DEEP_WATER","FIRST_ROUND_KO","LATE_STOPPAGE","CLEAN_KO","TECHNICAL_KO","COMEBACK",
+            "TRADED_DOWNS","LATE_WIN","LAND_25","LAND_150","HAYMAKERS","ACCURATE","SHARPSHOOTER","OUTLAND",
+            "ELUSIVE","STAGGER","TWO_DOWNS","UNANIMOUS_ROUND","SPLIT_ROUND","BIG_ROUND","WIDE_ROUND","THREE_STRAIGHT",
+            "SIX_ROUNDS","ANSWER_BACK","EIGHT_SCORED","CONSENSUS","TURN_CARDS","FIRST_DRILL","BREAKTHROUGH","BAG_DRILL",
+            "DUMMY_DRILL","WEIGHT_DRILL","POWER_GAIN","SPEED_GAIN","STAMINA_GAIN","THREE_GAINS","STRONG_SESSION","FIVE_WINS",
+            "TEN_WINS","TWENTY_FIVE_WINS","TEN_KOS","TWENTY_FIVE_KOS","UNBEATEN","KO_RATIO","VETERAN","STEP_UP",
+            "FIRST_TROPHY","FOUR_TROPHIES","HALF_CASE","FULL_CASE"
+        };
+        private static Bitmap atlas;
+        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
+        private final Rect src=new Rect();
+        private final RectF dest=new RectF();
+        Medal(Context c,boolean earned,Achievements.Award award){
+            super(c);
+            if(atlas==null)try(java.io.InputStream in=c.getAssets().open("achievement-badges.webp")){
+                atlas=android.graphics.BitmapFactory.decodeStream(in);
+            }catch(java.io.IOException e){android.util.Log.w("FightNight","Achievement artwork unavailable",e);}
+            int cell=java.util.Arrays.asList(CELLS).indexOf(award.name());
+            if(cell>=0)src.set(cell%8*128,cell/8*128,(cell%8+1)*128,(cell/8+1)*128);
+            if(!earned){
+                android.graphics.ColorMatrix gray=new android.graphics.ColorMatrix();
+                gray.setSaturation(.10f);
+                paint.setColorFilter(new android.graphics.ColorMatrixColorFilter(gray));paint.setAlpha(165);
+            }
+            setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+        }
+        @Override protected void onSizeChanged(int w,int h,int oldW,int oldH){
+            float radius=Math.min(w,h)/2f;
+            dest.set(w/2f-radius,h/2f-radius,w/2f+radius,h/2f+radius);
         }
         @Override protected void onDraw(Canvas c){
-            c.save();float s=Math.min(getWidth()/38f,getHeight()/44f);c.translate((getWidth()-38*s)/2,(getHeight()-44*s)/2);c.scale(s,s);
-            int edge=earned?GOLD:0xff8f8a82;
-            p.setColor(earned?RED:0xff595550);polygon(c,9,23,20,27,15,43,11,38,6,39);polygon(c,18,27,29,23,32,39,27,38,23,43);
-            p.setColor(edge);polygon(c,11,2,25,2,35,11,35,23,25,32,11,32,2,23,2,11);
-            p.setColor(earned?0xff644822:0xff343230);c.drawCircle(18.5f,17,12,p);p.setColor(edge);
-            if(!earned){
-                p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(1.8f);c.drawRoundRect(15,11,22,20,4,4,p);p.setStyle(Paint.Style.FILL);
-                c.drawRoundRect(12.5f,15,24.5f,23,1.5f,1.5f,p);
-            }else if(group==Achievements.Category.GYM){
-                c.drawRect(11,14,13,20,p);c.drawRect(14,12,16,22,p);c.drawRect(16,16,22,18,p);c.drawRect(22,12,24,22,p);c.drawRect(25,14,27,20,p);
-            }else if(group==Achievements.Category.CAREER || group==Achievements.Category.TROPHIES){
-                polygon(c,10,13,15,16,18.5f,10,22,16,27,13,25,22,12,22);
-            }else{
-                polygon(c,18.5f,8,21,14.2f,27,14.5f,22.4f,18.5f,24,25,18.5f,21.3f,13,25,14.6f,18.5f,10,14.5f,16,14.2f);
-            }
-            c.restore();
+            if(atlas!=null && !src.isEmpty())c.drawBitmap(atlas,src,dest,paint);
         }
     }
 }

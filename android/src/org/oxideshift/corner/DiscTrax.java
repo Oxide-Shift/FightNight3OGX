@@ -15,7 +15,8 @@ final class DiscTrax implements Closeable {
     private static final int[] FIRST={0,240,460,392}, SECOND={0,0,-208,-220};
     static final class Song {
         final long start,end;
-        Song(long start,long length){this.start=start;end=start+length;}
+        final String stem;
+        Song(long start,long length,String stem){this.start=start;end=start+length;this.stem=stem;}
     }
     final List<Song> songs=new ArrayList<>();
     private final RandomAccessFile file;
@@ -38,7 +39,7 @@ final class DiscTrax implements Closeable {
                     name.append((char)ch);
                 }
                 if(file.getFilePointer()>indexEnd || start<indexEnd || size>length-start)throw invalid();
-                if(name.toString().toLowerCase(Locale.ROOT).endsWith(".asf"))songs.add(new Song(start,size));
+                if(name.toString().toLowerCase(Locale.ROOT).endsWith(".asf"))songs.add(new Song(start,size,name.substring(0,name.length()-4).toUpperCase(Locale.ROOT)));
             }
             if(songs.isEmpty())throw invalid();
         }catch(IOException e){file.close();throw e;}

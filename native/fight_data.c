@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -583,6 +584,72 @@ static _Atomic uint32_t files[16];
 static _Atomic uint64_t positions[16];
 static atomic_int last_song;
 static uint32_t big32(const unsigned char *p) {return (uint32_t)p[0]<<24 | (uint32_t)p[1]<<16 | (uint32_t)p[2]<<8 | p[3];}
+/* Only music.big data returned to the guest is changed. Chunk headers, timing,
+ * channel offsets and every other file (including movie audio) remain retail. */
+struct SampleSpan { uint32_t first,end; };
+static struct SampleSpan *samples;
+static size_t sample_count,sample_capacity;
+static char bank_path[1024];
+static atomic_int bank_available,index_state,voice_requested;
+static int index_samples(void){
+    FILE *f=fopen(bank_path,"rb");
+    if(!f)return 0;
+    int ok=1;
+    unsigned char header[8];
+    for(unsigned i=0;ok && i<track_count;i++){
+        uint32_t at=tracks[i].begin,end=tracks[i].end;
+        int ended=0;
+        while(at<end){
+            if(end-at<8 || fseek(f,(long)at,SEEK_SET) || fread(header,1,8,f)!=8){ok=0;break;}
+            uint32_t len=word(header+4);
+            if(len<8 || len>end-at){ok=0;break;}
+            if(!memcmp(header,"SCDl",4)){
+                if(len<=20 || (sample_count && at<samples[sample_count-1].end)){ok=0;break;}
+                if(sample_count==sample_capacity){
+                    size_t capacity=sample_capacity?sample_capacity*2:4096;
+                    if(capacity>1024*1024){ok=0;break;}
+                    void *more=realloc(samples,capacity*sizeof *samples);
+                    if(!more){ok=0;break;}
+                    samples=more;sample_capacity=capacity;
+                }
+                samples[sample_count++]=(struct SampleSpan){at+20,at+len};
+            }else if(!memcmp(header,"SCEl",4)){
+                ended=at+len==end;break;
+            }else if(memcmp(header,"SCHl",4) && memcmp(header,"SCCl",4)){ok=0;break;}
+            at+=len;
+        }
+        if(!ended)ok=0;
+    }
+    fclose(f);
+    if(!ok || !sample_count){free(samples);samples=NULL;sample_count=sample_capacity=0;return 0;}
+    return 1;
+}
+static void prepare_voice(void){
+    if(!atomic_load(&bank_available) || !atomic_load(&voice_requested))return;
+    int state=0;
+    if(atomic_compare_exchange_strong(&index_state,&state,1)){
+        state=index_samples()?2:3;
+        atomic_store(&index_state,state);
+    }
+    if(state==2 || state==3){
+        printf("FNR3/1 MUSICBANK %d\n",state==2);fflush(stdout);
+    }
+}
+void fight_music_voice(int enabled){
+    atomic_store(&voice_requested,enabled);
+    if(enabled)prepare_voice();
+}
+static void silence_samples(uint64_t offset,uint32_t length,unsigned char *buffer){
+    if(!buffer || !atomic_load(&voice_requested) || atomic_load(&index_state)!=2)return;
+    uint64_t end=offset+length;
+    size_t lo=0,hi=sample_count;
+    while(lo<hi){size_t mid=lo+(hi-lo)/2;if(samples[mid].end<=offset)lo=mid+1;else hi=mid;}
+    for(size_t i=lo;i<sample_count && samples[i].first<end;i++){
+        uint64_t first=samples[i].first>offset?samples[i].first:offset;
+        uint64_t last=samples[i].end<end?samples[i].end:end;
+        memset(buffer+(size_t)(first-offset),0,(size_t)(last-first));
+    }
+}
 void fight_data_init(const char *root){
     fight_trax_init(root);
     static const char *paths[]={"AUDIO/MUSIC/music.big","audio/music/music.big","AUDIO/MUSIC/MUSIC.BIG","audio/Music/music.big"};
@@ -607,6 +674,8 @@ void fight_data_init(const char *root){
         at+=len+1;
     }
     track_count=n;
+    memcpy(bank_path,path,strlen(path)+1);
+    atomic_store(&bank_available,1);prepare_voice();
 }
 static atomic_uint movie_token;
 static int movie_name(const char *name,size_t length,const char *expected){
@@ -640,13 +709,15 @@ void fight_music_seek(uint32_t token,uint64_t offset){
     if(!token)return;
     for(unsigned i=0;i<16;i++)if(atomic_load(&files[i])==token){atomic_store(&positions[i],offset);return;}
 }
-void fight_music_read(uint32_t token,uint64_t offset,uint32_t size){
+void fight_music_read(uint32_t token,uint64_t offset,uint32_t size,void *buffer){
     if(!token || !size || !track_count)return;
     unsigned i=0;while(i<16 && atomic_load_explicit(&files[i],memory_order_relaxed)!=token)i++;
     if(i==16)return;
     if(offset==UINT64_MAX)offset=atomic_fetch_add(&positions[i],size);
     else atomic_store(&positions[i],offset+size);
-    if(size<512 || offset>UINT64_MAX-size)return;
+    if(offset>UINT64_MAX-size)return;
+    silence_samples(offset,size,buffer);
+    if(size<512)return;
     /* Sector-aligned streaming reads can start just before the first sample.
      * Ignore allocation/header reads and accept only the interior of a track. */
     for(unsigned t=0;t<track_count;t++)if(offset>=tracks[t].begin && offset+size<=tracks[t].end){

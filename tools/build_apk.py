@@ -90,6 +90,7 @@ def main():
                     shutil.copyfile(app/"res"/name,res/name)
                 shutil.copyfile(app / "res/values/colors.xml", res / "values/colors.xml")
                 shutil.copyfile(app / "res/raw/corner_unlock.wav", res / "raw/corner_unlock.wav")
+                shutil.copyfile(app / "assets/achievement-badges.webp", assets / "achievement-badges.webp")
                 shutil.copyfile(app / "assets/crash-inbox.pem",assets / "crash-inbox.pem")
                 shutil.copyfile(app / "assets/thor-controls.dxt3",assets / "thor-controls.dxt3")
                 shutil.copyfile(app / "assets/corner.html", assets / "corner.html")

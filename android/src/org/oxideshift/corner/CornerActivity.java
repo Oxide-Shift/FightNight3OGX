@@ -72,9 +72,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     private MediaPlayer music;
     private SaveBackups backups;
     private boolean folderPromptShown;
-    private RoundMusic roundMusic;
-    private long lastRoundMusic;
-    private int musicPosition;
+    private TraxOverlay traxOverlay;
     private String html,lastJson="";
     private File base,host;
     private DiscBuild discBuild;
@@ -110,7 +108,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         },updates::tap);
         rumble=new PadRumble(this);
         menu.soundtrack.setOnCheckedChangeListener((v,on)->{prefs.edit().putBoolean("music",on).apply();syncMusic();});
-        menu.fightMusic.setOnCheckedChangeListener((v,on)->{prefs.edit().putBoolean("fightMusic",on).apply();syncMusic();});
+        menu.fightMusic.setOnCheckedChangeListener((v,on)->{prefs.edit().putBoolean("fightMusic",on).apply();if(engine.session!=null)engine.session.musicOption(on);syncMusic();});
         menu.saveFolder.setOnClickListener(v->chooseBackupFolder());
         body.addView(menu);back.setVisibility(View.GONE);
         root.post(this::immersive);
@@ -385,6 +383,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                     : new String[]{host.getAbsolutePath(),discBuild.playableModule().getAbsolutePath(),xbe.getAbsolutePath(),disc.getAbsolutePath(),save.getAbsolutePath(),"--corner"};
             CornerSession next=new CornerSession(base,command);
             next.installMenuFrom(disc);
+            next.musicOption(prefs.getBoolean("fightMusic",false));
             String model=android.os.Build.MODEL+" "+android.os.Build.DEVICE+" "+android.os.Build.PRODUCT;
             if(model.toLowerCase(java.util.Locale.ROOT).contains("thor")){
                 android.content.res.AssetManager assets=getAssets();
@@ -439,10 +438,35 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         screen.setKeepScreenOn(awake);
         body.addView(screen);
         achievementDisplay=new AchievementDisplay(this,body,menu.fonts(),menu::mainMenuArt,engine.session,game(),prefs.getInt("aspect",0)==0,this::neutralPad);
+        CornerSession owner=engine.session;
+        MenuContext soundMenus=new MenuContext();
+        owner.onMenuSelection(stem->main.post(()->{
+            if(owner!=engine.session || screen==null || !viewingGame || !awake)return;
+            LiveFrame frame=screen.latestFrame();
+            MenuContext.Page page=frame==null?null:soundMenus.identify(frame);
+            if(page!=null && "EA Trax".equals(page.title))owner.previewTrack(stem);
+        }));
+        owner.onSong(()->main.post(this::syncTraxOverlay));
         engine.session.onCabinet(()->main.post(this::refresh));
         back.setVisibility(View.GONE);immersive();syncPower();
     }
+    private void syncTraxOverlay(){
+        CornerSession owner=engine.session;
+        boolean gameVisible=screen!=null && viewingGame && awake && owner!=null && owner.active();
+        boolean routed=gameVisible && (lowerPanel!=null || owner.continuousMusic());
+        if(owner!=null)owner.setTrax(routed);
+        FrameLayout host=routed?(lowerPanel!=null?lowerPanel:body):null;
+        if(traxOverlay!=null && traxOverlay.getParent()!=host){
+            traxOverlay.detach();traxOverlay=null;
+        }
+        if(host==null)return;
+        if(traxOverlay==null)traxOverlay=new TraxOverlay(host,menu.fonts(),host==body);
+        traxOverlay.show(owner.introMovie()==0?owner.song():null,menu.traxArt(),
+                lowerPanel!=null && ringside!=null?ringside.traxInset():0);
+    }
     private void closeAchievements(){
+        if(engine.session!=null){engine.session.onSong(null);engine.session.onMenuSelection(null);}
+        if(traxOverlay!=null){traxOverlay.detach();traxOverlay=null;}
         if(achievementDisplay!=null){achievementDisplay.close();achievementDisplay=null;}
     }
     private void showCard(){
@@ -568,31 +592,19 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         lastJson="";refresh();
     }
     private void syncMusic(){
-        boolean fight=false;
-        if(awake && viewingGame && active() && screen!=null && prefs.getBoolean("fightMusic",false) && engine.session.inLiveBout()){
-            LiveFrame frame=screen.latestFrame();
-            LiveFrame.Scene scene=frame==null?null:frame.scene(true);
-            long now=SystemClock.elapsedRealtime();
-            if(scene==LiveFrame.Scene.ROUND)lastRoundMusic=now;
-            else if(scene!=null && scene!=LiveFrame.Scene.RINGSIDE)lastRoundMusic=0;
-            fight=lastRoundMusic!=0 && now-lastRoundMusic<1800;
-        }
-        else lastRoundMusic=0;
-        if(fight && roundMusic==null)roundMusic=new RoundMusic(game());
-        if(roundMusic!=null)roundMusic.setPlaying(fight);
+        syncTraxOverlay();
         float volume=.12f;
         boolean wanted=awake && !viewingGame && !viewingCard && prefs.getBoolean("music",true);
         if(!wanted){
-            if(music!=null){musicPosition=music.getCurrentPosition();music.release();music=null;}
+            if(music!=null && music.isPlaying())music.pause();
             return;
         }
-        if(music!=null){music.setVolume(volume,volume);return;}
+        if(music!=null){if(!music.isPlaying())music.start();return;}
         try(AssetFileDescriptor fd=getAssets().openFd("ring-focus-loop.ogg")){
             music=new MediaPlayer();music.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME)
                 .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());
             music.setDataSource(fd.getFileDescriptor(),fd.getStartOffset(),fd.getLength());music.setLooping(true);
             music.setVolume(volume,volume);music.prepare();
-            if(musicPosition>0 && musicPosition<music.getDuration())music.seekTo(musicPosition);
             android.media.VolumeShaper fade=music.createVolumeShaper(new android.media.VolumeShaper.Configuration.Builder()
                     .setDuration(1200).setCurve(new float[]{0,1},new float[]{0,1}).build());
             fade.apply(android.media.VolumeShaper.Operation.PLAY);music.start();
@@ -617,7 +629,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         updates.refresh(menu.updates);
         if(ready)menu.loadDiscPoster(game());
         if(ready && ringside!=null)ringside.useFonts(menu.fonts());
-        if(ringside!=null){ringside.setCornerArt(menu.cornerArt());ringside.setTrainingArt(menu.trainingArt());ringside.setCareerArt(menu.careerArt());ringside.setTraxArt(menu.traxArt());}
+        if(ringside!=null){ringside.setCornerArt(menu.cornerArt());ringside.setTrainingArt(menu.trainingArt());ringside.setCareerArt(menu.careerArt());}
         if(viewingGame&&screen!=null){
             if(awake && live && achievementDisplay!=null)achievementDisplay.refresh(lowerPanel);
             data.put("output",screen.output());
@@ -675,7 +687,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         if(sensors!=null)sensors.unregisterListener(hinge);
         inputs.unregisterInputDeviceListener(this);displays.unregisterDisplayListener(this);closeLower();super.onStop();
     }
-    @Override protected void onDestroy(){if(roundMusic!=null)roundMusic.close();closeAchievements();removeLocal();super.onDestroy();}
+    @Override protected void onDestroy(){if(music!=null){music.release();music=null;}closeAchievements();removeLocal();super.onDestroy();}
     @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putBoolean("game",viewingGame);}
     @Override public void onDisplayAdded(int id){layout();}
     @Override public void onDisplayRemoved(int id){layout();}

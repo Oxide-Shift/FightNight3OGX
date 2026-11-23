@@ -16,5 +16,6 @@ void fight_timing_flip(int64_t before,int64_t after,int64_t end);
 void fight_music_open(uint32_t token,const char *name,size_t length);
 void fight_music_close(uint32_t token);
 void fight_music_seek(uint32_t token,uint64_t offset);
-void fight_music_read(uint32_t token,uint64_t offset,uint32_t size);
+void fight_music_voice(int enabled);
+void fight_music_read(uint32_t token,uint64_t offset,uint32_t size,void *buffer);
 #endif

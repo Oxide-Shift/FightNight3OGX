@@ -172,8 +172,15 @@ final class AchievementDisplay {
         if(animate){
             v.measure(View.MeasureSpec.makeMeasureSpec(host.getWidth(),View.MeasureSpec.AT_MOST),
                     View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
-            v.setTranslationX(v.getMeasuredWidth());
-            v.animate().translationX(0).setDuration(230).setInterpolator(new DecelerateInterpolator()).start();
+            v.setTranslationX(v.getMeasuredWidth()*.85f);v.setAlpha(.15f);
+            View badge=((android.view.ViewGroup)v).getChildAt(0);
+            View label=((android.view.ViewGroup)v).getChildAt(1);
+            badge.setScaleX(.72f);badge.setScaleY(.72f);
+            badge.animate().scaleX(1).scaleY(1).setStartDelay(90).setDuration(320)
+                    .setInterpolator(new android.view.animation.OvershootInterpolator(.85f)).start();
+            label.setAlpha(0);label.setTranslationX(AchievementGallery.dp(host.getContext(),12));
+            label.animate().alpha(1).translationX(0).setStartDelay(110).setDuration(240).start();
+            v.animate().alpha(1).translationX(0).setDuration(280).setInterpolator(new DecelerateInterpolator()).start();
         }
         if(soundReady)sounds.play(chime,.26f,.26f,1,0,1);
         v.announceForAccessibility(v.getContentDescription());v.postDelayed(retire,3200);
@@ -181,12 +188,14 @@ final class AchievementDisplay {
     private void slideOut(){
         if(banner==null)return;
         if(!ValueAnimator.areAnimatorsEnabled()){removeBanner();return;}
-        banner.animate().translationX(banner.getWidth()).setDuration(180).withEndAction(this::removeBanner).start();
+        banner.animate().alpha(0).translationX(banner.getWidth()*.64f).setDuration(200).withEndAction(this::removeBanner).start();
     }
     void detach(FrameLayout host){if(lowerDisplay==host)lowerDisplay=null;if(promptHost==host)routePrompts(null);if(banner!=null && banner.getParent()==host)removeBanner();}
     private void removeBanner(){
         View old=banner;if(old==null)return;
         banner=null;old.removeCallbacks(retire);old.animate().cancel();
+        android.view.ViewGroup row=(android.view.ViewGroup)old;
+        for(int i=0;i<row.getChildCount();i++)row.getChildAt(i).animate().cancel();
         if(old.getParent() instanceof FrameLayout)((FrameLayout)old.getParent()).removeView(old);
     }
     void close(){

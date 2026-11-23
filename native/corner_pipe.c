@@ -30,6 +30,9 @@ static int answer_ping(const char *line) {
 #endif
 #ifndef CORNER_LINK_ONLY
     extern void fight_trax_route(int);
+    extern void fight_music_voice(int);
+    if (!strcmp(line,"TRAXVOICE 1\n") || !strcmp(line,"TRAXVOICE 1\r\n")) { fight_music_voice(1); return 1; }
+    if (!strcmp(line,"TRAXVOICE 0\n") || !strcmp(line,"TRAXVOICE 0\r\n")) { fight_music_voice(0); return 1; }
     if (!strcmp(line,"TRAX 2\n") || !strcmp(line,"TRAX 2\r\n")) { fight_trax_route(2); return 1; }
     if (!strcmp(line,"TRAX 1\n") || !strcmp(line,"TRAX 1\r\n")) { fight_trax_route(1); return 1; }
     if (!strcmp(line,"TRAX 0\n") || !strcmp(line,"TRAX 0\r\n")) { fight_trax_route(0); return 1; }

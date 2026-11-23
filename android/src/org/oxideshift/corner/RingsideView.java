@@ -105,15 +105,12 @@ final class RingsideView extends LinearLayout {
     private String resultHeading="";
     private CutmanDesk cutman;
     private final DeskScene deskScene=new DeskScene();
-    private LinearLayout musicPanel;
-    private TextView songTitle,songArtist;
     private final BroadcastCues cues=new BroadcastCues();
     private int footerMask;
     private final LinearLayout fightPanel;
     private TextView roundLabel,roundValue,punchTiming,finishTiming;
     private long nextFinishReading;
     private FightBroadcast.Bout bout;
-    private final Runnable animateBanner=this::updateMusic;
     private final Paint backdropPaint=new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Rect backdropSrc=new Rect(),backdropDst=new Rect();
     private final Runnable tick=this::refreshFrame;
@@ -124,7 +121,6 @@ final class RingsideView extends LinearLayout {
     private boolean activeView;
     private CornerSession session;
     private FightBroadcast.Card lastCard;
-    private FightBroadcast.Song song;
     private LinearLayout judgePanel,punchPanel;
     private final TextView[] numbers=new TextView[4];
     private final ProgressBar[] meters=new ProgressBar[4];
@@ -158,10 +154,8 @@ final class RingsideView extends LinearLayout {
     }
     private void clearFilm(){if(film.clear())invalidate();}
     private Bitmap cornerArt;
-    private Bitmap[] traxArt;
-    void setTraxArt(Bitmap[] art){
-        if(traxArt==art)return;
-        traxArt=art;musicPanel.setBackground(new TraxBanner(art,dp(69)));
+    int traxInset(){
+        return desk.getVisibility()==VISIBLE?Math.max(0,getHeight()-desk.getBottom()):dp(48);
     }
     private boolean forceCapture;
 
@@ -184,7 +178,7 @@ final class RingsideView extends LinearLayout {
         desk=new FrameLayout(ctx);
         addView(desk,new LayoutParams(-1,0,1));desk.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
         content=new LinearLayout(ctx);content.setOrientation(VERTICAL);content.setPadding(dp(12),dp(7),dp(12),dp(7));
-        scroll.addView(content);addMusic(desk);
+        scroll.addView(content);
         careerActions=new LinearLayout(ctx);careerActions.setOrientation(VERTICAL);
         careerActions.setPadding(dp(6),0,dp(6),0);
         addView(careerActions,new LayoutParams(-1,-2));
@@ -363,18 +357,18 @@ final class RingsideView extends LinearLayout {
         usedFonts=fonts;
         headline=fonts.stencil;
         openingSlate.stencil(headline);launchHint.setTypeface(headline);
-        makeFighters();songTitle.setTypeface(headline);songArtist.setTypeface(fonts.body);build();hero.invalidate();
+        makeFighters();build();hero.invalidate();
     }
     void setCornerArt(Bitmap photo){
         if(cornerArt!=photo){cornerArt=photo;invalidate();}
     }
     void follow(GameScreen next,CornerSession owner){
         if(session==owner && screen==next)return;
-        if(session!=null){session.lowerCallouts=false;session.setTrax(false);}
+        if(session!=null){session.lowerCallouts=false;}
         session=owner;careerBranch=false;careerFocus=-1;announced=null;announcement.clear();
         if(screen!=null){screen.lowerShows(BroadcastCues.NONE);screen.timing.suspend();}
         setFilmRunning(false);deskScene.reset();currentPage=null;missingPageReads=0;tips.leave();displayedCamp=null;lastMenuRead=0;screen=next;sequence=0;lastSeen=0;scene=null;footerMask=0;
-        lastCard=null;bout=null;fighters=null;song=null;drawNames();java.util.Arrays.fill(levels,-1);
+        lastCard=null;bout=null;fighters=null;drawNames();java.util.Arrays.fill(levels,-1);
         boolean opening=next!=null && owner!=null && owner.openingSlate();
         if(opening){scene=Scene.INTRO;deskScene.observe(scene,0,SystemClock.uptimeMillis());}
         animate().cancel();setTranslationX(0);setAlpha(1);
@@ -384,7 +378,7 @@ final class RingsideView extends LinearLayout {
     void releaseInput(){if(cutman!=null)cutman.release();}
     void activate(boolean value){
         activeView=value;syncDisplayOwnership();
-        if(!value){setFilmRunning(false);musicPanel.removeCallbacks(animateBanner);if(cutman!=null)cutman.release();if(screen!=null){screen.timing.suspend();screen.lowerShows(BroadcastCues.NONE);}}
+        if(!value){setFilmRunning(false);if(cutman!=null)cutman.release();if(screen!=null){screen.timing.suspend();screen.lowerShows(BroadcastCues.NONE);}}
         else forceCapture=true;schedule();
     }
     private void schedule(){
@@ -393,8 +387,8 @@ final class RingsideView extends LinearLayout {
     }
     @Override protected void onAttachedToWindow(){super.onAttachedToWindow();syncDisplayOwnership();schedule();}
     @Override protected void onDetachedFromWindow(){
-        if(session!=null){session.lowerCallouts=false;session.setTrax(false);}
-        setFilmRunning(false);removeCallbacks(tick);musicPanel.removeCallbacks(animateBanner);
+        if(session!=null){session.lowerCallouts=false;}
+        setFilmRunning(false);removeCallbacks(tick);
         if(screen!=null){screen.timing.suspend();screen.lowerShows(BroadcastCues.NONE);}
         super.onDetachedFromWindow();
     }
@@ -412,11 +406,11 @@ final class RingsideView extends LinearLayout {
         openingSlate.setVisibility(intro?VISIBLE:GONE);
         if(intro){
             hero.setVisibility(GONE);rule.setVisibility(GONE);desk.setVisibility(GONE);
-            menuDock.setVisibility(GONE);fightPanel.setVisibility(GONE);musicPanel.setVisibility(GONE);
+            menuDock.setVisibility(GONE);fightPanel.setVisibility(GONE);
             return;
         }
         if(showingHome){
-            fightPanel.setVisibility(GONE);musicPanel.setVisibility(GONE);
+            fightPanel.setVisibility(GONE);
             return;
         }else if(scene==Scene.LOADING || scene==Scene.TRAINING){
             careerPage=session==null?null:session.career.page;
@@ -509,7 +503,7 @@ final class RingsideView extends LinearLayout {
 
             }
         }
-        showFighters();updateMusic();sizeHero();hero.setContentDescription(hero.title);hero.invalidate();
+        showFighters();sizeHero();hero.setContentDescription(hero.title);hero.invalidate();
     }
     private void quietHint(String text){
         menuHint=type(text,15,PAPER);menuHint.setTypeface(headline);
@@ -630,18 +624,6 @@ final class RingsideView extends LinearLayout {
         });
         group.addView(view,new LayoutParams(0,-2,1));
     }
-    private void addMusic(FrameLayout desk){
-        musicPanel=new LinearLayout(getContext());musicPanel.setOrientation(VERTICAL);
-        musicPanel.setBackground(new TraxBanner(traxArt,dp(69)));
-        musicPanel.setGravity(Gravity.CENTER_VERTICAL);
-        musicPanel.setPadding(dp(79),dp(7),dp(24),dp(8));musicPanel.setMinimumHeight(dp(63));
-        FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM);
-        lp.setMargins(dp(12),0,dp(12),dp(6));desk.addView(musicPanel,lp);
-        songTitle=type("",21,GameInk.GOLD);songTitle.setTypeface(headline);songTitle.setMaxLines(2);
-        songTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);musicPanel.addView(songTitle);
-        songArtist=type("",15,GameInk.MUTED);songArtist.setSingleLine(true);
-        songArtist.setEllipsize(android.text.TextUtils.TruncateAt.END);musicPanel.addView(songArtist);updateMusic();
-    }
     private void updateFinishTiming(){
         if(finishTiming==null || screen==null)return;
         long now=SystemClock.uptimeMillis();
@@ -660,27 +642,9 @@ final class RingsideView extends LinearLayout {
         if(!reading.contentEquals(punchTiming.getText()))punchTiming.setText(reading);
         punchTiming.setVisibility(reading.isEmpty()?GONE:VISIBLE);
     }
-    private void updateMusic(){
-        if(musicPanel==null)return;
-        musicPanel.removeCallbacks(animateBanner);
-        long age=song==null ? -1 : SystemClock.uptimeMillis()-song.started;
-        boolean visible=screen!=null && activeView && scene!=Scene.FINAL && scene!=Scene.INTRO &&
-                !inBout() && age>=0 && age<6600;
-        musicPanel.setVisibility(visible?VISIBLE:GONE);
-        if(!visible)return;
-        if(!song.title.contentEquals(songTitle.getText()))songTitle.setText(song.title);
-        if(!song.artist.contentEquals(songArtist.getText()))songArtist.setText(song.artist);
-        boolean animate=android.animation.ValueAnimator.areAnimatorsEnabled();
-        float offset=0f;
-        if(animate && age<300){float t=1f-age/300f;offset=-t*t;}
-        else if(animate && age>6250){float t=(age-6250)/350f;offset=t*t;}
-        musicPanel.setAlpha(1f-Math.abs(offset));musicPanel.setTranslationX(dp(115)*offset);
-        if(animate && (age<300 || age>=6250))musicPanel.postOnAnimation(animateBanner);
-    }
     private void syncDisplayOwnership(){
         if(session==null)return;
         session.lowerCallouts=activeView && isAttachedToWindow() && screen!=null;
-        session.setTrax(session.lowerCallouts && !inBout());
     }
     private int heroHeight(){return dp(hero.career?46:compactCareer?32:scene==Scene.MENU?46:scene==Scene.ROUND || scene==Scene.TOTALS?52:64);}
     private void sizeHero(){
@@ -727,10 +691,8 @@ final class RingsideView extends LinearLayout {
         if(names!=fighters){fighters=names;drawNames();}
         menuDock.setAlpha(session.cabinetOpen?0f:1f);
         openingSlate.movie(session.introMovie());
-        FightBroadcast.Song track=session.song();
-        if(track!=song)song=track;
         if((scene==Scene.RINGSIDE || scene==Scene.MENU) && (tips.due(SystemClock.uptimeMillis()) || displayedCamp!=session.camp() || careerRevision!=session.career.revision))describeMenu();
-        updateMusic();syncDisplayOwnership();updatePunchTiming();updateFinishTiming();
+        syncDisplayOwnership();updatePunchTiming();updateFinishTiming();
         if(cutman!=null){
             cutman.time(session.recoverySeconds());
             if(SystemClock.uptimeMillis()-lastSeen>1800)cutman.release();
