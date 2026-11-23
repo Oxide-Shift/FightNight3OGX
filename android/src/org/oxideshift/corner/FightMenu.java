@@ -111,7 +111,7 @@ final class FightMenu extends LinearLayout {
         soundtrack=new Switch(c);soundtrack.setText("Menu music");soundtrack.setTextColor(PAPER);
         soundtrack.setTypeface(faces.body);soundtrack.setMinHeight(dp(46));
         soundtrack.setChecked(prefs.getBoolean("music",true));details.addView(soundtrack);
-        fightMusic=new Switch(c);fightMusic.setText("Ring Focus during fights · 4%");fightMusic.setTextColor(PAPER);
+        fightMusic=new Switch(c);fightMusic.setText("EA Trax during fights · 4%");fightMusic.setTextColor(PAPER);
         fightMusic.setTypeface(faces.body);fightMusic.setMinHeight(dp(46));
         fightMusic.setChecked(prefs.getBoolean("fightMusic",false));details.addView(fightMusic);
         saveFolder=button("Choose save backup folder",()->{},false);details.addView(saveFolder);

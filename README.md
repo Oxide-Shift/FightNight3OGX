@@ -42,7 +42,7 @@ On the **AYN Thor**, the tested dual-screen handheld, the upper display stays wi
 
 Select **Vulkan, 1080p, High and a 60 FPS target** for the sharpest Thor preset. High adds sharpening and 4× texture filtering. **VSync** starts on. You can toggle it, enable 2× MSAA or choose a 30 or 45 FPS target. Actual frame rate depends on the device and the action in the ring.
 
-The launcher’s two original Ring Focus tracks crossfade quietly. Want music under a bout? Turn on **Ring Focus during fights** in **Save & sound** for a 4% mix. On Thor, six controller-loading screens also show the handheld alongside the game’s original prompts.
+The launcher’s two original Ring Focus tracks crossfade quietly. Turn on **EA Trax during fights** in **Save & sound** to hear the 12 original Xbox soundtrack songs shuffled under live rounds at 4% volume. The songs stream from your imported disc and resume across rounds. On Thor, six controller-loading screens also show the handheld alongside the game’s original prompts.
 
 ## Get in the ring
 

@@ -72,6 +72,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     private MediaPlayer music;
     private SaveBackups backups;
     private boolean folderPromptShown;
+    private RoundMusic roundMusic;
     private long lastRoundMusic;
     private int musicPosition;
     private String html,lastJson="";
@@ -545,8 +546,10 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
             fight=lastRoundMusic!=0 && now-lastRoundMusic<1800;
         }
         else lastRoundMusic=0;
-        float volume=fight?.04f:.12f;
-        boolean wanted=awake && (fight || (!viewingGame&&!viewingCard&&prefs.getBoolean("music",true)));
+        if(fight && roundMusic==null)roundMusic=new RoundMusic(game());
+        if(roundMusic!=null)roundMusic.setPlaying(fight);
+        float volume=.12f;
+        boolean wanted=awake && !viewingGame && !viewingCard && prefs.getBoolean("music",true);
         if(!wanted){
             if(music!=null){musicPosition=music.getCurrentPosition();music.release();music=null;}
             return;
@@ -640,7 +643,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         if(sensors!=null)sensors.unregisterListener(hinge);
         inputs.unregisterInputDeviceListener(this);displays.unregisterDisplayListener(this);closeLower();super.onStop();
     }
-    @Override protected void onDestroy(){closeAchievements();removeLocal();super.onDestroy();}
+    @Override protected void onDestroy(){if(roundMusic!=null)roundMusic.close();closeAchievements();removeLocal();super.onDestroy();}
     @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putBoolean("game",viewingGame);}
     @Override public void onDisplayAdded(int id){layout();}
     @Override public void onDisplayRemoved(int id){layout();}
