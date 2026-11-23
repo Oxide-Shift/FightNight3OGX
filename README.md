@@ -1,6 +1,6 @@
 # Fight Night Round 3 for Android
 
-Fight Gatti–Ward on the top screen and work the corner on the touchscreen. **FightNight3OGX** brings the original Xbox version of *Fight Night Round 3* to ARM64 Android. Import your own disc, pick a boxer and build a career. On a dual-screen handheld like the AYN Thor, you can glance down to see who is landing the cleaner shots, then take over as cutman when the bell rings.
+**FightNight3OGX** brings the original Xbox version of *Fight Night Round 3* to ARM64 Android. Import your own disc, pick a boxer and build a career. On a dual-screen handheld like the AYN Thor, you can glance down to see who is landing the cleaner shots, then take over as cutman when the bell rings.
 
 **[Download the Android APK and Windows USB installer](https://github.com/Oxide-Shift/FightNight3OGX/releases)**
 
