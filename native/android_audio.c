@@ -13,6 +13,7 @@ static void output_error(AAudioStream *source,void *user,aaudio_result_t error){
 }
 static AudioRing queue={.prime=PRIME_FRAMES};
 static atomic_int device_xruns, online;
+static atomic_uint clock_recoveries;
 static unsigned submitted,old_under,old_drops,old_refills;
 
 static aaudio_data_callback_result_t render(AAudioStream *source,void *user,void *dest,int32_t frames){
@@ -104,6 +105,19 @@ int xa2_submit_samples(const int16_t *pcm,int frames){
     }
     pthread_mutex_unlock(&output_lock);
     return ok;
+}
+int64_t fight_audio_recover_clock(int64_t now,int64_t period){
+    atomic_fetch_add(&clock_recoveries,1);
+    unsigned w=atomic_load_explicit(&queue.head,memory_order_acquire);
+    unsigned r=atomic_load_explicit(&queue.tail,memory_order_acquire);
+    return ring_recover_clock(w-r,now,period);
+}
+void fight_audio_hitch_stats(char *out,size_t size){
+    unsigned r=atomic_load_explicit(&queue.tail,memory_order_acquire);
+    unsigned w=atomic_load_explicit(&queue.head,memory_order_acquire);
+    snprintf(out,size,"queued_frames=%u gaps=%u drops=%u xruns=%d clock_recoveries=%u",
+             w-r,atomic_load(&queue.underruns),atomic_load(&queue.drops),
+             atomic_load(&device_xruns),atomic_load(&clock_recoveries));
 }
 int xa2_get_buffer_size(void){return 256;}
 int xa2_channels(void){return 2;}

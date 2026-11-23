@@ -13,6 +13,7 @@ typedef struct {
     int playing;
     unsigned crossfade;
     int16_t last[2];
+    int16_t last_read[2]; /* Consumer-owned sample for a short fade on starvation. */
     AudioStartup startup;
 } AudioRing;
 
@@ -39,21 +40,41 @@ static inline int ring_write(AudioRing *q,const int16_t *src,unsigned frames) {
     return 1;
 }
 
+/* After a material scheduling stall, recover only useful audio reserve. Four 256-frame
+   blocks give the consumer 21 ms while the game and mixer resume ordinary pacing. */
+static inline int64_t ring_recover_clock(unsigned queued,int64_t now,int64_t period){
+    unsigned missing=queued<PRIME_FRAMES ? PRIME_FRAMES-queued : 0;
+    unsigned blocks=(missing+255)/256;
+    if(blocks>4)blocks=4;
+    return now-(int64_t)blocks*period;
+}
+
 static inline void ring_read(AudioRing *q,int16_t *out,unsigned frames){
     unsigned r=atomic_load_explicit(&q->tail,memory_order_relaxed);
     unsigned available=atomic_load_explicit(&q->head,memory_order_acquire)-r;
     memset(out,0,(size_t)frames*2*sizeof(*out));
     if(!q->playing){
-        if(available<q->prime)return;
+        if(available<q->prime){
+            for(unsigned i=0;i<frames && q->gain;i++){
+                --q->gain;
+                for(int ch=0;ch<2;ch++)out[2*i+ch]=(int16_t)(q->last_read[ch]*(int)q->gain/FADE_FRAMES);
+            }
+            return;
+        }
         q->playing=1;q->gain=0;atomic_fetch_add(&q->refills,1);
     }
     unsigned count=available<frames?available:frames;
     for(unsigned i=0;i<count;i++){
         const int16_t *pair=q->pcm[(r+i)&(RING_FRAMES-1)];
-        if(available-i<=FADE_FRAMES){if(q->gain)--q->gain;}
+        if(count<frames && count-i<=FADE_FRAMES){if(q->gain)--q->gain;}
         else if(q->gain<FADE_FRAMES)++q->gain;
         out[2*i]=(int16_t)(pair[0]*(int)q->gain/FADE_FRAMES);
         out[2*i+1]=(int16_t)(pair[1]*(int)q->gain/FADE_FRAMES);
+    }
+    if(count)memcpy(q->last_read,q->pcm[(r+count-1)&(RING_FRAMES-1)],sizeof q->last_read);
+    for(unsigned i=count;i<frames && q->gain;i++){
+        --q->gain;
+        for(int ch=0;ch<2;ch++)out[2*i+ch]=(int16_t)(q->last_read[ch]*(int)q->gain/FADE_FRAMES);
     }
     atomic_store_explicit(&q->tail,r+count,memory_order_release);
     if(count<frames){

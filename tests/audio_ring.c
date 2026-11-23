@@ -7,6 +7,21 @@ int main(void){
     static int16_t in[2*RING_FRAMES],out[2*RING_FRAMES];
     q.startup.frames=STARTUP_QUIET+STARTUP_FADE;
     for(int i=0;i<2*RING_FRAMES;i+=2){in[i]=24000;in[i+1]=-24000;}
+    /* Exact on-time bursts must not pump the volume of a continuous voice. */
+    static AudioRing exact={.prime=960};
+    exact.startup.frames=STARTUP_QUIET+STARTUP_FADE;
+    for(int i=0;i<12;i++){
+        assert(ring_write(&exact,in,960));ring_read(&exact,out,960);
+        assert(exact.underruns==0 && exact.tail==exact.head);
+        for(int k=(i?0:FADE_FRAMES);k<960;k++)assert(out[2*k]==24000 && out[2*k+1]==-24000);
+    }
+    ring_read(&exact,out,64);
+    assert(out[0]<24000 && out[0]>23000 && out[126]>0 && !exact.playing);
+    ring_read(&exact,out,192);
+    assert(out[0]>0 && out[382]==0);
+    assert(ring_recover_clock(0,160000,5333)==160000-4*5333);
+    assert(ring_recover_clock(PRIME_FRAMES-256,160000,5333)==160000-5333);
+    assert(ring_recover_clock(PRIME_FRAMES,160000,5333)==160000);
     assert(ring_write(&q,in,256));ring_read(&q,out,192);
     assert(!out[0] && !q.playing && !q.tail);
     assert(ring_write(&q,in,PRIME_FRAMES-256));ring_read(&q,out,PRIME_FRAMES+17);

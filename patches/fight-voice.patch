@@ -123,3 +123,19 @@
      (void)d;
  }
  
+--- a/apu_core.c
++++ b/apu_core.c
+@@ -645,6 +645,13 @@
+     }
+ #endif
+ 
++#ifdef __ANDROID__
++    if (now_us - d->next_frame_time_us > 8 * EP_FRAME_US) {
++        extern int64_t fight_audio_recover_clock(int64_t now, int64_t period);
++        d->next_frame_time_us = fight_audio_recover_clock(now_us, EP_FRAME_US);
++    }
++#endif
++
+     /* The output queue is not probed here. SDL_GetQueuedAudioSize takes the
+      * audio device's lock, which SDL's own AAudio thread holds while it waits
+      * for the device: ~1 ms per call, a fifth of the 5.3 ms frame, which alone

@@ -4,6 +4,7 @@ import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.Dialog;
 import android.media.AudioAttributes;
+import android.media.AudioManager;
 import android.media.SoundPool;
 import android.view.*;
 import android.view.animation.DecelerateInterpolator;
@@ -102,19 +103,13 @@ final class AchievementDisplay {
         FrameLayout layers=new FrameLayout(activity);
         layers.addView(page);
         dialog.setContentView(layers);
-        dialog.setOnKeyListener((d,code,key)->{
-            if(code==KeyEvent.KEYCODE_BUTTON_B || code==KeyEvent.KEYCODE_BACK){
-                if(key.getAction()==KeyEvent.ACTION_UP)leave();
-                return true;
-            }
-            if(!closing && !changing)page.navigate(key);
-            return true;
-        });
+        dialog.setOnKeyListener((d,code,key)->page.handleKey(key,closing || changing));
         dialog.setOnDismissListener(d->{if(gallery==dialog){routePrompts(null);galleryPage=null;gallery=null;cabinetLayers=null;closing=false;changing=false;session.cabinetOpen=false;}});
         gallery=dialog;galleryPage=page;cabinetLayers=layers;session.cabinetOpen=true;
         Window w=dialog.getWindow();
         w.setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
         w.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+        w.setVolumeControlStream(AudioManager.STREAM_MUSIC);
         w.setWindowAnimations(0);
         w.getDecorView().setSystemUiVisibility(activity.getWindow().getDecorView().getSystemUiVisibility());
         dialog.show();w.setLayout(-1,-1);play(DiscMenuSounds.Cue.FORWARD);
@@ -145,7 +140,7 @@ final class AchievementDisplay {
             }
         };
         film.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        film.setClickable(true);
+        film.setClickable(true);film.setFocusable(false);
         layers.addView(film,new FrameLayout.LayoutParams(-1,-1));
     }
     private void leave(){

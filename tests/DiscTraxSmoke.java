@@ -41,6 +41,21 @@ public final class DiscTraxSmoke {
             throw new AssertionError("Stereo balance during fade");
         return pcm[pcm.length-2];
     }
+    private static void trackLevels(){
+        RoundMusic.SceneMix mix=new RoundMusic.SceneMix(true);
+        mix.selectTrack("DILATEDP");
+        if(mix(mix,true,1)!=4400)throw new AssertionError("Disc reference");
+        mix.selectTrack("Body Shots");
+        float boost=(float)Math.pow(10,8.2/20);
+        if(Math.abs(mix(mix,true,1)-4400*boost)>1 ||
+                Math.abs(mix(mix,false,RoundMusic.SceneMix.FADE_FRAMES)-3000*boost)>1)
+            throw new AssertionError("Expanded loudness across scenes");
+        mix.selectTrack("ATMOSPH1");
+        if(Math.abs(mix(mix,false,1)-3000*Math.pow(10,-2.1/20))>1)
+            throw new AssertionError("Disc trim on a track change during a fight");
+        mix.selectTrack("unknown");
+        if(mix(mix,false,1)!=3000)throw new AssertionError("Unknown tracks use unity gain");
+    }
     private static void sceneLevels(){
         RoundMusic.SceneMix mix=new RoundMusic.SceneMix(true);
         int fade=RoundMusic.SceneMix.FADE_FRAMES;
@@ -57,7 +72,7 @@ public final class DiscTraxSmoke {
             throw new AssertionError("Starting inside a fight");
     }
     public static void main(String[] args)throws Exception{
-        sceneLevels();
+        sceneLevels();trackLevels();
         Path f=Files.createTempFile("round-trax-test",".big");short[] pcm=new short[64];
         try{
             Files.write(f,archive(false));

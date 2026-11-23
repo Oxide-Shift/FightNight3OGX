@@ -131,6 +131,7 @@ final class RoundMusic implements AutoCloseable {
             queue.remove(stem);last=stem;
             try(ExpandedAudio extra=isExpanded(stem)?new ExpandedAudio(assets,stem):null){
                 if(extra==null)disc.select(originals.get(stem));
+                mix.selectTrack(stem);
                 cues.addLast(new Cue(written/2,stem));
                 int frames;
                 while(ready(out) && (frames=extra==null?disc.read(pcm):extra.read(pcm))>0){
@@ -167,6 +168,34 @@ final class RoundMusic implements AutoCloseable {
         static final int FADE_FRAMES=DiscTrax.RATE*3/4;
         private float current,target,step;
         private int remaining;
+        private float trackGain=1f;
+        void selectTrack(String stem){
+            // Full-track integrated LUFS of the decoded stereo sources. Match the disc median.
+            double integrated;
+            switch(stem){
+                case "ATMOSPH1": integrated=-5.7;break;
+                case "BRASCO": integrated=-7.4;break;
+                case "Blood + Sweat": integrated=-15.4;break;
+                case "Body Shots": integrated=-16.0;break;
+                case "CONSEQ1": integrated=-11.0;break;
+                case "Corner Talk": integrated=-15.3;break;
+                case "DILATEDP": integrated=-7.8;break;
+                case "DIPSET": integrated=-8.4;break;
+                case "Heavy Hands": integrated=-15.7;break;
+                case "KRAYTWIN": integrated=-8.5;break;
+                case "Knockout City": integrated=-15.9;break;
+                case "LTDA": integrated=-8.1;break;
+                case "No Mercy": integrated=-15.5;break;
+                case "OBIETRIC": integrated=-7.6;break;
+                case "ROCC": integrated=-7.3;break;
+                case "SEANBIG1": integrated=-7.7;break;
+                case "SLIC": integrated=-7.2;break;
+                case "The Contender": integrated=-15.4;break;
+                case "YOUNGROS": integrated=-8.2;break;
+                default:trackGain=1f;return;
+            }
+            trackGain=(float)Math.pow(10,(-7.8-integrated)/20);
+        }
         SceneMix(boolean menu){current=target=menu?MENU:FIGHT;}
         void apply(short[] pcm,int frames,boolean menu){
             float requested=menu?MENU:FIGHT;
@@ -175,8 +204,8 @@ final class RoundMusic implements AutoCloseable {
             }
             for(int i=0;i<frames*2;i+=2){
                 if(remaining>0)current=target-step*(--remaining);
-                pcm[i]=(short)Math.round(pcm[i]*current);
-                pcm[i+1]=(short)Math.round(pcm[i+1]*current);
+                float gain=current*trackGain;
+                pcm[i]=(short)Math.round(pcm[i]*gain);pcm[i+1]=(short)Math.round(pcm[i+1]*gain);
             }
         }
     }

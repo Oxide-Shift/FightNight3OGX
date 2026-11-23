@@ -72,11 +72,16 @@ final class AchievementGallery extends LinearLayout {
         tally=text(c,"",13,PAPER,f.body);tally.setShadowLayer(2,1,1,0xff130501);heading.addView(tally);
         if(music!=null){
             tally.setText("EA TRAX");
-            scroll=new ScrollView(c);
-            // The controller selection is drawn by each row. Android also highlights a focused ScrollView.
+            // Only a music row owns controller focus. Keep the scrollable area tight to the rows
+            // even with the footer on a second display, and allow large text to scroll on small screens.
+            FrameLayout body=new FrameLayout(c);
+            addView(body,new LayoutParams(-1,0,1));
+            scroll=new ScrollView(c,null,0);
+            scroll.setFocusableInTouchMode(false);scroll.setFocusable(false);
             scroll.setDefaultFocusHighlightEnabled(false);
-            scroll.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
-            addView(scroll,new LayoutParams(-1,0,1));
+            scroll.setBackground(null);scroll.setForeground(null);
+            scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+            body.addView(scroll,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
             cards=stack(c);pad(cards,wide?22:10,8);scroll.addView(cards);
             selected=0;
             for(int i=0;i<OPTIONS.length;i++){
@@ -132,17 +137,21 @@ final class AchievementGallery extends LinearLayout {
         MusicRow(Context c,int index){
             super(c);this.index=index;
             setGravity(Gravity.CENTER_VERTICAL);pad(this,14,10);
+            setFocusable(true);setFocusedByDefault(index==0);
             setDefaultFocusHighlightEnabled(false);setSoundEffectsEnabled(false);
+            GradientDrawable active=new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                    new int[]{0xff76260b,0xff431306,0xff270b05});
+            active.setStroke(dp(c,1),0xffd78924);
             android.graphics.drawable.StateListDrawable background=new android.graphics.drawable.StateListDrawable();
-            background.addState(new int[]{android.R.attr.state_selected},new GradientDrawable(
-                    GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0xf576260b,0xdd431306,0xbc270b05}));
+            background.addState(new int[]{android.R.attr.state_selected},active);
             background.addState(new int[0],new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                    new int[]{0xe32d1008,0xc3220c05,0xa61b0804}));
+                    new int[]{0xff2d1008,0xff220c05,0xff1b0804}));
             setBackground(background);
             LinearLayout label=stack(c);addView(label,new LayoutParams(0,-2,1));
             title=text(c,OPTIONS[index].toUpperCase(java.util.Locale.ROOT),wide?25:21,PAPER,fonts.title);
             label.addView(title);label.addView(text(c,DESCRIPTIONS[index],wide?16:14,SILVER,fonts.body));
             state=text(c,"",21,SILVER,fonts.stencil);pad(state,8,2);addView(state);
+            setOnFocusChangeListener((v,focused)->{if(focused)selectMusic(index);});
             setOnClickListener(v->toggleMusic(index));
         }
         void update(){
@@ -158,7 +167,9 @@ final class AchievementGallery extends LinearLayout {
     private void selectMusic(int index){
         if(selected==index)return;
         selected=index;sound.accept(DiscMenuSounds.Cue.VERTICAL);showMusicRows();
-        cards.getChildAt(index).requestRectangleOnScreen(new Rect(0,0,1,cards.getChildAt(index).getHeight()),false);
+        View row=cards.getChildAt(index);
+        if(!isInTouchMode())row.requestFocus();
+        row.requestRectangleOnScreen(new Rect(0,0,row.getWidth(),row.getHeight()),false);
     }
     private void toggleMusic(int index){
         selected=index;music.toggle(index);sound.accept(DiscMenuSounds.Cue.FORWARD);showMusicRows();
@@ -205,6 +216,17 @@ final class AchievementGallery extends LinearLayout {
         }
         if(wide && visible%2==1)line.addView(new View(c),new LayoutParams(0,1,1));
         scroll.scrollTo(0,0);
+    }
+    boolean handleKey(KeyEvent event,boolean transitioning){
+        int code=event.getKeyCode();
+        if(code==KeyEvent.KEYCODE_BACK || code==KeyEvent.KEYCODE_BUTTON_B){
+            if(event.getAction()==KeyEvent.ACTION_UP)close.run();
+            return true;
+        }
+        if(code==KeyEvent.KEYCODE_VOLUME_UP || code==KeyEvent.KEYCODE_VOLUME_DOWN ||
+                code==KeyEvent.KEYCODE_VOLUME_MUTE || event.isSystem())return false;
+        if(!transitioning)navigate(event);
+        return true;
     }
     boolean navigate(KeyEvent event){
         int code=event.getKeyCode();

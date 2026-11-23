@@ -73,8 +73,8 @@ def main():
     # Apply the title runtime fixes to private build copies of the pinned sources.
     patched = out / "runtime"
     patched.mkdir(exist_ok=True)
-    names = {"xbox_memory_layout.c", "nv2a_pb_exec.c", "nv2a_pb_scan.c", "apu_vp.c", "vkr.c", "kernel_xbox.c", "kernel_hal.c"}
-    for original in (kernel / "xbox_memory_layout.c", kernel / "kernel_hal.c", kernel / "kernel_xbox.c", kernel / "nv2a_pb_exec.c", kernel / "nv2a_pb_scan.c", src / "apu/apu_vp.c", args.android_reference / "src/vk/vkr.c" if use_vulkan else None):
+    names = {"xbox_memory_layout.c", "nv2a_pb_exec.c", "nv2a_pb_scan.c", "apu_core.c", "apu_vp.c", "vkr.c", "kernel_xbox.c", "kernel_hal.c"}
+    for original in (kernel / "xbox_memory_layout.c", kernel / "kernel_hal.c", kernel / "kernel_xbox.c", kernel / "nv2a_pb_exec.c", kernel / "nv2a_pb_scan.c", src / "apu/apu_core.c", src / "apu/apu_vp.c", args.android_reference / "src/vk/vkr.c" if use_vulkan else None):
         if original is not None:
             shutil.copyfile(original, patched / original.name)
     (patched / "nv2a_vsh_interp.c").write_bytes((kernel / "nv2a_vsh_interp.c").read_text(encoding="utf-8").encode("utf-8"))
