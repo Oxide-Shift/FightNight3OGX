@@ -30,7 +30,7 @@ final class AchievementsSmoke {
         send("CALLOUT HAYMAKER","PLAYERSTATS 1 1 0 4");ribbons(); // Opponent haymakers don't count.
         send("PLAYERSTATS 1 2 1 5","PLAYERSTATS 1 2 1 5","CALLOUT STAGGER");ribbons(HAYMAKERS,TWO_DOWNS,STAGGER);
         send("CARD 10","CALLOUT TKO","CALLOUT WON","CALLOUT WON");
-        ribbons(FIRST_WIN,STOPPAGE,DEEP_WATER,LATE_STOPPAGE,TECHNICAL_KO,COMEBACK,TRADED_DOWNS,LATE_WIN);
+        ribbons(FIRST_WIN,STOPPAGE,DEEP_WATER,LATE_STOPPAGE,TECHNICAL_KO,COMEBACK,TRADED_DOWNS,LATE_WIN,LATE_SURGE);
         send("BOUTBEGIN","CARD 1","CALLOUT WON","CALLOUT KO","CALLOUT KO");ribbons(FIRST_ROUND_KO,CLEAN_KO);
     }
     private void judges()throws Exception{
@@ -52,7 +52,7 @@ final class AchievementsSmoke {
         ribbons(BAG_DRILL,BREAKTHROUGH,POWER_GAIN,SPEED_GAIN,STAMINA_GAIN,THREE_GAINS,STRONG_SESSION);
         for(int drill:new int[]{2,3}){
             send("CAREERPAGE drill "+drill,"CAREERPAGE train 1","TRAINSTATS 0 -1 -1 -1 -1 0 0 0 0");
-            ribbons(drill==2?DUMMY_DRILL:WEIGHT_DRILL);
+            if(drill==2)ribbons(DUMMY_DRILL);else ribbons(WEIGHT_DRILL,CAMP_COMPLETE);
         }
     }
     private void career()throws Exception{
@@ -61,10 +61,23 @@ final class AchievementsSmoke {
         send("CAMP 10,0,0,10 20,1,0,2 purse=5000");ribbons(TEN_WINS,UNBEATEN,TEN_KOS,STEP_UP);
         send("CAMP 20,5,0,15 20,1,0,2 purse=25000");ribbons(KO_RATIO);
         send("CAMP 25,5,0,25 -");ribbons(TWENTY_FIVE_WINS,TWENTY_FIVE_KOS,VETERAN);
-        send("CAMP 40,5,0,25 20,1,0,2 purse=100000");ribbons();
+        send("CAMP 40,5,0,25 20,1,0,2 purse=100000");ribbons(FORTY_WINS,LOCKER);
         send("CASE 16383","CAREERPAGE -","CAREERPAGE trophycase 1","CASE 0");ribbons();
         send("CASE 1","CASE 15","CASE 127","CASE 1023","CASE 16383","CASE 16383");
-        ribbons(FIRST_TROPHY,FOUR_TROPHIES,HALF_CASE,FULL_CASE);
+        ribbons(FIRST_TROPHY,FOUR_TROPHIES,HALF_CASE,FULL_CASE,TEN_TROPHIES,TWELVE_TROPHIES);
+    }
+    private void contenders()throws Exception{
+        send("BOUTBEGIN","PLAYERSTATS 1 3 2 20","BOUT 12 3 60 60 60 60 30 200 400 500",
+             "CALLOUT KO","CALLOUT WON");
+        ribbons(SECOND_WIND,ELEVENTH_HOUR,THUNDERCLAP,LAST_ROPE,FINAL_BELL,EMPTY_RING,THREE_TRIPS,
+                DOUBLE_CENTURY,MARATHON_HANDS,SNIPER,SLIP_SCHOOL,LAP_THE_FIELD,LEATHER_RAIN,HEAT_SEEKER,IRON_FIST);
+        StringBuilder rows=new StringBuilder("CARD 12");
+        for(int r=1;r<=12;r++)rows.append(" ").append(r).append(",9,10,9,10,9,10");
+        send(rows.toString(),rows.toString());
+        ribbons(SIX_CLEAN,TEN_ON_PAPER,BALANCE_TIPPED,EIGHT_STRAIGHT,TWELVE_SCORED,JUDGES_CHAIR,SEALED,ALL_TWELVE);
+        send("CAMP 50,0,0,50 -","CAMP 100,0,0,70 -");
+        ribbons(ROAD_VET,FIFTY_WINS,TOP_BILLING,FIFTY_KO,THIRTY_FIVE_KO,TWENTY_FIVE_CLEAN,
+                KO_FACTORY,FIFTY_CLEAN,DISTANCE,THIRTY_DECISIONS,CENTURION);
     }
     private void classics()throws Exception{
         Achievements.Award[] retailOrder={EVERLAST,BURGER_KING,DODGE,EA_SPORTS,ESPN_FNF,ESPN_WNF,ESPN_PPV,UNDER_ARMOUR};
@@ -81,10 +94,16 @@ final class AchievementsSmoke {
                 "FIVE_WINS","TEN_KOS","FIRST_TROPHY","FULL_CASE"));
         Achievements upgraded=new Achievements(legacy::contains,legacy::add);
         if(upgraded.count()!=9 || upgraded.nextRibbon()!=null)throw new AssertionError("Upgrade from alpha.34");
-        AchievementsSmoke test=new AchievementsSmoke();test.fight();test.judges();test.gym();test.career();test.classics();
-        if(test.a.count()!=60 || Achievements.Award.values().length!=60)throw new AssertionError("Catalog reachability");
+        AchievementsSmoke test=new AchievementsSmoke();test.fight();test.judges();test.gym();test.career();test.classics();test.contenders();
+        if(test.a.count()!=100 || Achievements.Award.values().length!=100)throw new AssertionError("Catalog reachability");
+        int possible=0;
+        for(Achievements.Award award:Achievements.Award.values()){
+            if(award.points<=0)throw new AssertionError(award);
+            possible+=award.points;
+        }
+        if(test.a.fightScore()!=possible)throw new AssertionError("Fight Score");
         Achievements restored=new Achievements(test.saved::contains,k->{throw new AssertionError("Duplicate save");});
-        if(restored.classicPoints()!=1000 || restored.count()!=60 || restored.nextRibbon()!=null)throw new AssertionError("Restored cabinet");
-        System.out.println("All 60 medals earned via host events. Both corners, negative cases, repeated packets and alpha.34 upgrades passed.");
+        if(restored.fightScore()!=possible || restored.classicPoints()!=1000 || restored.count()!=100 || restored.nextRibbon()!=null)throw new AssertionError("Restored cabinet");
+        System.out.println("All 100 medals earned via host events. Both corners, negative cases, repeated packets and alpha.34 upgrades passed.");
     }
 }

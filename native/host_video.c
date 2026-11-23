@@ -29,7 +29,13 @@ static void pace_flip(void) {
         while(clock_nanosleep(CLOCK_MONOTONIC,TIMER_ABSTIME,&until,NULL)==EINTR){}
 #endif
     }
-    deadline=fight_next_flip(deadline,fight_now_ns());
+    unsigned interval=fight_present_interval();
+    static unsigned previous=1;
+    if(interval!=previous){
+        fprintf(stderr,"[Fight Night] presentation interval %u vblank(s)\\n",interval);
+        previous=interval;
+    }
+    deadline=fight_next_flip(deadline,fight_now_ns(),interval);
 }
 
 void xbox_FramebufferWindowStart(void) {

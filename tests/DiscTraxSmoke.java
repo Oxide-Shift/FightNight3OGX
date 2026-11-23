@@ -48,27 +48,27 @@ public final class DiscTraxSmoke {
         mix.selectTrack("Body Shots");
         float boost=(float)Math.pow(10,8.2/20);
         if(Math.abs(mix(mix,true,1)-4400*boost)>1 ||
-                Math.abs(mix(mix,false,RoundMusic.SceneMix.FADE_FRAMES)-3000*boost)>1)
+                Math.abs(mix(mix,false,RoundMusic.SceneMix.FADE_FRAMES)-2400*boost)>1)
             throw new AssertionError("Expanded loudness across scenes");
         mix.selectTrack("ATMOSPH1");
-        if(Math.abs(mix(mix,false,1)-3000*Math.pow(10,-2.1/20))>1)
+        if(Math.abs(mix(mix,false,1)-2400*Math.pow(10,-2.1/20))>1)
             throw new AssertionError("Disc trim on a track change during a fight");
         mix.selectTrack("unknown");
-        if(mix(mix,false,1)!=3000)throw new AssertionError("Unknown tracks use unity gain");
+        if(mix(mix,false,1)!=2400)throw new AssertionError("Unknown tracks use unity gain");
     }
     private static void sceneLevels(){
         RoundMusic.SceneMix mix=new RoundMusic.SceneMix(true);
         int fade=RoundMusic.SceneMix.FADE_FRAMES;
         if(mix(mix,true,1)!=4400)throw new AssertionError("Original menu level");
         int half=mix(mix,false,fade/2);
-        if(Math.abs(half-3700)>1 || Math.abs(mix(mix,true,1)-half)>1)
+        if(Math.abs(half-3400)>1 || Math.abs(mix(mix,true,1)-half)>1)
             throw new AssertionError("Continuous reversal during loading");
         if(mix(mix,true,fade)!=4400 || mix(mix,false,1)!=4400)
             throw new AssertionError("Fade starts at the previous level");
         for(int i=1;i<fade;i+=441)mix(mix,false,Math.min(441,fade-i));
-        if(mix(mix,false,1)!=3000 || mix(mix,true,fade)!=4400)
+        if(mix(mix,false,1)!=2400 || mix(mix,true,fade)!=4400)
             throw new AssertionError("Fight level and menu restoration");
-        if(mix(new RoundMusic.SceneMix(false),false,1)!=3000)
+        if(mix(new RoundMusic.SceneMix(false),false,1)!=2400)
             throw new AssertionError("Starting inside a fight");
     }
     public static void main(String[] args)throws Exception{

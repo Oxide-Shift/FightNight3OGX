@@ -131,8 +131,12 @@ static int same_property(const uint8_t *string,const char *name) {
     return string[n]==0;
 }
 
+/* The cinematic dispatch hook observes ECX before the retail method touches it. */
+extern RECOMP_TLS uint32_t g_ecx;
+static atomic_uint winner_director;
 static atomic_int in_music_menu=1;
 static void music_scene(int menu){
+    if(menu)atomic_store(&winner_director,0);
     if(atomic_exchange(&in_music_menu,menu)!=menu){
         printf("FNR3/1 MUSICSCENE %d\n",menu);fflush(stdout);
     }
@@ -195,12 +199,19 @@ void fight_store_price(int32_t price) {
 }
 
 void fight_career_property(uint32_t key,uint32_t value) {
+#ifdef __ANDROID__
+    extern void fight_service_menu_cancel(void),fight_bind_menu_thread(void);
+    fight_service_menu_cancel();
+#endif
     const uint8_t *k=guest(key,32),*v=guest(value,12);
     if(!k || !v)return;
     uint32_t type=word(v+4)>>25;
     if(same_property(k+8,"m_sCurrentScreenId")){
         const uint8_t *s=type==1?guest(word(v+8),72):NULL;
         const char *page=s && memchr(s+8,0,64)?(const char *)s+8:NULL;
+#ifdef __ANDROID__
+        if(page && (!strcmp(page,"fnr3/achievements") || !strcmp(page,"fnr3/music")))fight_bind_menu_thread();
+#endif
         if(page && !strcmp(page,"fnr3/achievements")){puts("FNR3/1 CABINET OPEN");fflush(stdout);}
         else if(page && !strcmp(page,"fnr3/music")){puts("FNR3/1 MUSICMENU OPEN");fflush(stdout);}
         else career_page(page);
@@ -381,7 +392,28 @@ static void sample_winner(const uint8_t *clock) {
     fflush(stdout);
 }
 
+/* Read the same presentation interval that the title's cinematic update writes
+ * through sub_000FF240 and sub_0029E1E0. Only a running winner script owns it. */
+unsigned fight_present_interval(void){
+    uint32_t address=atomic_load(&winner_director);
+    if(!address)return 1;
+    const uint8_t *director=guest(address,0x58);
+    if(!director || !director[0x48] || word(director+0x4c)!=3)return 1;
+    const uint8_t *script=guest(word(director+0x40),16);
+    if(!script || word(script)!=0x01707473 || word(director+0x54)>=word(script+8))return 1;
+    const uint8_t *timing=guest(word(XBOX_HOST(0x594da0)),0x1c);
+    const uint8_t *display=timing?guest(word(timing+0x0c),0xe4):NULL;
+    unsigned interval=display?word(display+0xe0):1;
+    return interval>=1 && interval<=3?interval:1;
+}
+
 void fight_cinematic(uint32_t sequence) {
+    /* BWR, DQ win, KOW and referee stoppage clips from the retail sequence table.
+     * Entrances, loser reactions, scorecards and ordinary ring action use normal pacing. */
+    int winner=(sequence>=60 && sequence<=69) || (sequence>=75 && sequence<=77) ||
+               (sequence>=82 && sequence<=85) || (sequence>=100 && sequence<=112) ||
+               (sequence>=125 && sequence<=135);
+    atomic_store(&winner_director,winner?g_ecx:0);
     const char *result = sequence >= 100 && sequence <= 112 ? "KO" :
                          sequence >= 125 && sequence <= 136 ? "TKO" : NULL;
     if (!callout_bout || finished_callout) return;
@@ -430,6 +462,7 @@ static void sample_knockdowns(const uint8_t *root, int round) {
     int same=callout_bout==id;
     if (!same) {
         atomic_store(&in_music_menu,0);
+        atomic_store(&winner_director,0);
         puts("FNR3/1 BOUTBEGIN");fflush(stdout);
         reported_winner=0;recent_scorer=-1;hit_age=0;stagger_window=0;stumble_cue=0;referee_count=0;
     } else {
@@ -542,6 +575,10 @@ static atomic_int posted_round;
 int fight_round_break(void){return atomic_load_explicit(&posted_round,memory_order_relaxed)!=0;}
 
 void fight_score_sample(void) {
+#ifdef __ANDROID__
+    extern void fight_service_menu_cancel(void);
+    fight_service_menu_cancel();
+#endif
     static unsigned flip;
     static char previous[512];
     if (++flip % 4) return;

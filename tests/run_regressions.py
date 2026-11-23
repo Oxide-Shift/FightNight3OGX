@@ -67,11 +67,11 @@ def main():
               'void sub_0046CB0E(void);\n'+source[start:source.index("\n}",start)+2],encoding="utf-8")
         run([args.cc,*flags,"-I",args.build/"gen",TESTS/"voice_completion.c",voice,"-o",out/"voice_completion.exe"])
         run([out/"voice_completion.exe"])
-        names=["flip_pacing","corner_camera","audio_ring","audio_route","audio_startup","voice_list","voice_rate","fight_texture_layout","frame_publish",
+        names=["flip_pacing","corner_camera","menu_cancel","audio_ring","audio_route","audio_startup","voice_list","voice_rate","fight_texture_layout","frame_publish",
                "mesh_cache","pushbuffer_wrap","texture_hash","controller_bus","ring_events","trax_filter"]
         for name in names:
             exe=out/(name+".exe")
-            extra={"audio_route":["-I",TESTS/"route_mock","-pthread","-static"],"pushbuffer_wrap":[host/"nv2a_pb_scan.o"],"controller_bus":[host/"usb_gamepad.o",ROOT/"native/pad_input.c",private_poll,"-I",args.build/"gen","-lxinput"]}.get(name,[])
+            extra={"menu_cancel":["-I",args.toolkit/"templates/runtime"],"audio_route":["-I",TESTS/"route_mock","-pthread","-static"],"pushbuffer_wrap":[host/"nv2a_pb_scan.o"],"controller_bus":[host/"usb_gamepad.o",ROOT/"native/pad_input.c",private_poll,"-I",args.build/"gen","-lxinput"]}.get(name,[])
             run([args.cc,*flags,TESTS/(name+".c"),*extra,"-o",exe])
             run([exe])
             if name=="controller_bus":

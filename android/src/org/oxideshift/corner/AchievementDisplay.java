@@ -145,7 +145,7 @@ final class AchievementDisplay {
     }
     private void leave(){
         Dialog dialog=gallery;if(dialog==null || closing || changing)return;
-        closing=true;play(DiscMenuSounds.Cue.BACK);
+        closing=true;session.menuCancelSound();
         swap(()->{if(galleryPage!=null)galleryPage.setVisibility(View.INVISIBLE);routePrompts(null);},dialog::dismiss);
     }
     private void routePrompts(FrameLayout host){
@@ -169,7 +169,7 @@ final class AchievementDisplay {
         FrameLayout host=lower!=null?lower:top;
         if(!host.isAttachedToWindow() || host.getWidth()<=0)return;
         Achievements.Award award=awards.nextRibbon();if(award==null)return;
-        View v=AchievementGallery.ribbon(host.getContext(),fonts,award);
+        View v=AchievementGallery.ribbon(host.getContext(),fonts,award,host.getWidth());
         FrameLayout.LayoutParams pos=new FrameLayout.LayoutParams(-2,-2,Gravity.RIGHT|Gravity.TOP);
         pos.topMargin=AchievementGallery.dp(host.getContext(),8);
         banner=v;host.addView(v,pos);
@@ -188,7 +188,7 @@ final class AchievementDisplay {
             v.animate().alpha(1).translationX(0).setDuration(280).setInterpolator(new DecelerateInterpolator()).start();
         }
         if(soundReady)sounds.play(chime,.26f,.26f,1,0,1);
-        v.announceForAccessibility(v.getContentDescription());v.postDelayed(retire,3200);
+        v.announceForAccessibility(v.getContentDescription());v.postDelayed(retire,4800);
     }
     private void slideOut(){
         if(banner==null)return;

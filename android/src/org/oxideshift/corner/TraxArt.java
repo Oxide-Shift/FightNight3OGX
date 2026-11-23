@@ -25,10 +25,13 @@ final class TraxArt {
         return screenTextures(game,"train",new String[]{"58","74","72","76","78"},CAMP_WIDTH,CAMP_WIDTH);
     }
     static final int[] MENU_WIDTH={512,256,256}, MENU_HEIGHT={256,256,256};
-    static int[][] mainMenu(File game)throws IOException{
-        return screenTextures(game,"mainmenu",new String[]{"1","16","26"},MENU_WIDTH,MENU_HEIGHT);
+    static int[][] mainMenu(File game,byte[] tag)throws IOException{
+        return screenTextures(game,"mainmenu",new String[]{"1","16","26"},MENU_WIDTH,MENU_HEIGHT,tag);
     }
     static int[][] screenTextures(File game,String screen,String[] ids,int[] widths,int[] heights)throws IOException{
+        return screenTextures(game,screen,ids,widths,heights,null);
+    }
+    private static int[][] screenTextures(File game,String screen,String[] ids,int[] widths,int[] heights,byte[] tag)throws IOException{
         byte[] xsh=textureBank(game,"overlay.viv","screengroups/"+screen+"/"+screen+".big",screen+".xsh",2*1024*1024);
         int[][] result=new int[ids.length][];
         if(xsh.length<16 || le(xsh,0)!=0x58504853)throw invalid();
@@ -39,6 +42,7 @@ final class TraxArt {
                 int off=le(xsh,20+i*8),w=widths[j],h=heights[j];
                 if(off<16+n*8 || off>xsh.length-16-w*h || xsh[off]!=0x61 ||
                         u16(xsh,off+4)!=w || u16(xsh,off+6)!=h)throw invalid();
+                if(tag!=null && id.equals("16"))OgxBrand.apply(xsh,off+16,tag);
                 result[j]=bc2(xsh,off+16,w,h);
             }
         }
@@ -96,11 +100,11 @@ final class TraxArt {
         }
         throw invalid();
     }
-    private static int rgb(int v){
+    static int rgb(int v){
         int r=(v>>11)&31,g=(v>>5)&63,b=v&31;
         return ((r<<3|r>>2)<<16)|((g<<2|g>>4)<<8)|(b<<3|b>>2);
     }
-    private static int mix(int a,int b){
+    static int mix(int a,int b){
         int r=((a>>16)*2+(b>>16))/3,g=(((a>>8)&255)*2+((b>>8)&255))/3;
         return r<<16|g<<8|((a&255)*2+(b&255))/3;
     }

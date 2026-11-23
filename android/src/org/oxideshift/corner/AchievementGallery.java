@@ -63,7 +63,7 @@ final class AchievementGallery extends LinearLayout {
                     if(art[1]!=null)canvas.drawBitmap(art[1],null,pos,ink);
                 }
             };
-            logo.setContentDescription("Fight Night Round 3");
+            logo.setContentDescription("Fight Night Round 3 OGX");
             LayoutParams size=new LayoutParams(dp(c,wide?108:79),dp(c,wide?75:56));size.rightMargin=dp(c,10);mast.addView(logo,size);
         }
         LinearLayout heading=stack(c);mast.addView(heading,new LayoutParams(0,-2,1));
@@ -189,9 +189,8 @@ final class AchievementGallery extends LinearLayout {
             bar.setBounds(0,0,dp(c,48),dp(c,2));
             tabs[i].setCompoundDrawables(null,null,null,active?bar:null);
         }
-        boolean classics=Achievements.Category.values()[index]==Achievements.Category.CLASSICS;
         tally.setText(awards.count()+" / "+Achievements.Award.values().length+" EARNED"+
-                (classics?"    \u2022    "+awards.classicPoints()+" / 1,000 G":""));
+                "    \u2022    FIGHT SCORE  "+awards.fightScore());
         cards.removeAllViews();
         int columns=wide?2:1,visible=0;
         LinearLayout line=null;
@@ -210,8 +209,8 @@ final class AchievementGallery extends LinearLayout {
             TextView name=text(c,a.title.toUpperCase(java.util.Locale.ROOT),19,earned?GOLD:0xffffe8c1,fonts.title);
             name.setShadowLayer(1,0,1,0xff24160c);copy.addView(name);
             copy.addView(text(c,a.goal,15,SILVER,fonts.body));
-            if(a.points>0)row.addView(text(c,a.points+" G",15,GOLD,fonts.body));
-            row.setContentDescription(a.title+". "+(a.points>0?a.points+" G. ":"")+(earned?"Earned. ":"Locked. ")+a.goal);
+            if(a.points>0)row.addView(text(c,"\u25c6 "+a.points,15,GOLD,fonts.body));
+            row.setContentDescription(a.title+". "+(a.points>0?a.points+" Fight Score. ":"")+(earned?"Earned. ":"Locked. ")+a.goal);
             row.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         }
         if(wide && visible%2==1)line.addView(new View(c),new LayoutParams(0,1,1));
@@ -294,26 +293,21 @@ final class AchievementGallery extends LinearLayout {
         @Override public void setColorFilter(ColorFilter filter){}
         @Override public int getOpacity(){return PixelFormat.OPAQUE;}
     }
-    static View ribbon(Context c,DiscFonts f,Achievements.Award a){
+    static View ribbon(Context c,DiscFonts f,Achievements.Award a,int hostWidth){
         LinearLayout banner=new LinearLayout(c);banner.setGravity(Gravity.CENTER_VERTICAL);
         banner.setBackground(plate(0xfb29221e,0xffbb8a4e));pad(banner,12,7);
         banner.addView(new Medal(c,true,a),new LayoutParams(dp(c,48),dp(c,48)));
-        LinearLayout words=stack(c);words.setPadding(dp(c,9),0,0,0);banner.addView(words);
-        TextView kicker=text(c,a.points>0?"ACHIEVEMENT UNLOCKED   "+a.points+" G":"ACHIEVEMENT UNLOCKED",12,GOLD,f.body);kicker.setLetterSpacing(.08f);words.addView(kicker);
+        LinearLayout words=stack(c);words.setPadding(dp(c,9),0,0,0);
+        int labelWidth=Math.max(1,Math.min(dp(c,300),hostWidth-dp(c,72)));
+        banner.addView(words,new LayoutParams(labelWidth,LayoutParams.WRAP_CONTENT));
+        TextView kicker=text(c,"ACHIEVEMENT UNLOCKED   \u25c6 "+a.points,12,GOLD,f.body);kicker.setLetterSpacing(.08f);words.addView(kicker);
         words.addView(text(c,a.title,22,PAPER,f.stencil));
-        banner.setContentDescription("Achievement unlocked. "+a.title);return banner;
+        TextView deed=text(c,a.deed,15,SILVER,f.body);
+        words.addView(deed);
+        banner.setContentDescription("Achievement unlocked. "+a.title+". "+a.deed+" "+a.points+" Fight Score.");return banner;
     }
     private static final class Medal extends View {
-        private static final String[] CELLS={
-            "BURGER_KING","DODGE","EVERLAST","UNDER_ARMOUR","ESPN_WNF","ESPN_FNF","ESPN_PPV","EA_SPORTS",
-            "FIRST_WIN","STOPPAGE","DEEP_WATER","FIRST_ROUND_KO","LATE_STOPPAGE","CLEAN_KO","TECHNICAL_KO","COMEBACK",
-            "TRADED_DOWNS","LATE_WIN","LAND_25","LAND_150","HAYMAKERS","ACCURATE","SHARPSHOOTER","OUTLAND",
-            "ELUSIVE","STAGGER","TWO_DOWNS","UNANIMOUS_ROUND","SPLIT_ROUND","BIG_ROUND","WIDE_ROUND","THREE_STRAIGHT",
-            "SIX_ROUNDS","ANSWER_BACK","EIGHT_SCORED","CONSENSUS","TURN_CARDS","FIRST_DRILL","BREAKTHROUGH","BAG_DRILL",
-            "DUMMY_DRILL","WEIGHT_DRILL","POWER_GAIN","SPEED_GAIN","STAMINA_GAIN","THREE_GAINS","STRONG_SESSION","FIVE_WINS",
-            "TEN_WINS","TWENTY_FIVE_WINS","TEN_KOS","TWENTY_FIVE_KOS","UNBEATEN","KO_RATIO","VETERAN","STEP_UP",
-            "FIRST_TROPHY","FOUR_TROPHIES","HALF_CASE","FULL_CASE"
-        };
+
         private static Bitmap atlas;
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
         private final Rect src=new Rect();
@@ -323,7 +317,7 @@ final class AchievementGallery extends LinearLayout {
             if(atlas==null)try(java.io.InputStream in=c.getAssets().open("achievement-badges.webp")){
                 atlas=android.graphics.BitmapFactory.decodeStream(in);
             }catch(java.io.IOException e){android.util.Log.w("FightNight","Achievement artwork unavailable",e);}
-            int cell=java.util.Arrays.asList(CELLS).indexOf(award.name());
+            int cell=award.ordinal();
             if(cell>=0)src.set(cell%8*128,cell/8*128,(cell%8+1)*128,(cell/8+1)*128);
             if(!earned){
                 android.graphics.ColorMatrix gray=new android.graphics.ColorMatrix();

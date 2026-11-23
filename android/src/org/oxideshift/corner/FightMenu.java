@@ -98,7 +98,7 @@ final class FightMenu extends LinearLayout {
         graphicsDetails=column();advanced=disclosure("Advanced graphics",graphicsDetails);
         LinearLayout backend=new LinearLayout(c);graphicsDetails.addView(backend);
         renderer=choice(backend,"Renderer",new String[]{"Vulkan","Software (480p)"},"renderer",0);
-        antiAlias=new Switch(c);antiAlias.setText("Edge smoothing (2Ã— MSAA)");antiAlias.setTextColor(PAPER);
+        antiAlias=new Switch(c);antiAlias.setText("Edge smoothing (2\u00d7 MSAA)");antiAlias.setTextColor(PAPER);
         antiAlias.setPadding(dp(9),0,dp(6),0);antiAlias.setMinHeight(dp(48));graphicsDetails.addView(antiAlias);
         antiAlias.setOnCheckedChangeListener((v,on)->{
             if(v.isEnabled() && on!=(preset.samples==2))savePreset(GraphicsPreset.select(preset.tier,on));
@@ -113,7 +113,7 @@ final class FightMenu extends LinearLayout {
         soundtrack.setTypeface(faces.body);soundtrack.setMinHeight(dp(46));
         soundtrack.setChecked(prefs.getBoolean("music",true));details.addView(soundtrack);
         saveFolder=button("Choose save backup folder",()->{},false);details.addView(saveFolder);
-        backupStatus=label("Automatic backups Â· Downloads / Fight Night Round 3",13,MUTED);details.addView(backupStatus);
+        backupStatus=label("Automatic backups \u00b7 Downloads / Fight Night Round 3",13,MUTED);details.addView(backupStatus);
         LinearLayout strength=new LinearLayout(c);details.addView(strength);
         rumble=choice(strength,"Controller rumble",new String[]{"Off","Light","Medium","Full"},
                 "rumbleLevel",prefs.getBoolean("rumble",true)?3:0);
@@ -172,10 +172,10 @@ final class FightMenu extends LinearLayout {
         antiAlias.setEnabled(!sessionActive && !software && preset.tier!=0);
         antiAlias.setChecked(!software && preset.samples==2);
         String hint;
-        if(software)hint="Software renderer Â· 480p";
-        else if(preset==GraphicsPreset.LOW)hint="Nearest-neighbor scaling Â· edge smoothing off";
-        else hint=(preset.tier==2?"Sharpened image Â· 4Ã— filtering":"Linear scaling Â· 2Ã— filtering")
-                +(preset.samples==2?" Â· 2Ã— MSAA":" Â· edge smoothing off");
+        if(software)hint="Software renderer \u00b7 480p";
+        else if(preset==GraphicsPreset.LOW)hint="Nearest-neighbor scaling \u00b7 edge smoothing off";
+        else hint=(preset.tier==2?"Sharpened image \u00b7 4\u00d7 filtering":"Linear scaling \u00b7 2\u00d7 filtering")
+                +(preset.samples==2?" \u00b7 2\u00d7 MSAA":" \u00b7 edge smoothing off");
         if(!hint.contentEquals(qualityHint.getText()))qualityHint.setText(hint);
     }
     private GradientDrawable surface(int fill,int outline){
@@ -248,13 +248,13 @@ final class FightMenu extends LinearLayout {
     }
     static String buildPhase(String message){
         if(message.startsWith("Linking") || message.startsWith("Saving prepared") || message.startsWith("Installing disc") || message.startsWith("Game ready"))
-            return "4/4 Â· Finish install";
+            return "4/4 \u00b7 Finish install";
         if(message.startsWith("Compiling") || message.startsWith("Preparing shared") || message.startsWith("Reusing compiled") || message.startsWith("Retrying interrupted") || message.startsWith("Resuming saved"))
-            return "3/4 Â· Compile";
+            return "3/4 \u00b7 Compile";
         if(message.startsWith("Finding") || message.startsWith("Identifying") || message.startsWith("Analyzing") || message.startsWith("Translating") ||
                 message.startsWith("Writing translated") || message.startsWith("Applying game fixes"))
-            return "2/4 Â· Translate";
-        return "1/4 Â· Prepare";
+            return "2/4 \u00b7 Translate";
+        return "1/4 \u00b7 Prepare";
     }
     void showBuildProgress(String message,long started){
         int visibility=started>0?VISIBLE:GONE;
@@ -268,10 +268,10 @@ final class FightMenu extends LinearLayout {
             long completed=Long.parseLong(counts.group(1)),total=Long.parseLong(counts.group(2));
             int value=(int)Math.min(1000,completed*1000/total);
             progress.setIndeterminate(false);progress.setProgress(value);
-            amount=value/10+"% of this stage  Â·  ";
+            amount=value/10+"% of this stage  \u00b7  ";
         }else progress.setIndeterminate(true);
         long seconds=Math.max(0,(android.os.SystemClock.elapsedRealtime()-started)/1000);
-        String detail=buildPhase(message)+"  Â·  "+amount+String.format(java.util.Locale.ROOT,"%d:%02d elapsed",seconds/60,seconds%60);
+        String detail=buildPhase(message)+"  \u00b7  "+amount+String.format(java.util.Locale.ROOT,"%d:%02d elapsed",seconds/60,seconds%60);
         if(!detail.contentEquals(progressDetail.getText()))progressDetail.setText(detail);
         progress.setContentDescription(message);
     }
@@ -331,7 +331,7 @@ final class FightMenu extends LinearLayout {
             final Bitmap[] sprites=music;
             Bitmap[] mainSprites=null;
             try{
-                int[][] pixels=TraxArt.mainMenu(game);
+                int[][] pixels=TraxArt.mainMenu(game,OgxBrand.tag(getContext().getAssets().open("ogx-tag.dxt3")));
                 mainSprites=new Bitmap[pixels.length];
                 for(int i=0;i<pixels.length;i++)mainSprites[i]=Bitmap.createBitmap(pixels[i],
                         TraxArt.MENU_WIDTH[i],TraxArt.MENU_HEIGHT[i],Bitmap.Config.ARGB_8888);

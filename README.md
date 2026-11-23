@@ -20,11 +20,11 @@ Play the original Xbox edition of *Fight Night Round 3* on Android. On an AYN Th
 
 <p align="center"><img src="https://github.com/user-attachments/assets/8f05b173-4967-4bf2-8672-9a1fee44b1f7" width="565" alt="A boxer lines up at the heavy bag while the training sheet below shows potential changes to eight attributes."></p>
 
-**Something to chase after the belt.** Open **Achievements** in the Xbox main menu. Get off the canvas and win for *Back from the canvas*, land at least 75% of 40 or more punches for *Thread the needle*, or take a career boxer to 10–0 for *Unblemished*. The cabinet also includes eight classic Xbox 360 career awards. Your unlocks travel with your career backup.
+**Something to chase after the belt.** Open **Achievements** in the Xbox main menu. Get off the canvas and win for *Back from the canvas*, land at least 75% of 40 or more punches for *Thread the needle*, or take a career boxer to 10–0 for *Unblemished*. There are **100 illustrated awards** worth **6,155 Fight Score**, including eight classic Xbox 360 career awards with their original point values. When a badge pops, the ribbon shows its score and the feat that earned it. Your unlocks travel with your career backup.
 
 <p align="center"><img src="docs/screenshots/achievements.jpg" width="820" alt="The Finishes shelf shows earned and locked achievements against the red Fight Night menu. Illustrated LB, RB and B prompts below switch shelves or return to the game."></p>
 
-**A soundtrack you can take into the ring.** Open **Music** in the main menu to carry EA Trax into fights. Turn on **FN3 Expanded Music** to add seven tracks by FN3OGX, including *Blood + Sweat* and *The Contender*.
+**A soundtrack you can take into the ring.** Open **Music** in the main menu to carry EA Trax into fights. The song stays at entrance volume through the walkouts and drops to 12% when the opening round clock starts. Turn on **FN3 Expanded Music** to add seven tracks by FN3OGX, including *Blood + Sweat* and *The Contender*.
 
 ## Picture and performance
 

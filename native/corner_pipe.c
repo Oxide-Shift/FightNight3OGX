@@ -26,6 +26,8 @@ static int answer_ping(const char *line) {
         send(STDIN_FILENO,line+6,1,MSG_NOSIGNAL);
         return 1;
     }
+    extern void fight_request_menu_cancel(void);
+    if (!strcmp(line,"MENUCANCEL\n") || !strcmp(line,"MENUCANCEL\r\n")){fight_request_menu_cancel();return 1;}
     if (!strcmp(line,"WAKE\n")) { fight_audio_sleep(0); puts("FNR3/1 AWAKE"); fflush(stdout); return 1; }
 #endif
 #ifndef CORNER_LINK_ONLY

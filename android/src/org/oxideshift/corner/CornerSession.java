@@ -131,6 +131,8 @@ public final class CornerSession {
     private long lastSongEvent;
     private RoundMusic musicPlayer;
     private boolean fightMusic,expandedMusic,bankReady,musicMenu=true;
+    private boolean roundStarted;
+    boolean fullMusicLevel(){return !roundStarted;}
     android.content.res.AssetManager musicAssets;
     private String retailStem="";
     private Runnable songObserver;
@@ -146,7 +148,7 @@ public final class CornerSession {
     }
     synchronized boolean continuousMusic(){return musicPlayer!=null && bankReady && (fightMusic || musicMenu);}
     private void syncTrack(){
-        if(musicPlayer!=null)musicPlayer.transport(retailStem,bankReady && !sleeping && introMovie==0 && (fightMusic || musicMenu),musicMenu);
+        if(musicPlayer!=null)musicPlayer.transport(retailStem,bankReady && !sleeping && introMovie==0 && (fightMusic || musicMenu),fullMusicLevel());
     }
     synchronized void musicOptions(boolean fight,boolean expanded){
         if(terminal || cancelled || menuDisc==null || (fightMusic==fight && expandedMusic==expanded))return;
@@ -180,6 +182,9 @@ public final class CornerSession {
     }
     synchronized int introMovie(){return introMovie;}
     private int trax;
+    synchronized void menuCancelSound(){
+        if(running && !terminal && !sleeping)commands.offer("MENUCANCEL");
+    }
     synchronized void setTrax(boolean ready){
         int route=ready?2:0;
         if(trax==route)return;
@@ -279,7 +284,9 @@ public final class CornerSession {
     synchronized void motors(Motors listener){motors=listener;}
     synchronized void line(String line) throws IOException {
         if(line.equals("FNR3/1 MUSICSCENE 0") || line.equals("FNR3/1 MUSICSCENE 1")){
-            musicMenu=line.endsWith("1");syncTrack();return;
+            musicMenu=line.endsWith("1");
+            if(musicMenu)roundStarted=false;
+            syncTrack();return;
         }
         if(line.equals("FNR3/1 MUSICMENU OPEN")){
             if(!cabinetOpen && !cabinetRequested && !musicRequested){musicRequested=true;if(cabinetListener!=null)cabinetListener.run();}
@@ -300,12 +307,12 @@ public final class CornerSession {
             return;
         }
         if(line.startsWith("FNR3/1 SHOT ")){
-            if(bout!=null && bout.seconds==0 && judging!=null && judging.last()==bout.round)startShot(15000);
+            if(!hasResult() && bout!=null && bout.seconds==0 && judging!=null && judging.last()==bout.round)startShot(15000);
             return;
         }
         if(line.equals("FNR3/1 BOUTBEGIN")){
             cameraShot=0;
-            boutNumber++;musicMenu=false;syncTrack();
+            boutNumber++;musicMenu=false;roundStarted=false;bout=null;syncTrack();
             reachedMenu();lastEvent="BOUT";
             result=finish="";resultsDismissed=false;lastScored=null;lastTotals=null;lastNames=fighters;
             announcements.reset();lastPulse=null;achievementRound=0;
@@ -336,9 +343,9 @@ public final class CornerSession {
         if(line.startsWith("FNR3/1 CALLOUT ")){
             String event=line.substring(15);
             if(event.matches("DOWN|GETUP|KO|TKO|HAYMAKER|STAGGER|WON|LOST|FINAL"))lastEvent=event;
-            if(event.equals("WON") || event.equals("LOST")){if(result.isEmpty())startShot(8000);result=event+"!!";}
-            if(event.equals("FINAL"))result="Final bell";
-            if(event.equals("KO") || event.equals("TKO"))finish=event;
+            if(event.equals("WON") || event.equals("LOST")){cameraShot=0;result=event+"!!";}
+            if(event.equals("FINAL")){cameraShot=0;result="Final bell";}
+            if(event.equals("KO") || event.equals("TKO")){cameraShot=0;finish=event;}
             if(achievements!=null && boutNumber>0 && (event.equals("WON") || event.equals("KO") || event.equals("TKO")))
                 achievements.result(result,finish,achievementRound);
             if(achievements!=null && boutNumber>0 && event.equals("STAGGER"))achievements.stagger();
@@ -431,6 +438,11 @@ public final class CornerSession {
                    bout.punches!=null && update.punches!=null){
                     int hits=update.punches[0]-bout.punches[0]+update.punches[2]-bout.punches[2];
                     if(hits>0 && hits<=4)motors.changed(20500,11000,40);
+                }
+                // The clock exists throughout introductions and only counts down once boxing starts.
+                if(!roundStarted && !musicMenu && !hasResult() && bout!=null &&
+                        bout.round==update.round && update.seconds>0 && update.seconds<bout.seconds){
+                    roundStarted=true;syncTrack();
                 }
                 if(update.seconds>0 && !hasResult())cameraShot=0;
                 achievementRound=Math.max(achievementRound,update.round);
@@ -533,9 +545,11 @@ public final class CornerSession {
         }
         int exit = -1;
         try {
-            if(menuDisc!=null)try{RetailMenu.install(menuDisc.toPath());}
+            if(menuDisc!=null && musicAssets!=null)try{RetailMenu.install(menuDisc.toPath(),OgxBrand.tag(musicAssets.open("ogx-tag.dxt3")));}
             catch(IOException e){synchronized(this){record("Main menu extensions unavailable: "+e.getMessage());}}
-            if(menuDisc!=null && thorGuide!=null)try{RetailMenu.installThorGuide(menuDisc.toPath(),thorGuide.load());}
+            if(menuDisc!=null)try{AndroidDeviceText.install(menuDisc.toPath());}
+        catch(IOException e){synchronized(this){record("Device text unavailable: "+e.getMessage());}}
+        if(menuDisc!=null && thorGuide!=null)try{RetailMenu.installThorGuide(menuDisc.toPath(),thorGuide.load());}
             catch(IOException e){synchronized(this){record("Thor controls guide unavailable: "+e.getMessage());}}
             ProcessBuilder builder=new ProcessBuilder(command).directory(directory);
             if(command.length>0 && frameFile!=null){

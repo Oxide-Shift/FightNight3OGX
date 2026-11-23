@@ -45,7 +45,7 @@ def main():
     sources.extend(src / "apu" / name for name in ("apu_core.c","apu_vp.c","apu_dsp.c","apu_mmio_hook.c"))
     sources.append(native / ("android_audio.c" if android else "desktop_audio.c"))
     sources.extend(native / name for name in
-                   ("host_main.c", "host_dispatch.c", "host_video.c", "frame_output.c", "corner_pipe.c","pad_input.c",
+                   ("host_main.c", "host_dispatch.c", "host_video.c", "frame_output.c", "corner_pipe.c","pad_input.c","menu_cancel.c",
                     "title_hooks.c", "fight_data.c", "fight_trax.c", "fight_timing.c"))
     arch = "x86_64" if args.target == "android-x86_64" else "aarch64"
     platform = [f"--target={arch}-linux-android30", "-fPIC"] if android else []

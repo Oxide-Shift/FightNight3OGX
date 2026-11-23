@@ -16,11 +16,22 @@ static int record_line(const char *s){return record("%s\n",s);}
 #undef printf
 #undef puts
 void fight_trax_init(const char *root){(void)root;}
+RECOMP_TLS uint32_t g_ecx;
 static uint8_t ram[0x600000];
 size_t g_xbox_total_ram=sizeof ram,g_xbox_map_size=sizeof ram;
 ptrdiff_t xbox_GetMemoryOffset(void){return (ptrdiff_t)(uintptr_t)ram;}
 static void set(uint32_t a,uint32_t v){memcpy(ram+a,&v,4);}
 int main(void){
+    g_ecx=0x62000;
+    set(g_ecx+0x48,1);set(g_ecx+0x4c,3);set(g_ecx+0x40,0x63000);set(0x63000,0x01707473);
+    set(0x63008,300);set(0x594da0,0x64000);set(0x6400c,0x65000);set(0x650e0,2);
+    fight_cinematic(60);assert(fight_present_interval()==2);
+    set(0x650e0,1);assert(fight_present_interval()==1);set(0x650e0,2);
+    set(g_ecx+0x54,300);assert(fight_present_interval()==1);set(g_ecx+0x54,0);
+    fight_cinematic(15);assert(fight_present_interval()==1);
+    fight_cinematic(100);assert(fight_present_interval()==2);
+    set(g_ecx+0x4c,4);assert(fight_present_interval()==1);
+    set(g_ecx+0x4c,3);music_scene(1);assert(fight_present_interval()==1);
     /* Switching profiles, an empty contract or leaving career must clear stale scouting. */
     uint32_t manager=0x59db10,profile=0x40000;
     set(manager+0x190,4);set(manager+0xf0,1);set(manager+0x3a4c,0x4ab240);

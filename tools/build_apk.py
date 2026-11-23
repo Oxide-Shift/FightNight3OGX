@@ -93,6 +93,7 @@ def main():
                 shutil.copyfile(app / "res/raw/corner_unlock.wav", res / "raw/corner_unlock.wav")
                 shutil.copyfile(app / "assets/achievement-badges.webp", assets / "achievement-badges.webp")
                 shutil.copyfile(app / "assets/crash-inbox.pem",assets / "crash-inbox.pem")
+                shutil.copyfile(app / "assets/ogx-tag.dxt3",assets / "ogx-tag.dxt3")
                 shutil.copyfile(app / "assets/thor-controls.dxt3",assets / "thor-controls.dxt3")
                 shutil.copyfile(app / "assets/corner.html", assets / "corner.html")
             run(sdk / "aapt2.exe", "compile", "--dir", res, "-o", resources)

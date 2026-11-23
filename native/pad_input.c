@@ -67,6 +67,10 @@ int pad_message(const char *line){
    handle. Leave enumeration, other slots, rumble and physical PC pads alone. */
 void fight_pad_read_player_one(uint32_t status,uint32_t handle,uint32_t player_one,uint32_t output){
     if(status || !handle || handle!=player_one || !output || !atomic_load(&connected))return;
+#ifdef __ANDROID__
+    extern void fight_service_menu_cancel(void);
+    fight_service_menu_cancel();
+#endif
     uint8_t *state=XBOX_HOST(output);
     while(atomic_flag_test_and_set(&lock)){}
     if(atomic_load(&connected)){

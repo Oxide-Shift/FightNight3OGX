@@ -8,6 +8,7 @@ int fight_trax_present(uint32_t artist,uint32_t title);
 void fight_data_init(const char *root);
 void fight_score_sample(void);
 int fight_round_break(void);
+unsigned fight_present_interval(void);
 int fight_sample_counters(uint32_t *identity,uint32_t *tick,uint32_t *thrown,uint32_t *landed);
 int64_t fight_now_ns(void);
 void fight_note_scanout(int64_t submit,int64_t copy);

@@ -108,6 +108,13 @@ public class FightEventsSmoke {
         check(s.camp().notes().contains("Debut") && !s.camp().notes().contains("opponent"));
         s.line("FNR3/1 CAMP - -");check(s.camp()==null);
         s.line("FNR3/1 BOUTBEGIN");
+        check(s.fullMusicLevel());
+        s.line("FNR3/1 MUSICSCENE 0");
+        s.line("FNR3/1 BOUT 1 180 100 100 100 100");
+        s.line("FNR3/1 BOUT 1 180 100 100 100 100");check(s.fullMusicLevel());
+        s.line("FNR3/1 BOUT 1 179 100 100 100 100");check(!s.fullMusicLevel());
+        s.line("FNR3/1 BOUT 2 180 100 100 100 100");check(!s.fullMusicLevel());
+        s.line("FNR3/1 MUSICSCENE 1");check(s.fullMusicLevel());
         s.line("FNR3/1 FIGHTERS 4741545449 57415244");
         s.line("FNR3/1 CARD 2 1,10,9,9,10,10,9 2,10,9,10,9,9,10");
         check(s.inLiveBout() && !s.showingResult());
@@ -122,6 +129,7 @@ public class FightEventsSmoke {
         check(hapticCount[0]==8 && s.callout().words.equals("8"));
         s.line("FNR3/1 COUNT 0");check(s.callout()==null);
         s.line("FNR3/1 CALLOUT TKO");s.line("FNR3/1 CALLOUT WON");
+        s.line("FNR3/1 SHOT 117");check(s.cameraShot()==0);
         // Play Now can return to its menu while the last round card still exists.
         check(s.showingResult() && !s.inLiveBout() && s.judging().round==2);
         s.leaveResults();check(!s.showingResult() && !s.inLiveBout());
