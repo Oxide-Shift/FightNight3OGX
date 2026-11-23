@@ -26,7 +26,7 @@ final class FightMenu extends LinearLayout {
     private static final java.util.regex.Pattern COUNTS=java.util.regex.Pattern.compile("(\\d+) / (\\d+)");
     private final Button play,disc,save,exportSave,settings,advanced;
     final Button card,defaultSave,updates;
-    final Switch soundtrack,fightMusic;
+    final Switch soundtrack;
     final TextView backupStatus;
     final Button saveFolder;
     final Spinner rumble;
@@ -98,7 +98,7 @@ final class FightMenu extends LinearLayout {
         graphicsDetails=column();advanced=disclosure("Advanced graphics",graphicsDetails);
         LinearLayout backend=new LinearLayout(c);graphicsDetails.addView(backend);
         renderer=choice(backend,"Renderer",new String[]{"Vulkan","Software (480p)"},"renderer",0);
-        antiAlias=new Switch(c);antiAlias.setText("Edge smoothing (2× MSAA)");antiAlias.setTextColor(PAPER);
+        antiAlias=new Switch(c);antiAlias.setText("Edge smoothing (2Ã— MSAA)");antiAlias.setTextColor(PAPER);
         antiAlias.setPadding(dp(9),0,dp(6),0);antiAlias.setMinHeight(dp(48));graphicsDetails.addView(antiAlias);
         antiAlias.setOnCheckedChangeListener((v,on)->{
             if(v.isEnabled() && on!=(preset.samples==2))savePreset(GraphicsPreset.select(preset.tier,on));
@@ -112,11 +112,8 @@ final class FightMenu extends LinearLayout {
         soundtrack=new Switch(c);soundtrack.setText("Menu music");soundtrack.setTextColor(PAPER);
         soundtrack.setTypeface(faces.body);soundtrack.setMinHeight(dp(46));
         soundtrack.setChecked(prefs.getBoolean("music",true));details.addView(soundtrack);
-        fightMusic=new Switch(c);fightMusic.setText("EA Trax during fights · 12%");fightMusic.setTextColor(PAPER);
-        fightMusic.setTypeface(faces.body);fightMusic.setMinHeight(dp(46));
-        fightMusic.setChecked(prefs.getBoolean("fightMusic",false));details.addView(fightMusic);
         saveFolder=button("Choose save backup folder",()->{},false);details.addView(saveFolder);
-        backupStatus=label("Automatic backups · Downloads / Fight Night Round 3",13,MUTED);details.addView(backupStatus);
+        backupStatus=label("Automatic backups Â· Downloads / Fight Night Round 3",13,MUTED);details.addView(backupStatus);
         LinearLayout strength=new LinearLayout(c);details.addView(strength);
         rumble=choice(strength,"Controller rumble",new String[]{"Off","Light","Medium","Full"},
                 "rumbleLevel",prefs.getBoolean("rumble",true)?3:0);
@@ -175,10 +172,10 @@ final class FightMenu extends LinearLayout {
         antiAlias.setEnabled(!sessionActive && !software && preset.tier!=0);
         antiAlias.setChecked(!software && preset.samples==2);
         String hint;
-        if(software)hint="Software renderer · 480p";
-        else if(preset==GraphicsPreset.LOW)hint="Nearest-neighbor scaling · edge smoothing off";
-        else hint=(preset.tier==2?"Sharpened image · 4× filtering":"Linear scaling · 2× filtering")
-                +(preset.samples==2?" · 2× MSAA":" · edge smoothing off");
+        if(software)hint="Software renderer Â· 480p";
+        else if(preset==GraphicsPreset.LOW)hint="Nearest-neighbor scaling Â· edge smoothing off";
+        else hint=(preset.tier==2?"Sharpened image Â· 4Ã— filtering":"Linear scaling Â· 2Ã— filtering")
+                +(preset.samples==2?" Â· 2Ã— MSAA":" Â· edge smoothing off");
         if(!hint.contentEquals(qualityHint.getText()))qualityHint.setText(hint);
     }
     private GradientDrawable surface(int fill,int outline){
@@ -251,13 +248,13 @@ final class FightMenu extends LinearLayout {
     }
     static String buildPhase(String message){
         if(message.startsWith("Linking") || message.startsWith("Saving prepared") || message.startsWith("Installing disc") || message.startsWith("Game ready"))
-            return "4/4 · Finish install";
+            return "4/4 Â· Finish install";
         if(message.startsWith("Compiling") || message.startsWith("Preparing shared") || message.startsWith("Reusing compiled") || message.startsWith("Retrying interrupted") || message.startsWith("Resuming saved"))
-            return "3/4 · Compile";
+            return "3/4 Â· Compile";
         if(message.startsWith("Finding") || message.startsWith("Identifying") || message.startsWith("Analyzing") || message.startsWith("Translating") ||
                 message.startsWith("Writing translated") || message.startsWith("Applying game fixes"))
-            return "2/4 · Translate";
-        return "1/4 · Prepare";
+            return "2/4 Â· Translate";
+        return "1/4 Â· Prepare";
     }
     void showBuildProgress(String message,long started){
         int visibility=started>0?VISIBLE:GONE;
@@ -271,10 +268,10 @@ final class FightMenu extends LinearLayout {
             long completed=Long.parseLong(counts.group(1)),total=Long.parseLong(counts.group(2));
             int value=(int)Math.min(1000,completed*1000/total);
             progress.setIndeterminate(false);progress.setProgress(value);
-            amount=value/10+"% of this stage  ·  ";
+            amount=value/10+"% of this stage  Â·  ";
         }else progress.setIndeterminate(true);
         long seconds=Math.max(0,(android.os.SystemClock.elapsedRealtime()-started)/1000);
-        String detail=buildPhase(message)+"  ·  "+amount+String.format(java.util.Locale.ROOT,"%d:%02d elapsed",seconds/60,seconds%60);
+        String detail=buildPhase(message)+"  Â·  "+amount+String.format(java.util.Locale.ROOT,"%d:%02d elapsed",seconds/60,seconds%60);
         if(!detail.contentEquals(progressDetail.getText()))progressDetail.setText(detail);
         progress.setContentDescription(message);
     }

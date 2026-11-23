@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
+from expanded_tracks import EXPANDED
 
 
 def main():
@@ -111,6 +112,8 @@ def main():
                 else:
                     archive.write(args.host, f"lib/{abi}/libfightnight_host.so")
                     archive.write(args.host.parent / "libframe_reader.so", f"lib/{abi}/libframe_reader.so")
+                for title in EXPANDED:
+                    archive.write(app / "music" / "expanded" / (title+".mp3"), "assets/expanded/"+title+".mp3", compress_type=zipfile.ZIP_STORED)
                 archive.write(app / "music/ring-focus-loop.ogg", "assets/ring-focus-loop.ogg", compress_type=zipfile.ZIP_STORED)
                 archive.write(project / "third-party/BoxingBell.txt", "assets/BoxingBell.txt")
         aligned = work / "aligned.apk"

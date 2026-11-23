@@ -184,7 +184,9 @@ final class FightBroadcast {
         }
 
     }
+    static final String[] EXPANDED={"Blood + Sweat","Body Shots","Corner Talk","Heavy Hands","Knockout City","No Mercy","The Contender"};
     static Song song(String stem){
+        for(String title:EXPANDED)if(title.equals(stem))return new Song(title,"FN3OGX",0);
         switch(stem){
         case "SEANBIG1":return new Song("Never Gonna Get It","Sean Biggs feat. Akon & Topic",0);
         case "ATMOSPH1":return new Song("The Arrival","Atmosphere",0);

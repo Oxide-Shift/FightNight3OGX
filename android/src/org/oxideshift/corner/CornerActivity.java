@@ -108,7 +108,6 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         },updates::tap);
         rumble=new PadRumble(this);
         menu.soundtrack.setOnCheckedChangeListener((v,on)->{prefs.edit().putBoolean("music",on).apply();syncMusic();});
-        menu.fightMusic.setOnCheckedChangeListener((v,on)->{prefs.edit().putBoolean("fightMusic",on).apply();if(engine.session!=null)engine.session.musicOption(on);syncMusic();});
         menu.saveFolder.setOnClickListener(v->chooseBackupFolder());
         body.addView(menu);back.setVisibility(View.GONE);
         root.post(this::immersive);
@@ -143,7 +142,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
             return;
         }
         new AlertDialog.Builder(this).setTitle("Where should we back up your career?")
-                .setMessage("Choose a folder you can find after reinstalling. Each profile gets its own backup folder. On a fresh install, we’ll restore your most recent career from here.")
+                .setMessage("Choose a folder you can find after reinstalling. Each profile gets its own backup folder. On a fresh install, weâ€™ll restore your most recent career from here.")
                 .setPositiveButton("Choose folder",(d,w)->chooseBackupFolder())
                 .setNegativeButton("Later",null).show();
     }
@@ -178,7 +177,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                     startActivityForResult(pick,WRITE_SAVE);
                 });
             }catch(Exception ex){
-                stage.delete();engine.note="Export failed — "+ex.getMessage();engine.importing=false;
+                stage.delete();engine.note="Export failed â€” "+ex.getMessage();engine.importing=false;
             }
         },"prepare-fight-save").start();
     }
@@ -190,7 +189,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                 if(out==null)throw new IOException("Could not open the selected destination");
                 Files.copy(stage.toPath(),out);
             }catch(Exception ex){
-                engine.note="Export failed — "+ex.getMessage();engine.importing=false;stage.delete();return;
+                engine.note="Export failed â€” "+ex.getMessage();engine.importing=false;stage.delete();return;
             }
             stage.delete();engine.note="Save exported for hakuX";engine.importing=false;
         },"write-fight-save").start();
@@ -286,7 +285,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                     engine.note="Save backup folder ready";
                 }
             }finally{engine.importing=false;}
-        },error->{engine.note="Save folder unavailable · "+error;engine.importing=false;});
+        },error->{engine.note="Save folder unavailable Â· "+error;engine.importing=false;});
     }
     private void importDocument(int request,Uri uri){
         if(engine.importing||active())return;
@@ -315,7 +314,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                         else try(InputStream in=fd.createInputStream()){
                             result=GameLibrary.importDisc(in,fd.getLength(),files.toPath(),status,prepare);
                         }
-                        engine.note=result+"  ·  Disc to ready "+DiscBuild.duration(SystemClock.elapsedRealtime()-engine.buildStarted);
+                        engine.note=result+"  Â·  Disc to ready "+DiscBuild.duration(SystemClock.elapsedRealtime()-engine.buildStarted);
                     }
                 }else{
                     selectImported(importCareer(uri,false));
@@ -326,7 +325,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                 String reason=e.getMessage();
                 if(e instanceof java.util.zip.ZipException)reason="The ZIP could not be opened. Choose the original export file.";
                 if(reason==null || reason.trim().isEmpty())reason=e.getClass().getSimpleName();
-                engine.note="Import failed — "+reason;
+                engine.note="Import failed â€” "+reason;
                 final String details=reason;
                 if(request==SAVE)main.post(()->{
                     if(!isFinishing()&&!isDestroyed()&&resumed)new AlertDialog.Builder(this)
@@ -383,7 +382,8 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                     : new String[]{host.getAbsolutePath(),discBuild.playableModule().getAbsolutePath(),xbe.getAbsolutePath(),disc.getAbsolutePath(),save.getAbsolutePath(),"--corner"};
             CornerSession next=new CornerSession(base,command);
             next.installMenuFrom(disc);
-            next.musicOption(prefs.getBoolean("fightMusic",false));
+            next.musicAssets=getAssets();
+            next.musicOptions(prefs.getBoolean("fightMusic",false),prefs.getBoolean("expandedMusic",false));
             String model=android.os.Build.MODEL+" "+android.os.Build.DEVICE+" "+android.os.Build.PRODUCT;
             if(model.toLowerCase(java.util.Locale.ROOT).contains("thor")){
                 android.content.res.AssetManager assets=getAssets();
@@ -408,7 +408,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
             engine.session=next;engine.note="Starting original Xbox";backups.start(save);
             new Thread(()->{try{next.run();}finally{backups.finish(save);}},"fight-night-host").start();
             showGame();
-        }catch(IOException e){engine.note="Cannot prepare video · "+e.getMessage();}
+        }catch(IOException e){engine.note="Cannot prepare video Â· "+e.getMessage();}
     }
     private void bindRumble(){
         int generation=++hapticGeneration;
@@ -617,9 +617,9 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         Map<String,Object> data=session==null?new CornerSession(base).snapshot():session.snapshot();
         String info=engine.note;
         if(info.isEmpty())info=ready?"Xbox disc ready":"Choose your original Xbox ISO to install Fight Night.";
-        if(live)info="Xbox session · "+data.get("phase");
+        if(live)info="Xbox session Â· "+data.get("phase");
         if(session!=null&&!live&&!engine.importing&&"Closed".equals(data.get("link"))&&engine.note.startsWith("Starting"))
-            info="Session ended · "+data.get("reason");
+            info="Session ended Â· "+data.get("reason");
         if(!host.isFile()&&ready)info="This package has no Fight Night runtime";
         menu.showBuildProgress(info,engine.importing?engine.buildStarted:0);
         menu.setKeepScreenOn(engine.importing && engine.buildStarted!=0);

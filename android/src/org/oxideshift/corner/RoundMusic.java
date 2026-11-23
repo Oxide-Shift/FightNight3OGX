@@ -18,20 +18,40 @@ final class RoundMusic implements AutoCloseable {
         void failed(RoundMusic player);
     }
     private final File game;
+    private final android.content.res.AssetManager assets;
+    private volatile boolean expanded;
+    private boolean pickExpanded;
+    synchronized void expanded(boolean enabled){
+        if(expanded!=enabled){
+            expanded=enabled;pickExpanded=enabled;
+            if(enabled){choice=randomExpanded();preview=choice;}
+            else choice=preview="";
+        }
+    }
+    private static String randomExpanded(){
+        String[] tracks=FightBroadcast.EXPANDED;
+        return tracks[java.util.concurrent.ThreadLocalRandom.current().nextInt(tracks.length)];
+    }
     private final Listener listener;
     private boolean playing,closed;
     private String first="",choice="",preview="";
     // File reads can announce the next song while the current song is still audible.
     synchronized void requested(String stem,boolean audition){
+        if(expanded && !audition)return;
         choice=stem;
         if(audition)preview=stem;
     }
-    private synchronized String takeChoice(){String next=choice;choice="";return next;}
+    private synchronized String takeChoice(){
+        String next=choice;choice="";pickExpanded=false;return next;
+    }
     private synchronized boolean changeAfterBlock(String current){
-        boolean change=!preview.isEmpty() && !preview.equals(current);
+        boolean change=(!preview.isEmpty() && !preview.equals(current)) || (!expanded && isExpanded(current));
         preview="";return change;
     }
-    RoundMusic(File game,Listener listener){this.game=game;this.listener=listener;}
+    RoundMusic(File game,android.content.res.AssetManager assets,boolean expanded,Listener listener){
+        this.game=game;this.assets=assets;this.expanded=expanded;this.pickExpanded=expanded;this.listener=listener;
+    }
+    private static boolean isExpanded(String stem){return java.util.Arrays.asList(FightBroadcast.EXPANDED).contains(stem);}
     void start(){new Thread(this::run,"fight-ea-trax").start();}
     synchronized void transport(String stem,boolean play){
         if(first.isEmpty() && !stem.isEmpty())first=stem;
@@ -47,7 +67,10 @@ final class RoundMusic implements AutoCloseable {
         if(!closed && out.getPlayState()!=AudioTrack.PLAYSTATE_PLAYING)out.play();
         return !closed;
     }
-    private synchronized String initialTrack(){return first;}
+    private synchronized String initialTrack(){
+        if(pickExpanded){pickExpanded=false;choice=preview="";return randomExpanded();}
+        return first;
+    }
     private File archive()throws IOException{
         File entry=game;
         for(String part:new String[]{"audio","music","music.big"}){
@@ -83,50 +106,53 @@ final class RoundMusic implements AutoCloseable {
         }catch(InterruptedException e){Thread.currentThread().interrupt();listener.failed(this);}
     }
     private void stream(DiscTrax disc,AudioTrack out)throws IOException,InterruptedException{
-        List<DiscTrax.Song> queue=new ArrayList<>();
-        DiscTrax.Song last=null;
+        List<String> queue=new ArrayList<>();
+        java.util.Map<String,DiscTrax.Song> originals=new java.util.LinkedHashMap<>();
+        for(DiscTrax.Song song:disc.songs)originals.put(song.stem,song);
+        String last="";
+        boolean mixed=expanded;
         String next=initialTrack();
         short[] pcm=new short[DiscTrax.MAX_FRAMES*2];
         long written=0,head=0,previousHead=0;
         java.util.ArrayDeque<Cue> cues=new java.util.ArrayDeque<>();
         boolean fadeIn=false;
         while(ready(out)){
+            if(mixed!=expanded){mixed=expanded;queue.clear();}
             if(queue.isEmpty()){
-                queue.addAll(disc.songs);Collections.shuffle(queue);
-                if(queue.size()>1 && queue.get(0)==last)Collections.swap(queue,0,1);
+                queue.addAll(originals.keySet());
+                if(mixed)Collections.addAll(queue,FightBroadcast.EXPANDED);
+                Collections.shuffle(queue);
+                if(queue.size()>1 && queue.get(0).equals(last))Collections.swap(queue,0,1);
             }
-            DiscTrax.Song song=null;
-            if(!next.isEmpty()){
-                for(DiscTrax.Song candidate:disc.songs)
-                    if(candidate.stem.equals(next) && candidate!=last){song=candidate;break;}
-                if(last==null && song==null)throw new IOException("Menu track missing from disc");
-            }
-            if(song==null)song=queue.get(0);
-            queue.remove(song);
-            last=song;disc.select(song);cues.addLast(new Cue(written/2,song.stem));
-            int frames;
-            while(ready(out) && (frames=disc.read(pcm))>0){
-                boolean skip=changeAfterBlock(song.stem);
-                if(skip)frames=Math.min(frames,441);
-                if(fadeIn || skip){
-                    int ramp=Math.min(441,frames);
-                    for(int i=0;i<ramp;i++){
-                        float gain=(skip?ramp-1-i:i)/(float)Math.max(1,ramp-1);
-                        pcm[i*2]=(short)(pcm[i*2]*gain);pcm[i*2+1]=(short)(pcm[i*2+1]*gain);
+            String stem=!next.equals(last) && (originals.containsKey(next) || (mixed && isExpanded(next)))?next:queue.get(0);
+            queue.remove(stem);last=stem;
+            try(ExpandedAudio extra=isExpanded(stem)?new ExpandedAudio(assets,stem):null){
+                if(extra==null)disc.select(originals.get(stem));
+                cues.addLast(new Cue(written/2,stem));
+                int frames;
+                while(ready(out) && (frames=extra==null?disc.read(pcm):extra.read(pcm))>0){
+                    boolean skip=changeAfterBlock(stem);
+                    if(skip)frames=Math.min(frames,441);
+                    if(fadeIn || skip){
+                        int ramp=Math.min(441,frames);
+                        for(int i=0;i<ramp;i++){
+                            float gain=(skip?ramp-1-i:i)/(float)Math.max(1,ramp-1);
+                            pcm[i*2]=(short)(pcm[i*2]*gain);pcm[i*2+1]=(short)(pcm[i*2+1]*gain);
+                        }
+                        fadeIn=false;
                     }
-                    fadeIn=false;
+                    for(int at=0;at<frames*2;){
+                        if(!ready(out))return;
+                        int n=out.write(pcm,at,frames*2-at,AudioTrack.WRITE_BLOCKING);
+                        if(n<=0)throw new IOException("EA Trax write failed: "+n);
+                        at+=n;written+=n;
+                        long raw=out.getPlaybackHeadPosition()&0xffffffffL;
+                        head+=(raw-previousHead)&0xffffffffL;previousHead=raw;
+                        while(!cues.isEmpty() && head>cues.peekFirst().frame)
+                            listener.audible(this,cues.removeFirst().stem);
+                    }
+                    if(skip){fadeIn=true;break;}
                 }
-                for(int at=0;at<frames*2;){
-                    if(!ready(out))return;
-                    int n=out.write(pcm,at,frames*2-at,AudioTrack.WRITE_BLOCKING);
-                    if(n<=0)throw new IOException("EA Trax write failed: "+n);
-                    at+=n;written+=n;
-                    long raw=out.getPlaybackHeadPosition()&0xffffffffL;
-                    head+=(raw-previousHead)&0xffffffffL;previousHead=raw;
-                    while(!cues.isEmpty() && head>cues.peekFirst().frame)
-                        listener.audible(this,cues.removeFirst().stem);
-                }
-                if(skip){fadeIn=true;break;}
             }
             next=takeChoice();
         }

@@ -4,6 +4,7 @@ import io
 from pathlib import Path, PurePosixPath
 import re
 import zipfile
+from expanded_tracks import EXPANDED
 
 from build_disc_kit import NATIVES
 
@@ -12,6 +13,7 @@ def audit(apk):
     required = {"AndroidManifest.xml", "classes.dex", "resources.arsc", "res/raw/corner_unlock.wav",
                 "assets/achievement-badges.webp", "assets/crash-inbox.pem", "assets/thor-controls.dxt3", "assets/corner.html", "assets/ring-focus-loop.ogg", "assets/BoxingBell.txt",
                 "assets/disc-kit.zip", "assets/disc-kit.id"}
+    required.update("assets/expanded/"+title+".mp3" for title in EXPANDED)
     required.update({"res/drawable-nodpi-v4/corner_glove.png","res/mipmap-xxxhdpi-v4/fight_night.png","res/mipmap-anydpi-v26/fight_night.xml"})
     required.update("lib/arm64-v8a/" + name for name in NATIVES)
     signatures = {"META-INF/CORNER.RSA", "META-INF/CORNER.SF", "META-INF/MANIFEST.MF"}

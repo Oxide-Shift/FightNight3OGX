@@ -10,7 +10,7 @@ import java.util.Arrays;
 /** Adds a selectable row to the imported Xbox front end. Only the app's extracted copy is edited. */
 final class RetailMenu {
     private static final String GROUP="screengroups/mainmenu/mainmenu.big";
-    private static final byte[] VERSION=ascii("FNR3-ACHIEVEMENTS-1");
+    private static final byte[] LEGACY=ascii("FNR3-ACHIEVEMENTS-1"), VERSION=ascii("FNR3-ACHIEVEMENTS-2");
     private static final int ALIGN=128;
 
     private static byte[] ascii(String s){return s.getBytes(StandardCharsets.US_ASCII);}
@@ -61,19 +61,19 @@ final class RetailMenu {
                     throw new IOException("Unrecognized main menu revision");
         }catch(NoSuchAlgorithmException impossible){throw new AssertionError(impossible);}
     }
-    private static byte[] constants(byte[] data)throws IOException{
-        verify(data,"dc26cee7d1afbc8f0016551c7c582eed21f068415f1c93801cda548ac3e9602a");
+    private static byte[] constants(byte[] data,boolean legacy)throws IOException{
+        verify(data,legacy?"0dfcda4b1bffbe8fea0ffc2db3e0a2d3e25b716aa61dc5642285d04ebc91e00a":"dc26cee7d1afbc8f0016551c7c582eed21f068415f1c93801cda548ac3e9602a");
         ByteArrayOutputStream out=new ByteArrayOutputStream();out.write(data);
         ByteBuffer table=little(data);
-        for(int slot:new int[]{278,281,282,310,311}){
+        for(int slot:new int[]{278,281,282,310,311,312}){
             int pointer=table.getInt(28)+slot*8+4,start=table.getInt(pointer),end=start;
             while(data[end]!=0)end++;
             String original=new String(data,start,end-start,StandardCharsets.US_ASCII);
             int split=original.lastIndexOf(',');
             table.putInt(pointer,out.size());
             // The last two entries are diagnostic strings for Xenon-only sign-in prompts.
-            String value=slot==310?"m_sCurrentScreenId":slot==311?"fnr3/achievements":
-                    original.substring(0,split)+(slot==278?",ACHIEVEMENTS":",~DNA~")+original.substring(split);
+            String value=slot==310?"m_sCurrentScreenId":slot==311?"fnr3/achievements":slot==312?"fnr3/music":
+                    original.substring(0,split)+(slot==278?(legacy?",MUSIC":",ACHIEVEMENTS,MUSIC"):(legacy?",~DNA~":",~DNA~,~DNA~"))+original.substring(split);
             out.write(ascii(value));
             out.write(0);
         }
@@ -83,8 +83,8 @@ final class RetailMenu {
         code.put((byte)opcode);code.position((code.position()+3)&~3);
         code.putInt(target-code.position()-4);
     }
-    private static byte[] actions(byte[] data)throws IOException{
-        verify(data,"15283ba1c487856314ca40f1b87597f364e42328bc461e223b9db1e8c21324dc");
+    private static byte[] actions(byte[] data,boolean legacy)throws IOException{
+        verify(data,legacy?"78a590c7e640c412866c7458d7d3b763f5e2752807eb16db7640ca3dcaa15246":"15283ba1c487856314ca40f1b87597f364e42328bc461e223b9db1e8c21324dc");
         ByteBuffer code=little(data);
         // The SELECT handler has already pushed the carousel index from register 4.
         // Dispatch from the unused Xenon sign-in block in this Xbox revision.
@@ -93,11 +93,16 @@ final class RetailMenu {
         code.position(0xd02c);code.put((byte)0x4c).put((byte)0xb5).put((byte)4).put((byte)0x49);
         code.put((byte)0x12);jump(code,0x9d,0xd040);
         code.put((byte)0x17);jump(code,0x99,0xcfe8); // Stock Create Champ path.
-        code.position(0xd040);code.put((byte)0xb5).put((byte)5).put((byte)0x49).put((byte)0x12);
-        jump(code,0x9d,0xd0b0); // Stock menu.select() for all other rows.
+        code.position(0xd040);code.put((byte)0x4c).put((byte)0xb5).put((byte)5).put((byte)0x49).put((byte)0x12);
+        jump(code,0x9d,0xd060);code.put((byte)0x17);
         // Assign the extension screen ID on a temporary object, leaving the menu stack intact.
         code.put((byte)0x59).put((byte)0x43);
         code.put((byte)0xa3).putShort((short)303).put((byte)0xa3).putShort((short)304);
+        code.put((byte)0x4f).put((byte)0x76).put((byte)0x3e);
+        code.position(0xd060);code.put((byte)0xb5).put((byte)6).put((byte)0x49).put((byte)0x12);
+        jump(code,0x9d,0xd0b0);
+        code.put((byte)0x59).put((byte)0x43);
+        code.put((byte)0xa3).putShort((short)303).put((byte)0xa3).putShort((short)305);
         code.put((byte)0x4f).put((byte)0x76).put((byte)0x3e);
         while(code.position()<0xd082)code.put((byte)0x04);
         return data;
@@ -154,9 +159,13 @@ final class RetailMenu {
             if(Arrays.equals(tail,VERSION))return;
         }
         byte[] outer=Files.readAllBytes(archive);
-        verify(outer,"e6dfe436df6e50f788b792f69ea2bdfef6026aa636357a0ab1aeac186b923647");
+        boolean legacy=Arrays.equals(Arrays.copyOfRange(outer,outer.length-LEGACY.length,outer.length),LEGACY);
+        if(legacy){
+            outer=Arrays.copyOf(outer,outer.length-LEGACY.length);
+            little(outer).putInt(4,outer.length);
+        }else verify(outer,"e6dfe436df6e50f788b792f69ea2bdfef6026aa636357a0ab1aeac186b923647");
         byte[] group=TraxArt.inflate(member(outer,GROUP),2*1024*1024);
-        byte[] apt=actions(member(group,"mainmenu.apt")),pool=constants(member(group,"mainmenu.const"));
+        byte[] apt=actions(member(group,"mainmenu.apt"),legacy),pool=constants(member(group,"mainmenu.const"),legacy);
         group=replace(replace(group,"mainmenu.apt",apt),"mainmenu.const",pool);
         byte[] result=replace(outer,GROUP,group);
         little(result).putInt(4,result.length+VERSION.length);

@@ -30,6 +30,8 @@ int main(void){
     set(value+4,1u<<25);set(value+8,string);
     strcpy((char *)ram+string+8,"fnr3/achievements");
     fight_career_property(key,value);assert(!strcmp(events,"FNR3/1 CABINET OPEN\n"));events[0]=0;
+    strcpy((char *)ram+string+8,"fnr3/music");
+    fight_career_property(key,value);assert(!strcmp(events,"FNR3/1 MUSICMENU OPEN\n"));events[0]=0;
     strcpy((char *)ram+string+8,"1screengroups/mcon/mcon");
     fight_career_property(key,value);fight_career_property(key,value);
     assert(!strcmp(events,"FNR3/1 CAREERPAGE mcon 1\n"));events[0]=0;
@@ -43,15 +45,15 @@ int main(void){
     fight_career_property(key,value);assert(!strcmp(events,"FNR3/1 CAREERPAGE train 3\n"));events[0]=0;
     const char *drills[]={"lp-Training-HeavyBag","lp-Training-ComboDummy","lp-Training-WeightLifting","lp-Tutorial-SparringInfo"};
     for(unsigned i=0;i<4;i++){
-        char expected[40];
+        char expected[80];
         snprintf((char *)ram+string+8,64,"1screengroups/load/%s",drills[i]);
-        snprintf(expected,sizeof expected,"FNR3/1 CAREERPAGE drill %u\n",i+1);
+        snprintf(expected,sizeof expected,"%sFNR3/1 CAREERPAGE drill %u\n",i==0?"FNR3/1 MUSICSCENE 0\n":"",i+1);
         fight_career_property(key,value);assert(!strcmp(events,expected));events[0]=0;
     }
     strcpy((char *)ram+string+8,"Ascreengroups/cac/cac");
     fight_career_property(key,value);assert(!strcmp(events,"FNR3/1 CAREERPAGE cac 10\n"));events[0]=0;
     strcpy((char *)ram+string+8,"1screengroups/playnow/playnow");
-    fight_career_property(key,value);assert(!strcmp(events,"FNR3/1 CAREERPAGE -\n"));events[0]=0;
+    fight_career_property(key,value);assert(!strcmp(events,"FNR3/1 MUSICSCENE 1\nFNR3/1 CAREERPAGE -\n"));events[0]=0;
     strcpy((char *)ram+string+8,"3screengroups/train/train");
     fight_career_property(key,value);assert(!events[0]);
     set(manager+0x190,4);

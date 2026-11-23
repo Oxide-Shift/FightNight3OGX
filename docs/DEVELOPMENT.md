@@ -2,6 +2,8 @@
 
 Use a Windows machine with Python 3.11 or newer, a JDK, Android SDK platform 34 and build tools 36, and Android NDK r30. The app targets ARM64 Android. The source tree contains the Android launcher, native runtime integration, build tools and tests.
 
+For local APK builds, extract the seven MP3s from the [FN3 Expanded Music source pack](https://github.com/Oxide-Shift/FightNight3OGX/releases/download/v0.4.0-alpha.51/FN3-Expanded-Music.zip) directly into `android/music/expanded/`. The release APK already includes them. The pack SHA-256 is `7f2269a7fdff126855d92cf38434a898e61865efe58a224d9f7c6103e1ad0a1c`.
+
 The Xbox toolkit revision is `c5d3979d8b05381b3a9c63af95b4114ef667c5b2` from [xboxrecomp](https://github.com/DouglasHalse/xboxrecomp). Apply `patches/pop16.patch` and `patches/setjmp-frame.patch` to that checkout. The Android reference revision is `d5b86480d2692aa4f64f1df952fe5043e748cf42` from [SSX3RecompAndroid](https://github.com/DouglasHalse/SSX3RecompAndroid).
 
 Keep the analysis directory and generated address map outside the repository. Set the paths below to your toolchain and private build directory. The current kit builder takes its Android Python, Capstone and LLVM tools from a local FF7Recomp 1.1.41 compiler APK. Provide the matching Capstone license text. Keep the signing folder for subsequent APK upgrades.

@@ -26,10 +26,29 @@ static void partial_reads(void){
     assert(!bytes[0] && !bytes[4] && bytes[5]);
     memset(bytes,1,sizeof bytes);fight_music_read(23,UINT64_MAX,5,bytes);
     assert(!bytes[0] && bytes[1] && bytes[4]);
+    fight_music_open(27,"music.big",9);memset(bytes,1,sizeof bytes);
+    fight_music_read(27,33,5,bytes);assert(!bytes[0] && !bytes[4]);fight_music_close(27);
     memset(bytes,1,sizeof bytes);fight_music_voice(0);fight_music_read(23,0,64,bytes);
     fight_music_voice(1);fight_music_read(42,0,64,bytes);
     fight_music_close(23);fight_music_read(23,0,64,bytes);
     for(unsigned i=0;i<64;i++)assert(bytes[i]==1);
     puts("EA Trax byte ranges, cursor reads, opt-out, other files and closed handles passed.");
 }
-int main(void){partial_reads();return 0;}
+static void scene_cues(void){
+    struct SampleSpan span={10,16};
+    unsigned char buffer[128];
+    cue_spans[0]=cue_spans[1]=&span;cue_counts[0]=cue_counts[1]=1;
+    const char *names[]={"audio/Music/SeaB_LP1.bnk","AUDIO/MUSIC/INTRO.BIG","audio/music/rgirl.big","audio/speech/intro.big","audio/aems/Bell.abk"};
+    for(unsigned i=0;i<5;i++){
+        for(int voice=0;voice<2;voice++)for(int fight=0;fight<2;fight++){
+            fight_music_voice(voice);fight_music_cues(fight);memset(buffer,0x67,sizeof buffer);
+            fight_music_open(40,names[i],strlen(names[i]));
+            fight_music_read(40,0,sizeof buffer,buffer);fight_music_close(40);
+            for(unsigned j=0;j<sizeof buffer;j++){
+                int silent=voice && fight && (i==0?j>=100:(i==1 || i==2) && j>=10 && j<16);
+                assert(buffer[j]==(silent?0:0x67));
+            }
+        }
+    }
+}
+int main(void){partial_reads();scene_cues();return 0;}

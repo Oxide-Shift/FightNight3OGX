@@ -98,7 +98,8 @@ public final class CornerSession {
         if(motors!=null)motors.callout();
     }
     volatile boolean cabinetOpen;
-    private boolean cabinetRequested;
+    private boolean cabinetRequested,musicRequested;
+    synchronized boolean takeMusicRequest(){boolean pending=musicRequested;musicRequested=false;return pending;}
     private Runnable cabinetListener;
     synchronized void onCabinet(Runnable listener){cabinetListener=listener;}
     synchronized boolean takeCabinetRequest(){boolean pending=cabinetRequested;cabinetRequested=false;return pending;}
@@ -129,7 +130,8 @@ public final class CornerSession {
     synchronized void reachedMenu(){starting=false;introMovie=0;if(!inLiveBout())lastEvent="MENU";}
     private long lastSongEvent;
     private RoundMusic musicPlayer;
-    private boolean musicOption,bankReady;
+    private boolean fightMusic,expandedMusic,bankReady,musicMenu=true;
+    android.content.res.AssetManager musicAssets;
     private String retailStem="";
     private Runnable songObserver;
     private java.util.function.Consumer<String> menuSelection;
@@ -142,18 +144,23 @@ public final class CornerSession {
         song=value;
         if(songObserver!=null)songObserver.run();
     }
-    synchronized boolean continuousMusic(){return musicPlayer!=null && bankReady;}
+    synchronized boolean continuousMusic(){return musicPlayer!=null && bankReady && (fightMusic || musicMenu);}
     private void syncTrack(){
-        if(musicPlayer!=null)musicPlayer.transport(retailStem,bankReady && !sleeping && introMovie==0);
+        if(musicPlayer!=null)musicPlayer.transport(retailStem,bankReady && !sleeping && introMovie==0 && (fightMusic || musicMenu));
     }
-    synchronized void musicOption(boolean enabled){
-        if(musicOption==enabled || terminal || cancelled || menuDisc==null)return;
-        musicOption=enabled;bankReady=false;
-        if(!enabled){
+    synchronized void musicOptions(boolean fight,boolean expanded){
+        if(terminal || cancelled || menuDisc==null || (fightMusic==fight && expandedMusic==expanded))return;
+        fightMusic=fight;expandedMusic=expanded;
+        commands.offer(fight?"TRAXCUES 1":"TRAXCUES 0");
+        if(musicPlayer!=null && (fight || expanded)){
+            musicPlayer.expanded(expanded);syncTrack();return;
+        }
+        bankReady=false;
+        if(!fight && !expanded){
             if(musicPlayer!=null)musicPlayer.close();
             musicPlayer=null;commands.offer("TRAXVOICE 0");publishSong(null);return;
         }
-        musicPlayer=new RoundMusic(menuDisc,new RoundMusic.Listener(){
+        musicPlayer=new RoundMusic(menuDisc,musicAssets,expanded,new RoundMusic.Listener(){
             public void prepared(RoundMusic player){
                 synchronized(CornerSession.this){if(player==musicPlayer)commands.offer("TRAXVOICE 1");}
             }
@@ -271,6 +278,13 @@ public final class CornerSession {
     private Motors motors;
     synchronized void motors(Motors listener){motors=listener;}
     synchronized void line(String line) throws IOException {
+        if(line.equals("FNR3/1 MUSICSCENE 0") || line.equals("FNR3/1 MUSICSCENE 1")){
+            musicMenu=line.endsWith("1");syncTrack();return;
+        }
+        if(line.equals("FNR3/1 MUSICMENU OPEN")){
+            if(!cabinetOpen && !cabinetRequested && !musicRequested){musicRequested=true;if(cabinetListener!=null)cabinetListener.run();}
+            return;
+        }
         if(line.equals("FNR3/1 CABINET OPEN")){
             if(!cabinetOpen && !cabinetRequested){cabinetRequested=true;if(cabinetListener!=null)cabinetListener.run();}
             return;
@@ -291,7 +305,7 @@ public final class CornerSession {
         }
         if(line.equals("FNR3/1 BOUTBEGIN")){
             cameraShot=0;
-            boutNumber++;
+            boutNumber++;musicMenu=false;syncTrack();
             reachedMenu();lastEvent="BOUT";
             result=finish="";resultsDismissed=false;lastScored=null;lastTotals=null;lastNames=fighters;
             announcements.reset();lastPulse=null;achievementRound=0;
@@ -520,7 +534,7 @@ public final class CornerSession {
         int exit = -1;
         try {
             if(menuDisc!=null)try{RetailMenu.install(menuDisc.toPath());}
-            catch(IOException e){synchronized(this){record("Achievements menu unavailable: "+e.getMessage());}}
+            catch(IOException e){synchronized(this){record("Main menu extensions unavailable: "+e.getMessage());}}
             if(menuDisc!=null && thorGuide!=null)try{RetailMenu.installThorGuide(menuDisc.toPath(),thorGuide.load());}
             catch(IOException e){synchronized(this){record("Thor controls guide unavailable: "+e.getMessage());}}
             ProcessBuilder builder=new ProcessBuilder(command).directory(directory);

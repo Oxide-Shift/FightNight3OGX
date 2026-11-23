@@ -85,11 +85,20 @@ final class AchievementDisplay {
             navigationStream=sounds.play(id,volume,volume,1,0,1f);
         }else sounds.play(id,.45f,.45f,1,0,1f);
     }
-    private void open(){
+    private void open(boolean music){
         if(gallery!=null)return;
         neutralPad.run();
         Dialog dialog=new Dialog(activity,android.R.style.Theme_Material_NoActionBar_Fullscreen);
-        AchievementGallery page=new AchievementGallery(activity,fonts,awards,top.getWidth(),artwork.get(),this::leave,this::play);
+        android.content.SharedPreferences prefs=activity.getSharedPreferences("fight-setup",Activity.MODE_PRIVATE);
+        AchievementGallery.MusicSettings options=music?new AchievementGallery.MusicSettings(){
+            private String key(int row){return row==0?"fightMusic":"expandedMusic";}
+            public boolean enabled(int row){return prefs.getBoolean(key(row),false);}
+            public void toggle(int row){
+                prefs.edit().putBoolean(key(row),!enabled(row)).apply();
+                session.musicOptions(enabled(0),enabled(1));
+            }
+        }:null;
+        AchievementGallery page=new AchievementGallery(activity,fonts,awards,top.getWidth(),artwork.get(),this::leave,this::play,options);
         FrameLayout layers=new FrameLayout(activity);
         layers.addView(page);
         dialog.setContentView(layers);
@@ -158,7 +167,8 @@ final class AchievementDisplay {
     }
     void refresh(FrameLayout lower){
         lowerDisplay=lower;
-        if(session.takeCabinetRequest())open();
+        if(session.takeMusicRequest())open(true);
+        else if(session.takeCabinetRequest())open(false);
         if(gallery!=null)routePrompts(galleryPage.getVisibility()==View.VISIBLE?lower:null);
         if(banner!=null || gallery!=null || soundLoading)return;
         FrameLayout host=lower!=null?lower:top;

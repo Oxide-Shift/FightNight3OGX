@@ -131,6 +131,12 @@ static int same_property(const uint8_t *string,const char *name) {
     return string[n]==0;
 }
 
+static atomic_int in_music_menu=1;
+static void music_scene(int menu){
+    if(atomic_exchange(&in_music_menu,menu)!=menu){
+        printf("FNR3/1 MUSICSCENE %d\n",menu);fflush(stdout);
+    }
+}
 static void career_page(const char *id) {
     static char previous[64];
     static const char prefix[]="screengroups/";
@@ -140,6 +146,10 @@ static void career_page(const char *id) {
     char route[64]="-";
     if(id && ((id[0]>='1' && id[0]<='9') || id[0]=='A') && !strncmp(id+1,prefix,sizeof prefix-1)){
         const char *group=id+sizeof prefix;
+        if(!strncmp(group,"load/",5))music_scene(0);
+        else if(!strncmp(group,"mainmenu/",9) || !strncmp(group,"careercentral/",14) ||
+                !strncmp(group,"playnow/",8) || !strncmp(group,"options/",8) ||
+                !strncmp(group,"mcon/",5) || !strncmp(group,"fightstore/",11))music_scene(1);
         if(!strcmp(group,"careercentral/careercentral"))atomic_store(&career_frontend,1);
         else if(!strcmp(group,"mainmenu/mainmenu") || !strcmp(group,"playnow/playnow"))atomic_store(&career_frontend,0);
         for(unsigned i=0;i<sizeof groups/sizeof *groups;i++){
@@ -192,6 +202,7 @@ void fight_career_property(uint32_t key,uint32_t value) {
         const uint8_t *s=type==1?guest(word(v+8),72):NULL;
         const char *page=s && memchr(s+8,0,64)?(const char *)s+8:NULL;
         if(page && !strcmp(page,"fnr3/achievements")){puts("FNR3/1 CABINET OPEN");fflush(stdout);}
+        else if(page && !strcmp(page,"fnr3/music")){puts("FNR3/1 MUSICMENU OPEN");fflush(stdout);}
         else career_page(page);
         return;
     }
@@ -418,6 +429,7 @@ static void sample_knockdowns(const uint8_t *root, int round) {
     uint32_t hits[2]={word(stats+0x1c28),word(stats+0x1d18)};
     int same=callout_bout==id;
     if (!same) {
+        atomic_store(&in_music_menu,0);
         puts("FNR3/1 BOUTBEGIN");fflush(stdout);
         reported_winner=0;recent_scorer=-1;hit_age=0;stagger_window=0;stumble_cue=0;referee_count=0;
     } else {
@@ -582,37 +594,41 @@ static struct Track tracks[32];
 static unsigned track_count;
 static _Atomic uint32_t files[16];
 static _Atomic uint64_t positions[16];
-static atomic_int last_song;
+static atomic_int last_song, cue_override;
+static atomic_uint bank_kind[16];
+void fight_music_cues(int enabled){atomic_store(&cue_override,enabled);}
 static uint32_t big32(const unsigned char *p) {return (uint32_t)p[0]<<24 | (uint32_t)p[1]<<16 | (uint32_t)p[2]<<8 | p[3];}
-/* Only music.big data returned to the guest is changed. Chunk headers, timing,
- * channel offsets and every other file (including movie audio) remain retail. */
+/* Streamed music and short scene cues use separate sample ranges. */
 struct SampleSpan { uint32_t first,end; };
 static struct SampleSpan *samples;
-static size_t sample_count,sample_capacity;
+static size_t sample_count;
 static char bank_path[1024];
 static atomic_int bank_available,index_state,voice_requested;
-static int index_samples(void){
-    FILE *f=fopen(bank_path,"rb");
+static int index_streams(const char *path,const struct Track *entries,unsigned count,
+                         struct SampleSpan **result,size_t *used){
+    struct SampleSpan *spans=NULL;
+    size_t nspans=0,capacity=0;
+    FILE *f=fopen(path,"rb");
     if(!f)return 0;
     int ok=1;
     unsigned char header[8];
-    for(unsigned i=0;ok && i<track_count;i++){
-        uint32_t at=tracks[i].begin,end=tracks[i].end;
+    for(unsigned i=0;ok && i<count;i++){
+        uint32_t at=entries[i].begin,end=entries[i].end;
         int ended=0;
         while(at<end){
             if(end-at<8 || fseek(f,(long)at,SEEK_SET) || fread(header,1,8,f)!=8){ok=0;break;}
             uint32_t len=word(header+4);
             if(len<8 || len>end-at){ok=0;break;}
             if(!memcmp(header,"SCDl",4)){
-                if(len<=20 || (sample_count && at<samples[sample_count-1].end)){ok=0;break;}
-                if(sample_count==sample_capacity){
-                    size_t capacity=sample_capacity?sample_capacity*2:4096;
-                    if(capacity>1024*1024){ok=0;break;}
-                    void *more=realloc(samples,capacity*sizeof *samples);
+                if(len<=20 || (nspans && at<spans[nspans-1].end)){ok=0;break;}
+                if(nspans==capacity){
+                    size_t larger=capacity?capacity*2:4096;
+                    if(larger>1024*1024){ok=0;break;}
+                    void *more=realloc(spans,larger*sizeof *spans);
                     if(!more){ok=0;break;}
-                    samples=more;sample_capacity=capacity;
+                    spans=more;capacity=larger;
                 }
-                samples[sample_count++]=(struct SampleSpan){at+20,at+len};
+                spans[nspans++]=(struct SampleSpan){at+20,at+len};
             }else if(!memcmp(header,"SCEl",4)){
                 ended=at+len==end;break;
             }else if(memcmp(header,"SCHl",4) && memcmp(header,"SCCl",4)){ok=0;break;}
@@ -621,8 +637,34 @@ static int index_samples(void){
         if(!ended)ok=0;
     }
     fclose(f);
-    if(!ok || !sample_count){free(samples);samples=NULL;sample_count=sample_capacity=0;return 0;}
-    return 1;
+    if(!ok || !nspans){free(spans);return 0;}
+    *result=spans;*used=nspans;return 1;
+}
+static struct SampleSpan *cue_spans[2];
+static size_t cue_counts[2];
+static int index_cue(unsigned bank,const char *leaf){
+    char path[sizeof bank_path];strcpy(path,bank_path);
+    char *slash=strrchr(path,'/');
+    if(!slash || strlen(leaf)>strlen(slash+1))return 0;
+    strcpy(slash+1,leaf);
+    FILE *f=fopen(path,"rb");if(!f)return 0;
+    unsigned char h[4096];size_t size=fread(h,1,sizeof h,f);fclose(f);
+    if(size<16 || memcmp(h,"BIGF",4))return 0;
+    struct Track entries[32];unsigned count=big32(h+8);
+    if(!count || count>32)return 0;
+    size_t at=16;
+    for(unsigned i=0;i<count;i++){
+        if(at+9>size)return 0;
+        uint32_t start=big32(h+at),bytes=big32(h+at+4);at+=8;
+        const unsigned char *end=memchr(h+at,0,size-at);
+        if(!end || end-h<4 || end<h+at+4 || memcmp(end-4,".asf",4) || bytes>UINT32_MAX-start)return 0;
+        entries[i].begin=start;entries[i].end=start+bytes;at=(size_t)(end-h)+1;
+    }
+    return index_streams(path,entries,count,&cue_spans[bank],&cue_counts[bank]);
+}
+static int index_samples(void){
+    if(!index_streams(bank_path,tracks,track_count,&samples,&sample_count))return 0;
+    index_cue(0,"intro.big");index_cue(1,"rgirl.big");return 1;
 }
 static void prepare_voice(void){
     if(!atomic_load(&bank_available) || !atomic_load(&voice_requested))return;
@@ -639,14 +681,14 @@ void fight_music_voice(int enabled){
     atomic_store(&voice_requested,enabled);
     if(enabled)prepare_voice();
 }
-static void silence_samples(uint64_t offset,uint32_t length,unsigned char *buffer){
+static void silence_samples(const struct SampleSpan *spans,size_t count,uint64_t offset,uint32_t length,unsigned char *buffer){
     if(!buffer || !atomic_load(&voice_requested) || atomic_load(&index_state)!=2)return;
     uint64_t end=offset+length;
-    size_t lo=0,hi=sample_count;
-    while(lo<hi){size_t mid=lo+(hi-lo)/2;if(samples[mid].end<=offset)lo=mid+1;else hi=mid;}
-    for(size_t i=lo;i<sample_count && samples[i].first<end;i++){
-        uint64_t first=samples[i].first>offset?samples[i].first:offset;
-        uint64_t last=samples[i].end<end?samples[i].end:end;
+    size_t lo=0,hi=count;
+    while(lo<hi){size_t mid=lo+(hi-lo)/2;if(spans[mid].end<=offset)lo=mid+1;else hi=mid;}
+    for(size_t i=lo;i<count && spans[i].first<end;i++){
+        uint64_t first=spans[i].first>offset?spans[i].first:offset;
+        uint64_t last=spans[i].end<end?spans[i].end:end;
         memset(buffer+(size_t)(first-offset),0,(size_t)(last-first));
     }
 }
@@ -692,12 +734,33 @@ void fight_music_open(uint32_t token,const char *name,size_t length){
         unsigned previous=atomic_exchange(&movie_token,movie?token:0);
         if(movie || previous){printf("FNR3/1 INTRO %d\n",movie);fflush(stdout);}
     }
-    static const char suffix[]="music.big";
-    if(!token || !name || length<sizeof suffix-1 || !track_count)return;
-    size_t off=length-(sizeof suffix-1);
-    if(off && name[off-1]!='\\' && name[off-1]!='/')return;
-    for(size_t i=0;i<sizeof suffix-1;i++)if(tolower((unsigned char)name[off+i])!=suffix[i])return;
-    for(unsigned i=0;i<16;i++){uint32_t empty=0;if(atomic_compare_exchange_strong(&files[i],&empty,token) || empty==token){atomic_store(&positions[i],0);return;}}
+    if(!token || !name || !length || !track_count)return;
+    const char *base=name+length;
+    while(base>name && base[-1]!='\\' && base[-1]!='/')--base;
+    size_t n=length-(size_t)(base-name);unsigned kind=0;
+    if(movie_name(base,n,"music.big"))kind=1;
+    else if(base-name<6 || !movie_name(base-6,5,"music"))return;
+    else if(base-name>6 && base[-7]!='\\' && base[-7]!='/')return;
+    else if(movie_name(base,n,"intro.big"))kind=2;
+    else if(movie_name(base,n,"rgirl.big"))kind=3;
+    else {
+        static const char *const loops[]={"atmo_lp1.bnk","atmo_lp2.bnk","brasclp1.bnk","brasclp2.bnk","conselp1.bnk",
+            "conselp2.bnk","dilaplp1.bnk","dilaplp2.bnk","dilaplp3.bnk","dilaplp4.bnk",
+            "dipselp1.bnk","dipselp2.bnk","kraytlp1.bnk","kraytlp2.bnk","ltdalp1.bnk",
+            "obietlp1.bnk","obietlp2.bnk","obietlp3.bnk","obietlp4.bnk","obietlp5.bnk",
+            "rocclp1.bnk","rocclp2.bnk","seab_lp1.bnk","seab_lp2.bnk","seab_lp3.bnk",
+            "seab_lp4.bnk","seab_lp5.bnk","sliclp1.bnk","sliclp2.bnk","younrlp1.bnk",
+            "younrlp2.bnk","younrlp3.bnk","younrlp4.bnk"};
+        for(unsigned i=0;i<sizeof loops/sizeof *loops;i++)if(movie_name(base,n,loops[i])){kind=4;break;}
+    }
+    if(!kind)return;
+    if(kind==4)music_scene(0);
+    for(unsigned i=0;i<16;i++){
+        uint32_t empty=0;
+        if(atomic_compare_exchange_strong(&files[i],&empty,token) || empty==token){
+            atomic_store(&positions[i],0);atomic_store(&bank_kind[i],kind);return;
+        }
+    }
 }
 void fight_music_close(uint32_t token){
     if(!token)return;
@@ -716,7 +779,17 @@ void fight_music_read(uint32_t token,uint64_t offset,uint32_t size,void *buffer)
     if(offset==UINT64_MAX)offset=atomic_fetch_add(&positions[i],size);
     else atomic_store(&positions[i],offset+size);
     if(offset>UINT64_MAX-size)return;
-    silence_samples(offset,size,buffer);
+    unsigned kind=atomic_load(&bank_kind[i]);
+    if(kind!=1){
+        if(!buffer || !atomic_load(&cue_override) || !atomic_load(&voice_requested) || atomic_load(&index_state)!=2)return;
+        if(kind==4){
+            /* Verified BNKl stereo banks place both channels after their 100-byte header. */
+            size_t skip=offset<100?(size_t)(100-offset):0;
+            if(skip<size)memset((unsigned char *)buffer+skip,0,size-skip);
+        }else if(kind==2 || kind==3)silence_samples(cue_spans[kind-2],cue_counts[kind-2],offset,size,buffer);
+        return;
+    }
+    if(atomic_load(&in_music_menu) || atomic_load(&cue_override))silence_samples(samples,sample_count,offset,size,buffer);
     if(size<512)return;
     /* Sector-aligned streaming reads can start just before the first sample.
      * Ignore allocation/header reads and accept only the interior of a track. */
