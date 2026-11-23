@@ -2,6 +2,8 @@
 
 Play the original Xbox edition of *Fight Night Round 3* on Android. On an AYN Thor, the top screen carries the widescreen broadcast and the bottom screen puts you in the corner. Check who’s landing the cleaner punches, treat a swollen eye between rounds, then scout the next opponent for your career boxer.
 
+> **Bring your own disc.** You’ll need your own North American original Xbox *Fight Night Round 3* ISO. The app reads `default.xbe` from your disc and recompiles it on your Android device. The APK and this repository omit the retail executable, fighters, arenas and original EA Trax recordings. FightNight3OGX is an independent fan project. Electronic Arts has no affiliation with it and does not endorse it.
+
 **[Download the Android APK](https://github.com/Oxide-Shift/FightNight3OGX/releases)** · [Getting started](#getting-started) · [Bring your career save](#bring-your-career-save)
 
 <p align="center"><img src="https://github.com/user-attachments/assets/90765b19-7ffa-48f5-ae24-0e335ce2af6a" width="640" alt="Gatti and Ward trade punches on the upper screen. The lower screen shows the round clock, stamina and punches landed and thrown for each boxer."></p>
@@ -49,4 +51,8 @@ After reinstalling, select the same backup folder to restore the newest usable c
 
 ---
 
-FightNight3OGX was developed with AI assistance. [Build and test from source](docs/DEVELOPMENT.md) · [Achievement bell credit and license](third-party/BoxingBell.txt)
+## Made with AI
+
+I wanted to play the Xbox version of *Fight Night Round 3* on my AYN Thor and use the bottom screen to work the corner between rounds. I directed the project and tested it on my Thor. OpenAI’s Codex helped write the port, launcher and touchscreen features. The recompilation tools this builds on are credited in the [development notes](docs/DEVELOPMENT.md).
+
+[Build and test from source](docs/DEVELOPMENT.md) · [Achievement bell credit and license](third-party/BoxingBell.txt)
