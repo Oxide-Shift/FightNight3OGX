@@ -102,6 +102,8 @@ public final class CornerSession {
     synchronized void onCabinet(Runnable listener){cabinetListener=listener;}
     synchronized boolean takeCabinetRequest(){boolean pending=cabinetRequested;cabinetRequested=false;return pending;}
     private File menuDisc;
+    interface Guide { byte[] load()throws IOException; }
+    Guide thorGuide;
     void installMenuFrom(File disc){menuDisc=disc;}
     Achievements achievements;
     private int achievementRound,trainingDrill;
@@ -454,6 +456,8 @@ public final class CornerSession {
         try {
             if(menuDisc!=null)try{RetailMenu.install(menuDisc.toPath());}
             catch(IOException e){synchronized(this){record("Achievements menu unavailable: "+e.getMessage());}}
+            if(menuDisc!=null && thorGuide!=null)try{RetailMenu.installThorGuide(menuDisc.toPath(),thorGuide.load());}
+            catch(IOException e){synchronized(this){record("Thor controls guide unavailable: "+e.getMessage());}}
             ProcessBuilder builder=new ProcessBuilder(command).directory(directory);
             if(command.length>0 && frameFile!=null){
                 File shaders=new File(new File(command[0]).getParentFile(),"libfight_shader.so");

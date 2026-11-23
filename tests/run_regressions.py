@@ -27,12 +27,13 @@ def main():
         java=args.jdk/"bin/java.exe"
         names=["CornerControlsSmoke","FightBroadcastSmoke","RingsidePromptSmoke","CutmanStrokeSmoke",
                "HakuSaveSmoke","DisplayCadenceSmoke","MenuStripSmoke","ControllerInputSmoke","FightEventsSmoke","CommandPipeSmoke","SessionSleepSmoke","ReleaseVersionSmoke","ReleaseAssetSmoke","AchievementsSmoke","CalloutRumbleSmoke"]
-        paths=[TESTS/(name+".java") for name in names+["LinkSmoke"]]
+        paths=[TESTS/(name+".java") for name in names+["LinkSmoke","DiscInstallSmoke"]]
         run([javac,"--release","8","-encoding","UTF-8","-cp",args.android_jar,"-d",out,*JAVA.glob("*.java"),*paths])
         cp=os.pathsep.join(map(str,(out,args.android_jar)))
         frames=[f for d in args.frames for f in sorted(d.glob("*.raw")) if f.name.startswith(("boxer","main","round","career-central","contract-"))]
         for name in names:
             run([java,"-cp",cp,"org.oxideshift.corner."+name,*(frames if name=="RingsidePromptSmoke" else [])])
+        run([java,"-cp",cp,"org.oxideshift.corner.DiscInstallSmoke",args.build/"default.xbe"])
         run([sys.executable,TESTS/"shader_constants.py"])
         run(["node",TESTS/"scorecard.cjs"])
         flags=["-O2","-ffunction-sections","-fdata-sections","-Wl,--gc-sections","-I",host/"runtime",
@@ -78,7 +79,7 @@ def main():
         peer=out/"corner-link.exe"
         run([args.cc,"-DCORNER_LINK_ONLY",ROOT/"native/corner_pipe.c","-o",peer])
         run([java,"-cp",cp,"LinkSmoke",peer])
-        print(f"Passed 15 Java suites, 15 native suites, scorecard and host link with {len(frames)} menu/ring captures.")
+        print(f"Passed 16 Java suites, 15 native suites, scorecard and host link with {len(frames)} menu/ring captures.")
 
 if __name__=="__main__":
     main()

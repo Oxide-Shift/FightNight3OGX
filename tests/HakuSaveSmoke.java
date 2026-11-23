@@ -47,6 +47,16 @@ public final class HakuSaveSmoke {
             Files.createDirectories(titleData.getParent());Files.write(titleData,new byte[]{3,2,1});
             Files.createDirectories(active.resolve("UDATA/abcdef01"));Files.write(active.resolve("UDATA/abcdef01/other"),PROFILE);
             ByteArrayOutputStream exported=new ByteArrayOutputStream();GameLibrary.exportSave(active,exported);
+            Set<String> awards=new TreeSet<>(Arrays.asList("SPLIT_ROUND","BIG_ROUND"));
+            String fingerprint=GameLibrary.saveFingerprint(active,awards);
+            if(fingerprint.isEmpty() || fingerprint.equals(GameLibrary.saveFingerprint(active,Collections.emptySet())))throw new AssertionError("Awards were not tracked");
+            ByteArrayOutputStream backup=new ByteArrayOutputStream();GameLibrary.exportSave(active,backup,awards);
+            Set<String> restored=new HashSet<>();
+            String restoredSlot=GameLibrary.importSave(new ByteArrayInputStream(backup.toByteArray()),root,restored::addAll);
+            if(!restored.equals(awards) || !Arrays.equals(PROFILE,Files.readAllBytes(root.resolve("save-slots").resolve(restoredSlot)
+                    .resolve("UDATA/45410086/"+SLOT+"/NAMEAS"))))throw new AssertionError("Career and achievements backup round trip");
+            Files.write(titleData,new byte[]{3,2,1,0});
+            if(fingerprint.equals(GameLibrary.saveFingerprint(active,awards)))throw new AssertionError("Save change was missed");
             Path portable=root.resolve("portable.zip");Files.write(portable,exported.toByteArray());
             try(ZipFile z=new ZipFile(portable.toFile())){
                 if(z.getEntry("hakuX.properties")!=null || z.getEntry("UDATA/abcdef01/other")!=null ||

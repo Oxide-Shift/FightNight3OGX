@@ -1,1 +1,2 @@
-<resources><color name="glove_ground">#110105</color></resources>
+<resources><color name="glove_ground">#110105</color>    <color name="corner_icon_background">#ff2f130c</color>
+</resources>

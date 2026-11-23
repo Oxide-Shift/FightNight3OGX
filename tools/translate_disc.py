@@ -122,7 +122,17 @@ def load_layout(layout, xbe, toolkit):
 
 def worker(args, batch, addresses):
     engine = batch.translator
-    for first in range(args.worker*GROUP, len(addresses), args.jobs*GROUP):
+    # Distribute the largest blocks first. Tiny helpers and entire boxing routines
+    # can occupy equal numbers of addresses but take very different times to lift.
+    groups = range(0, len(addresses), GROUP)
+    weight = lambda start: sum(batch.func_db[a]["size"] for a in addresses[start:start+GROUP])
+    queues = [[] for _ in range(args.jobs)]
+    loads = [0] * args.jobs
+    for first in sorted(groups,key=weight,reverse=True):
+        lane = min(range(args.jobs),key=loads.__getitem__)
+        queues[lane].append(first)
+        loads[lane] += weight(first)
+    for first in queues[args.worker]:
         group = addresses[first:first+GROUP]
         bodies = []
         for addr in group:

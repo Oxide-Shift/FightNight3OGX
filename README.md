@@ -38,6 +38,12 @@ Watch the punches land up top. A glance down tells you how many got through, how
 
 *Career training in an earlier build. The training sheet follows the drill selected above.*
 
+## Saves and sound
+
+After you save a career, open **Files → Downloads → Fight Night Round 3** for the latest two ZIP backups of that slot. Each includes your Xbox profile and unlocked achievements. After reinstalling, choose **Fight Setup → Import Xbox save → Choose ZIP** to bring them back. The latest backup is listed under **Save & sound**.
+
+**Ring Focus during fights** adds the launcher soundtrack under live rounds at 4% volume. It starts off. On a Thor, six controller-loading screens now illustrate the handheld alongside the original game prompts.
+
 ## Fight Setup
 
 On a Thor, select **Vulkan · 1080p · High · 16:9 · 60 FPS**. High adds sharpening and 4× texture filtering. Advanced graphics offers 2× MSAA for smoother edges. **VSync** is on by default and can be toggled independently. You can also choose a 30 or 45 FPS target. Frame rate varies by device and by the action in the ring.
@@ -46,16 +52,16 @@ The Thor is the tested dual-screen handheld. With one display, the game keeps it
 
 ## Install on your handheld
 
-You’ll need **ARM64 Android 11 or newer**, your own **North American original Xbox Fight Night Round 3 ISO**, and about **11 GB free** in addition to the ISO.
+You’ll need **ARM64 Android 11 or newer**, your own **North American original Xbox Fight Night Round 3 ISO**, and space for the extracted game and compiler. Choosing a local, seekable ISO skips the extra 7.83 GB image copy. For stream-only file providers, allow about **11 GB free** in addition to the ISO.
 
 1. Download the versioned **FightNight-Round3-Thor** APK under **Assets** on the [releases page](https://github.com/Oxide-Shift/FightNight3OGX/releases). Open it on the handheld and install it.
 2. In **Fight Setup**, tap **Choose Xbox ISO** and select your image. Follow the preparation prompt and keep the app open through extraction, translation and compilation.
 3. Choose your display settings and tap **Enter the ring**.
 
-One full translation and compile took **1 minute 41 seconds on a Thor Pro**, with the ISO already extracted. The APK supplies the Android app, runtime and compiler. The game executable, textures, fonts, movies, menu sounds and EA Trax soundtrack come from your disc.
+The previous Thor Pro cold preparation took about **three minutes**. Alpha 46 overlaps disc extraction with compilation. Fight Setup reports translation, compile-and-link and total time on your device. The APK supplies the Android app, runtime and compiler. The game executable, textures, fonts, movies, menu sounds and EA Trax soundtrack come from your disc.
 
 ### Updating
 
-Fight Setup checks GitHub releases and prompts when a newer matching APK is available. You can also select **Check for updates**. Install over the existing app to keep your disc import and career saves. Standard builds reuse a compatible prepared game. A runtime update can relink cached objects, while a compiler or translation change can require a full preparation. Developer timing builds also offer **Time another full build**.
+Fight Setup checks GitHub releases and prompts when a newer matching APK is available. You can also select **Check for updates**. Install over the existing app to keep your disc import and career saves. Standard builds reuse a compatible prepared game. A runtime update can relink cached objects, while a compiler or translation change can require a full preparation. Choose **Time another full build** to benchmark a fresh compiler run using the installed disc.
 
 [Build and test from source](docs/DEVELOPMENT.md) · [Achievement bell recording and license](third-party/BoxingBell.txt)

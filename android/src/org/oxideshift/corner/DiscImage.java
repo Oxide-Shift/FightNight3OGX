@@ -12,7 +12,7 @@ import java.util.*;
 public final class DiscImage {
     public static final String HASH = "cfaf2d2c1c338a6e4e7135466c8dcb80fdf7da63682e71cfecdcba65b3682064";
     private final FileChannel channel;
-    private final long length;
+    private final long length, origin;
     private long base, total;
     private final Map<String, long[]> files = new LinkedHashMap<>();
     private final Set<Long> directories = new HashSet<>();
@@ -28,13 +28,17 @@ public final class DiscImage {
         if (offset < 0 || offset > length - size) throw new EOFException("Disc data is truncated");
         ByteBuffer dst = ByteBuffer.wrap(bytes, 0, size);
         while (dst.hasRemaining()) {
-            int n = channel.read(dst, offset + dst.position());
+            int n = channel.read(dst, origin + offset + dst.position());
             if (n <= 0) throw new EOFException("Cannot read disc image");
         }
     }
 
     public DiscImage(FileChannel channel) throws Exception {
-        this.channel = channel; length = channel.size();
+        this(channel, 0, channel.size());
+    }
+    public DiscImage(FileChannel channel, long origin, long length) throws Exception {
+        if(origin < 0 || length < 0 || origin > channel.size()-length)throw new IOException("Invalid disc range");
+        this.channel=channel; this.origin=origin; this.length=length;
         byte[] magic = "MICROSOFT*XBOX*MEDIA".getBytes(StandardCharsets.US_ASCII);
         for (long candidate : new long[]{0, 0xFD90, 0x30600, 0xFD90000, 0x18300000}) {
             long at = candidate + 65536;
@@ -99,10 +103,18 @@ public final class DiscImage {
 
     /** The caller owns a fresh staging folder and publishes it only after success. */
     public void extract(Path stage, Progress progress) throws IOException {
+        extract(stage,progress,()->{});
+    }
+    public void extract(Path stage, Progress progress, Runnable executableReady) throws IOException {
         if (!Files.isDirectory(stage) || stage.toFile().getUsableSpace() < total + (16L << 20))
             throw new IOException("Insufficient space for the disc");
-        int done = 0;
+        try(OutputStream out=Files.newOutputStream(stage.resolve("default.xbe"),StandardOpenOption.CREATE_NEW)){
+            copy(files.get("default.xbe"),out,null);
+        }
+        executableReady.run();
+        int done = 1;
         for (Map.Entry<String,long[]> file : files.entrySet()) {
+            if(file.getKey().equals("default.xbe"))continue;
             Path path = stage.resolve(file.getKey()).normalize();
             if (!path.startsWith(stage)) throw new IOException("Invalid disc path");
             Files.createDirectories(path.getParent());

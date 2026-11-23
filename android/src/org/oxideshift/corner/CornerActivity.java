@@ -70,6 +70,9 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     private int treatX,treatY;
     private final Runnable release=()->{touchKey=null;sendPad();};
     private MediaPlayer music;
+    private SaveBackups backups;
+    private long lastRoundMusic;
+    private int musicPosition;
     private String html,lastJson="";
     private File base,host;
     private DiscBuild discBuild;
@@ -79,6 +82,8 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         super.onCreate(state);
         base=getFilesDir();prefs=getSharedPreferences("fight-setup",MODE_PRIVATE);
         crashReports=new CrashReports(this);
+        backups=SaveBackups.get(this);
+        if(!active())backups.snapshot(saves());
         inputs=getSystemService(InputManager.class);
         sensors=getSystemService(SensorManager.class);
         displays=(DisplayManager)getSystemService(DISPLAY_SERVICE);
@@ -101,12 +106,13 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                 this::saveOptions,this::prepareSaveExport,this::launch,this::showCard,()->{
             prefs.edit().remove("save").apply();engine.note="Default save selected";
         },updates::tap);
-        if(discBuild!=null && discBuild.benchmark)menu.enableBenchmark(()->{
+        if(discBuild!=null)menu.enableBenchmark(()->{
             if(engine.importing || active() || updates.installing())return;
             discBuild.repeatBenchmark();launch();
         });
         rumble=new PadRumble(this);
         menu.soundtrack.setOnCheckedChangeListener((v,on)->{prefs.edit().putBoolean("music",on).apply();syncMusic();});
+        menu.fightMusic.setOnCheckedChangeListener((v,on)->{prefs.edit().putBoolean("fightMusic",on).apply();syncMusic();});
         body.addView(menu);back.setVisibility(View.GONE);
         root.post(this::immersive);
         if(state!=null && state.getBoolean("game") && engine.frame!=null)showGame();
@@ -231,12 +237,32 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                 if(request==DISC){
                     AssetFileDescriptor descriptor=app.getContentResolver().openAssetFileDescriptor(uri,"r");
                     if(descriptor==null)throw new IOException("The selected disc cannot be opened");
-                    try(AssetFileDescriptor fd=descriptor;InputStream in=fd.createInputStream()){
-                        GameLibrary.importDisc(in,fd.getLength(),files.toPath(),message->engine.note=message);
+                    GameLibrary.Status status=message->engine.note=message;
+                    GameLibrary.Prepare prepare=discBuild==null?null:(xbe,progress)->discBuild.prepare(xbe.toFile(),progress);
+                    try(AssetFileDescriptor fd=descriptor;
+                        android.os.ParcelFileDescriptor.AutoCloseInputStream raw=new android.os.ParcelFileDescriptor.AutoCloseInputStream(
+                            android.os.ParcelFileDescriptor.dup(fd.getFileDescriptor()))){
+                        java.nio.channels.FileChannel channel=raw.getChannel();
+                        long size=-1,offset=fd.getStartOffset();
+                        try{
+                            long available=channel.size()-offset;
+                            if(available>0 && channel.read(java.nio.ByteBuffer.allocate(1),offset)==1)
+                                size=fd.getDeclaredLength()<0?available:fd.getDeclaredLength();
+                        }catch(IOException ignored){/* A pipe-backed provider supplies a stream below. */}
+                        String result;
+                        if(size>0)result=GameLibrary.importDisc(channel,offset,size,files.toPath(),status,prepare);
+                        else try(InputStream in=fd.createInputStream()){
+                            result=GameLibrary.importDisc(in,fd.getLength(),files.toPath(),status,prepare);
+                        }
+                        engine.note=result+"  ·  Disc to ready "+DiscBuild.duration(SystemClock.elapsedRealtime()-engine.buildStarted);
                     }
-                    engine.note=discBuild==null?"Xbox disc installed":discBuild.prepare(new File(game(),"default.xbe"),message->engine.note=message);
                 }else{
-                    String slot=SaveExports.importDocument(app.getContentResolver(),uri,files.toPath());
+                    String slot=SaveExports.importDocument(app.getContentResolver(),uri,files.toPath(),keys->{
+                        SharedPreferences.Editor restored=app.getSharedPreferences("achievements",MODE_PRIVATE).edit();
+                        for(Achievements.Award award:Achievements.Award.values())if(keys.contains(award.name()))restored.putBoolean(award.name(),true);
+                        restored.apply();
+                    });
+                    backups.snapshot(new File(new File(files,"save-slots"),slot));
                     app.getSharedPreferences("fight-setup",MODE_PRIVATE).edit().putString("save",slot)
                        .putBoolean("savePromptSeen",true).apply();
                     engine.note="Imported save selected";
@@ -302,6 +328,15 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                     : new String[]{host.getAbsolutePath(),discBuild.playableModule().getAbsolutePath(),xbe.getAbsolutePath(),disc.getAbsolutePath(),save.getAbsolutePath(),"--corner"};
             CornerSession next=new CornerSession(base,command);
             next.installMenuFrom(disc);
+            String model=android.os.Build.MODEL+" "+android.os.Build.DEVICE+" "+android.os.Build.PRODUCT;
+            if(model.toLowerCase(java.util.Locale.ROOT).contains("thor")){
+                android.content.res.AssetManager assets=getAssets();
+                next.thorGuide=()->{
+                    byte[] bytes=new byte[65536];
+                    try(java.io.DataInputStream in=new java.io.DataInputStream(assets.open("thor-controls.dxt3"))){in.readFully(bytes);}
+                    return bytes;
+                };
+            }
             CrashReports reports=crashReports;
             next.onCrash((exit,pc,event,round,pixels,soft)->reports.record("game",exit,pc,event,round,pixels,soft?"software":"vulkan"));
             SharedPreferences medals=getSharedPreferences("achievements",MODE_PRIVATE);
@@ -314,7 +349,8 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
             }
             next.setWidescreen(menu.aspect.getSelectedItemPosition()==0);
             next.setVideo(height,quality,menu.renderer.getSelectedItemPosition()==1);
-            engine.session=next;engine.note="Starting original Xbox";new Thread(next::run,"fight-night-host").start();
+            engine.session=next;engine.note="Starting original Xbox";backups.start(save);
+            new Thread(()->{try{next.run();}finally{backups.finish(save);}},"fight-night-host").start();
             showGame();
         }catch(IOException e){engine.note="Cannot prepare video · "+e.getMessage();}
     }
@@ -475,14 +511,29 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         lastJson="";refresh();
     }
     private void syncMusic(){
-        boolean wanted=awake&&!viewingGame&&!viewingCard&&prefs.getBoolean("music",true);
-        if(!wanted){if(music!=null){music.release();music=null;}return;}
-        if(music!=null)return;
+        boolean fight=false;
+        if(awake && viewingGame && active() && screen!=null && prefs.getBoolean("fightMusic",false) && engine.session.inLiveBout()){
+            LiveFrame frame=screen.latestFrame();
+            LiveFrame.Scene scene=frame==null?null:frame.scene(true);
+            long now=SystemClock.elapsedRealtime();
+            if(scene==LiveFrame.Scene.ROUND)lastRoundMusic=now;
+            else if(scene!=null && scene!=LiveFrame.Scene.RINGSIDE)lastRoundMusic=0;
+            fight=lastRoundMusic!=0 && now-lastRoundMusic<1800;
+        }
+        else lastRoundMusic=0;
+        float volume=fight?.04f:.12f;
+        boolean wanted=awake && (fight || (!viewingGame&&!viewingCard&&prefs.getBoolean("music",true)));
+        if(!wanted){
+            if(music!=null){musicPosition=music.getCurrentPosition();music.release();music=null;}
+            return;
+        }
+        if(music!=null){music.setVolume(volume,volume);return;}
         try(AssetFileDescriptor fd=getAssets().openFd("ring-focus-loop.ogg")){
             music=new MediaPlayer();music.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME)
                 .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());
             music.setDataSource(fd.getFileDescriptor(),fd.getStartOffset(),fd.getLength());music.setLooping(true);
-            music.setVolume(.12f,.12f);music.prepare();
+            music.setVolume(volume,volume);music.prepare();
+            if(musicPosition>0 && musicPosition<music.getDuration())music.seekTo(musicPosition);
             android.media.VolumeShaper fade=music.createVolumeShaper(new android.media.VolumeShaper.Configuration.Builder()
                     .setDuration(1200).setCurve(new float[]{0,1},new float[]{0,1}).build());
             fade.apply(android.media.VolumeShaper.Operation.PLAY);music.start();
@@ -490,6 +541,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     }
     private void refresh(){
         if(!foreground)return;
+        syncMusic();
         CornerSession session=engine.session;boolean ready=new File(game(),"default.xbe").isFile(),live=active();
         Map<String,Object> data=session==null?new CornerSession(base).snapshot():session.snapshot();
         String info=engine.note;
@@ -502,6 +554,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         menu.setKeepScreenOn(engine.importing && engine.buildStarted!=0);
         menu.showState(info,ready,engine.importing || updates.installing(),live,host.canExecute(),!prefs.getString("save","").isEmpty(),presentation!=null,
                 discBuild!=null && discBuild.needsPreparation());
+        menu.backupStatus.setText(backups.status);
         updates.refresh(menu.updates);
         if(ready)menu.loadDiscPoster(game());
         if(ready && ringside!=null)ringside.useFonts(menu.fonts());

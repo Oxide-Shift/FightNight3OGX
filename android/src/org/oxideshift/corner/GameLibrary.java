@@ -14,6 +14,12 @@ public final class GameLibrary {
     private GameLibrary() {}
 
     public static void importDisc(InputStream original, long length, Path root, Status status) throws Exception {
+        importDisc(original,length,root,status,null);
+    }
+
+    interface Prepare { String build(Path executable,Status status)throws Exception; }
+
+    static synchronized String importDisc(InputStream original,long length,Path root,Status status,Prepare prepare)throws Exception{
         Path target = root.resolve("retail"), stage = root.resolve("disc-copy.tmp");
         if (Files.exists(target)) throw new IOException("Disc already installed");
         clearStage(stage);
@@ -36,20 +42,61 @@ public final class GameLibrary {
             }
             if (length > 0 && copied != length) throw new EOFException("The selected disc could not be copied in full");
             status.update("Verifying copied disc");
+            java.util.concurrent.FutureTask<String> build;
             try (FileChannel channel = FileChannel.open(image, StandardOpenOption.READ)) {
-                DiscImage disc = new DiscImage(channel);
-                Path game = Files.createDirectory(stage.resolve("game"));
-                disc.extract(game,(n,count)->{if(n%8==0 || n==count)status.update("Installing disc · "+n+" / "+count);});
+                build=extract(new DiscImage(channel),stage,status,prepare);
             }
-            Files.move(stage,target,StandardCopyOption.ATOMIC_MOVE);
+            return publish(stage,target,build);
         } finally { clearStage(stage); }
     }
 
+    static synchronized String importDisc(FileChannel source,long offset,long length,Path root,Status status,Prepare prepare)throws Exception{
+        Path target=root.resolve("retail");
+        if(Files.exists(target))throw new IOException("Disc already installed");
+        status.update("Verifying Xbox disc");
+        DiscImage disc=new DiscImage(source,offset,length);
+        Path stage=root.resolve("disc-copy.tmp");
+        clearStage(stage);
+        Files.createDirectory(stage);
+        try{return publish(stage,target,extract(disc,stage,status,prepare));}
+        finally{clearStage(stage);}
+    }
+
+    private static java.util.concurrent.FutureTask<String> extract(DiscImage disc,Path stage,Status status,Prepare prepare)throws Exception{
+        Path game=Files.createDirectory(stage.resolve("game"));
+        java.util.concurrent.FutureTask<String> job=new java.util.concurrent.FutureTask<>(()->
+                prepare==null?"Xbox disc installed":prepare.build(game.resolve("default.xbe"),status));
+        Thread worker=new Thread(job,"prepare-while-importing");
+        try{
+            disc.extract(game,(n,total)->{
+                if((prepare==null || job.isDone()) && (n%8==0 || n==total))status.update("Installing disc · "+n+" / "+total);
+            },worker::start);
+        }finally{
+            // Neither publish nor discard the staging directory while the compiler reads it.
+            boolean interrupted=false;
+            while(worker.isAlive())try{worker.join();}catch(InterruptedException e){interrupted=true;}
+            if(interrupted)Thread.currentThread().interrupt();
+        }
+        return job;
+    }
+
+    private static String publish(Path stage,Path target,java.util.concurrent.FutureTask<String> job)throws Exception{
+        Files.move(stage,target,StandardCopyOption.ATOMIC_MOVE);
+        try{return job.get();}
+        catch(java.util.concurrent.ExecutionException e){
+            if(e.getCause() instanceof Exception)throw (Exception)e.getCause();
+            throw new IOException("Compiler stopped",e.getCause());
+        }
+    }
+
     public static String importSave(InputStream source, Path root) throws IOException {
+        return importSave(source,root,keys->{});
+    }
+    static String importSave(InputStream source,Path root,java.util.function.Consumer<Set<String>> medals)throws IOException{
         Path copy=Files.createTempFile(root,"save-archive-",".zip");
         try {
             Files.copy(source,copy,StandardCopyOption.REPLACE_EXISTING);
-            try(ZipFile zip=new ZipFile(copy.toFile())){return importSave(zip,root);}
+            try(ZipFile zip=new ZipFile(copy.toFile())){return importSave(zip,root,medals);}
         }finally{Files.deleteIfExists(copy);}
     }
 
@@ -59,6 +106,9 @@ public final class GameLibrary {
     /** Portable Xbox E: layout. hakuX identifies unmarked archives as external saves
      * and can apply its own console signing rules at import. */
     static void exportSave(Path slot,OutputStream output)throws IOException{
+        exportSave(slot,output,Collections.emptySet());
+    }
+    static void exportSave(Path slot,OutputStream output,Set<String> awards)throws IOException{
         boolean[] hasProfile={false};
         try(ZipOutputStream zip=new ZipOutputStream(new BufferedOutputStream(output))){
             for(String area:new String[]{"UDATA","TDATA"}){
@@ -83,8 +133,38 @@ public final class GameLibrary {
                     }
                 });
             }
+            if(!awards.isEmpty()){
+                zip.putNextEntry(new ZipEntry(MEDALS));
+                zip.write(String.join("\n",new TreeSet<>(awards)).getBytes("UTF-8"));zip.closeEntry();
+            }
             if(!hasProfile[0])throw new IOException("No saved profile in this slot. Save in the game first.");
         }
+    }
+    static final String MEDALS="FightNight3OGX/achievements-v1.txt";
+    static String saveFingerprint(Path slot,Set<String> awards)throws IOException{
+        // Inspect only the game's title folders. Native renderer caches never participate.
+        java.util.TreeMap<String,String> files=new java.util.TreeMap<>();
+        boolean profile=false;
+        for(String area:new String[]{"UDATA","TDATA"}){
+            Path tree=childIgnoreCase(slot,area),title=tree==null?null:childIgnoreCase(tree,TITLE);
+            if(title==null)continue;
+            try(java.util.stream.Stream<Path> walk=Files.walk(title)){
+                for(Path path:(Iterable<Path>)walk.filter(p->Files.isRegularFile(p,LinkOption.NOFOLLOW_LINKS))::iterator){
+                    Path relative=title.relativize(path);
+                    java.nio.file.attribute.BasicFileAttributes attrs=Files.readAttributes(path,java.nio.file.attribute.BasicFileAttributes.class);
+                    files.put(area+"/"+relative,attrs.lastModifiedTime()+"/"+attrs.size());
+                    if(area.equals("UDATA")&&relative.getNameCount()>=2)profile=true;
+                }
+            }
+        }
+        if(!profile)return "";
+        try{
+            java.security.MessageDigest digest=java.security.MessageDigest.getInstance("SHA-256");
+            for(Map.Entry<String,String> file:files.entrySet()){
+                digest.update((file.getKey()+"\0"+file.getValue()+"\n").getBytes("UTF-8"));
+            }
+            return java.util.Base64.getEncoder().encodeToString(digest.digest(String.join("\n",new TreeSet<>(awards)).getBytes("UTF-8")));
+        }catch(java.security.NoSuchAlgorithmException e){throw new AssertionError(e);}
     }
     private static Path childIgnoreCase(Path parent,String name)throws IOException{
         if(!Files.isDirectory(parent,LinkOption.NOFOLLOW_LINKS))return null;
@@ -173,6 +253,16 @@ public final class GameLibrary {
     }
 
     static String importSave(ZipFile zip,Path root) throws IOException {
+        return importSave(zip,root,keys->{});
+    }
+    static String importSave(ZipFile zip,Path root,java.util.function.Consumer<Set<String>> medals)throws IOException{
+        Set<String> keys=new HashSet<>();
+        ZipEntry metadata=zip.getEntry(MEDALS);
+        if(metadata!=null && metadata.getSize()>0 && metadata.getSize()<=8192){
+            byte[] bytes=new byte[(int)metadata.getSize()];
+            try(DataInputStream in=new DataInputStream(zip.getInputStream(metadata))){in.readFully(bytes);}
+            for(String key:new String(bytes,"UTF-8").split("\n"))if(key.matches("[A-Z0-9_]{1,64}"))keys.add(key);
+        }
         Path slots=Files.createDirectories(root.resolve("save-slots"));
         Path stage=Files.createTempDirectory(slots,"import-");
         String id="save-"+UUID.randomUUID().toString();
@@ -228,7 +318,7 @@ public final class GameLibrary {
                 "This ZIP contains Xbox title "+String.join(", ",otherTitles)+". Fight Night Round 3 uses "+TITLE+".");
             try{Files.move(stage,slots.resolve(id),StandardCopyOption.ATOMIC_MOVE);}
             catch(AtomicMoveNotSupportedException e){Files.move(stage,slots.resolve(id));}
-            return id;
+            medals.accept(keys);return id;
         }finally{clearStage(stage);}
     }
     static void clearStage(Path path) throws IOException {

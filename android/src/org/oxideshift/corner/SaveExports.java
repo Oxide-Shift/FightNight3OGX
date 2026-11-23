@@ -20,7 +20,7 @@ final class SaveExports {
         final long modified;
         Entry(String name,Uri uri,long modified){this.name=name;this.uri=uri;this.modified=modified;}
     }
-    static String importDocument(ContentResolver resolver,Uri uri,Path root)throws IOException{
+    static String importDocument(ContentResolver resolver,Uri uri,Path root,java.util.function.Consumer<Set<String>> awards)throws IOException{
         // Full disk backups can be large. Use a directly seekable ZIP for those;
         // ordinary exports and cloud/pipe-backed documents use the picker stream.
         try(AssetFileDescriptor fd=resolver.openAssetFileDescriptor(uri,"r")){
@@ -28,9 +28,9 @@ final class SaveExports {
                 ZipFile archive=null;
                 try{archive=new ZipFile("/proc/self/fd/"+fd.getParcelFileDescriptor().getFd());}
                 catch(IOException ignored){}
-                if(archive!=null)try(ZipFile opened=archive){return GameLibrary.importSave(opened,root);}
+                if(archive!=null)try(ZipFile opened=archive){return GameLibrary.importSave(opened,root,awards);}
             }
-            if(fd!=null)try(InputStream in=fd.createInputStream()){return GameLibrary.importSave(in,root);}
+            if(fd!=null)try(InputStream in=fd.createInputStream()){return GameLibrary.importSave(in,root,awards);}
         }
         throw new IOException("Android could not open the selected file");
     }

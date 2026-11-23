@@ -28,3 +28,9 @@ The handheld reads instruction bytes from the verified, imported executable. The
 ## Release format
 
 The launcher reads public releases from `Oxide-Shift/FightNight3OGX`. Use a tag such as `v0.4.0-alpha.42` and an asset named `FightNight-Round3-Thor-0.4.0-alpha.42.apk`. The launcher checks the version, repository download URL, advertised size and SHA-256, Android package name and signing certificate before installation.
+
+## Alpha 46 artwork and timing
+
+The glove icon and purple Thor control diagram are original artwork. The launcher substitutes its 256 × 256 BC2 diagram into six verified Xbox controller sprites in the player’s extracted archive. The prompt text and surrounding art come from the disc. The APK inventory check includes only the new icon resources and the diagram.
+
+**Time another full build** starts a fresh translation and native build from the installed executable. **Disc to ready** also measures importing a newly selected image. When extraction and preparation overlap, their elapsed times are not additive.

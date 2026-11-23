@@ -14,9 +14,10 @@ final class DiscBuild {
     final File runner;
     final boolean benchmark;
     private static volatile String completedBenchmark;
+    private volatile boolean repeatRequested;
     File playableModule(){return preparedModule(folder);}
-    boolean needsPreparation(){return !playableModule().isFile() || (benchmark && !folder.getName().equals(completedBenchmark));}
-    void repeatBenchmark(){completedBenchmark=null;}
+    boolean needsPreparation(){return repeatRequested || !playableModule().isFile() || (benchmark && !folder.getName().equals(completedBenchmark));}
+    void repeatBenchmark(){repeatRequested=true;completedBenchmark=null;}
 
     DiscBuild(Context context) throws IOException {
         app=context.getApplicationContext();
@@ -34,6 +35,12 @@ final class DiscBuild {
 
     static File preparedModule(File folder){
         File current=new File(folder,"libfightnight_game.so");
+        // Alpha 46 changes worker scheduling and patch lookup. Its generated files
+        // matched Alpha 45 byte for byte, with the same compiler and runtime.
+        if(!current.isFile() && folder.getName().equals("48d9ad8b971f20a77f7695e15661d2b47240d62793e13616735a2e32647ceee7")){
+            File previous=new File(folder.getParentFile(),"1ed6887e8b501f9e0c20d15cd3b7cec38df65dae36fb9767be87a5abe59fcc1b/libfightnight_game.so");
+            if(previous.isFile() && previous.length()>64)return previous;
+        }
         // Only these two verified release kits produce identical guest sources
         // and ship the same compiler, link flags and native runtime.
         if(!current.isFile() && folder.getName().equals("fbd6a69963af4c68c3e6d1ef839ac08ef346204f12886a274a94c82991699063")){
@@ -85,6 +92,7 @@ final class DiscBuild {
 
     synchronized String prepare(File xbe, GameLibrary.Status status)throws Exception{
         if(!needsPreparation())return "Xbox game ready";
+        final boolean benchmark=this.benchmark || repeatRequested;
         final long started=android.os.SystemClock.elapsedRealtime();
         long translating=0,compiling=0;
         File trial=new File(folder,"timed-build");
@@ -139,7 +147,7 @@ final class DiscBuild {
         }finally{p.destroy();}
         if(benchmark){
             Files.move(output.toPath(),module.toPath(),StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
-            completedBenchmark=folder.getName();
+            completedBenchmark=folder.getName();repeatRequested=false;
         }
         final long finished=android.os.SystemClock.elapsedRealtime();
         // The module lives under files/, so Android clearing cache cannot require another disc build.
@@ -159,12 +167,12 @@ final class DiscBuild {
             if(prior!=null)for(File old:prior)
                 if(!old.equals(folder) && old.getName().matches("[0-9a-f]{64}"))GameLibrary.clearStage(old.toPath());
         } catch(IOException e){android.util.Log.i("FightNightDiscBuild","Build files retained",e);}
-        if(benchmark && translating>0 && compiling>=translating){
+        if(translating>0 && compiling>=translating){
             return "Game ready  ·  Translation "+duration(compiling-translating)+"  ·  Compile and link "+duration(finished-compiling)+"  ·  Total "+duration(finished-started);
         }
         return "Xbox game ready";
     }
-    private static String duration(long ms){
+    static String duration(long ms){
         long seconds=(ms+500)/1000;
         return String.format(java.util.Locale.ROOT,"%d:%02d",seconds/60,seconds%60);
     }

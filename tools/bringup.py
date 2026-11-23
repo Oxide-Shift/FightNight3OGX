@@ -13,12 +13,20 @@ import tempfile
 XBE_SHA256 = "cfaf2d2c1c338a6e4e7135466c8dcb80fdf7da63682e71cfecdcba65b3682064"
 
 
+def patch_candidates(directory, pattern, preferred):
+    # Try the known split for this retail layout first. Every patch still checks its
+    # original anchors, and different translator chunk boundaries use a full search.
+    first = [directory / ("recomp_" + number + ".c") for number in preferred]
+    yield from (path for path in first if path.is_file())
+    yield from (path for path in sorted(directory.glob(pattern)) if path not in first)
+
+
 def route_trax(gen):
     # Only this shared call displays the game's now-playing animation. Preserve
     # its caller's stack cleanup and the original call on a single display.
     label = "loc_00162B55: ;"
     call = "PUSH32(esp, 0x00162B5Au); RECOMP_ABI_CALL(0x0022DF26u, sub_0022DF26);"
-    for path in sorted(gen.glob("recomp_*.c")):
+    for path in patch_candidates(gen, "recomp_*.c", ('0043',)):
         source = path.read_text(encoding="utf-8")
         if label not in source:
             continue
@@ -64,7 +72,7 @@ def observe_career_menus(directory):
         hooks[f"loc_{address:08X}: ;"] = (
             f"extern void fight_trophy_status(unsigned, unsigned);\n    fight_trophy_status({slot}, eax);"
         )
-    for path in sorted(directory.glob("recomp_0*.c")):
+    for path in patch_candidates(directory, "recomp_0*.c", ('0040', '0050', '0072')):
         source = path.read_text(encoding="utf-8")
         updated = source
         for anchor, observer in list(hooks.items()):
@@ -89,7 +97,7 @@ def observe_career_menus(directory):
 def observe_fight_cinematics(directory):
     # Retail resolves the sequence index at entry, before selecting its data source.
     label = "loc_0011A360: ;"
-    for path in sorted(directory.glob("recomp_0*.c")):
+    for path in patch_candidates(directory, "recomp_0*.c", ('0033',)):
         source = path.read_text(encoding="utf-8")
         if label not in source:
             continue
@@ -108,7 +116,7 @@ def route_voice_completion(directory):
     # In slot zero, a cleared pointer can otherwise pass the retail voice-ID check.
     load = "loc_0046A902: ;\n    ecx = MEM32(ecx + eax * 4 + 0x88);"
     guarded = load + "\n    if (!ecx) goto loc_0046A924; /* voice already released */"
-    for path in sorted(directory.glob("recomp_0*.c")):
+    for path in patch_candidates(directory, "recomp_0*.c", ('0246',)):
         source = path.read_text(encoding="utf-8")
         if guarded in source:
             return path
@@ -125,7 +133,7 @@ def route_controller_poll(directory):
     # Both retail polling loops keep the first port's opened handle at 0x5CEE78.
     call = "fight_pad_read_player_one(eax, MEM32(esp + 4), MEM32(0x5CEE78), MEM32(esp + 8));"
     replacement = original.replace("    esp += 12;", "    extern void fight_pad_read_player_one(uint32_t, uint32_t, uint32_t, uint32_t);\n    " + call + "\n    esp += 12;")
-    for path in sorted(directory.glob("recomp_0*.c")):
+    for path in patch_candidates(directory, "recomp_0*.c", ('0248',)):
         source = path.read_text(encoding="utf-8")
         if replacement in source:
             return path
@@ -147,7 +155,7 @@ def observe_ring_events(directory):
         "loc_0016C39A: ;": ("void fight_stumble(void)", "fight_stumble()"),
     }
     touched = []
-    for path in sorted(directory.glob("recomp_0*.c")):
+    for path in patch_candidates(directory, "recomp_0*.c", ('0024', '0044', '0045')):
         source = path.read_text(encoding="utf-8")
         original = source
         for label in list(sites):
@@ -175,7 +183,7 @@ def route_texture_blits(directory):
     (directory / header.name).write_bytes(header.read_bytes())
     sites = "RECOMP_ABI_CALL(0x000FD000u, sub_000FD000)"
     fast = "RECOMP_ABI_CALL(0x000FD000u, fight_texel_offset)"
-    for chunk in sorted(directory.glob("recomp_0*.c")):
+    for chunk in patch_candidates(directory, "recomp_0*.c", ('0031',)):
         source = chunk.read_text(encoding="utf-8")
         if '#include "texel_offset.h"' in source:
             return chunk
@@ -199,7 +207,7 @@ def route_career_format(directory):
     original = "g_seh_ebp = ebp; RECOMP_ITAIL(MEM32(edx * 4 + 0x136488)); return;"
     routed = ("if (MEM32(edx * 4 + 0x136488) != 0x135CEC) { " + original + " }"
               " /* career formatter continues at the next translated instruction */")
-    for chunk in sorted(directory.glob("recomp_0*.c")):
+    for chunk in patch_candidates(directory, "recomp_0*.c", ('0037',)):
         source = chunk.read_text(encoding="utf-8")
         if routed in source:
             return chunk
@@ -221,7 +229,7 @@ def preserve_stream_cursor(directory):
                "      " + call + "\n"
                "      esi = voice; edi = saved_edi; ebx = saved_ebx; esp = argument;\n"
                "      g_ebp = g_seh_ebp = ebp; }")
-    for chunk in sorted(directory.glob("recomp_0*.c")):
+    for chunk in patch_candidates(directory, "recomp_0*.c", ('0092',)):
         source = chunk.read_text(encoding="utf-8")
         if label not in source:
             continue

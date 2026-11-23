@@ -26,7 +26,8 @@ final class FightMenu extends LinearLayout {
     private static final java.util.regex.Pattern COUNTS=java.util.regex.Pattern.compile("(\\d+) / (\\d+)");
     private final Button play,disc,save,exportSave,settings,advanced;
     final Button card,defaultSave,updates;
-    final Switch soundtrack;
+    final Switch soundtrack,fightMusic;
+    final TextView backupStatus;
     final Spinner rumble;
     final Spinner renderer,resolution,aspect;
     final PresetStrip quality,pacing;
@@ -110,6 +111,10 @@ final class FightMenu extends LinearLayout {
         soundtrack=new Switch(c);soundtrack.setText("Menu music");soundtrack.setTextColor(PAPER);
         soundtrack.setTypeface(faces.body);soundtrack.setMinHeight(dp(46));
         soundtrack.setChecked(prefs.getBoolean("music",true));details.addView(soundtrack);
+        fightMusic=new Switch(c);fightMusic.setText("Ring Focus during fights · 4%");fightMusic.setTextColor(PAPER);
+        fightMusic.setTypeface(faces.body);fightMusic.setMinHeight(dp(46));
+        fightMusic.setChecked(prefs.getBoolean("fightMusic",false));details.addView(fightMusic);
+        backupStatus=label("Automatic backups · Downloads / Fight Night Round 3",13,MUTED);details.addView(backupStatus);
         LinearLayout strength=new LinearLayout(c);details.addView(strength);
         rumble=choice(strength,"Controller rumble",new String[]{"Off","Light","Medium","Full"},
                 "rumbleLevel",prefs.getBoolean("rumble",true)?3:0);

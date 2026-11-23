@@ -102,6 +102,49 @@ final class RetailMenu {
         while(code.position()<0xd082)code.put((byte)0x04);
         return data;
     }
+    static synchronized void installThorGuide(Path game,byte[] artwork)throws IOException{
+        if(artwork.length!=256*256)throw new IOException("Invalid Thor controls artwork");
+        Path archive=game.resolve("GUI/overlay.viv");
+        if(!Files.isRegularFile(archive))archive=game.resolve("gui/overlay.viv");
+        byte[] stamp=ascii("FNR3-THOR-CONTROLS-1");
+        try(RandomAccessFile file=new RandomAccessFile(archive.toFile(),"r")){
+            if(file.length()>48L*1024*1024 || file.length()<1024)throw new IOException("Unrecognized controller archive");
+            byte[] tail=new byte[stamp.length];file.seek(file.length()-VERSION.length-stamp.length);file.readFully(tail);
+            if(Arrays.equals(tail,stamp))return;
+        }
+        byte[] outer=Files.readAllBytes(archive);
+        if(!Arrays.equals(Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length),VERSION))
+            throw new IOException("Install the retail menu first");
+        for(String variant:new String[]{"CM","CR","HH","PN","Training","Tutorial"}){
+            String stem="lp-"+variant+"-ContConfig",group="screengroups/load/"+stem+".big",bankName=stem+".xsh";
+            byte[] screen=TraxArt.inflate(member(outer,group),2*1024*1024);
+            byte[] bank=TraxArt.inflate(member(screen,bankName),2*1024*1024);
+            ByteBuffer header=little(bank);
+            int count=header.getInt(8),matches=0;
+            if(header.getInt(0)!=0x58504853 || count!=5)throw new IOException("Unrecognized controller artwork");
+            String xbox=variant.equals("Training")?"32":"28";
+            for(int i=0;i<count;i++){
+                String id=new String(bank,16+8*i,4,StandardCharsets.US_ASCII).trim();
+                if(!xbox.equals(id))continue;
+                int at=header.getInt(20+i*8);
+                if(at<56 || at>bank.length-artwork.length-16 || bank[at]!=0x61 ||
+                   header.getShort(at+4)!=256 || header.getShort(at+6)!=256)throw new IOException("Invalid controller texture");
+                verify(Arrays.copyOfRange(bank,at+16,at+16+artwork.length),"4323af5236c457ac783af92a359166d544cab6549e4c4ee940a55ebaad2d561d");
+                System.arraycopy(artwork,0,bank,at+16,artwork.length);matches++;
+            }
+            if(matches!=1)throw new IOException("Missing Xbox controller artwork");
+            outer=replace(outer,group,replace(screen,bankName,bank));
+        }
+        byte[] result=Arrays.copyOf(outer,outer.length+stamp.length);
+        System.arraycopy(stamp,0,result,outer.length-VERSION.length,stamp.length);
+        System.arraycopy(VERSION,0,result,result.length-VERSION.length,VERSION.length);
+        little(result).putInt(4,result.length);
+        Path temp=Files.createTempFile(archive.getParent(),"thor-guide-",".tmp");
+        try{
+            try(FileOutputStream out=new FileOutputStream(temp.toFile())){out.write(result);out.getFD().sync();}
+            Files.move(temp,archive,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
+        }finally{Files.deleteIfExists(temp);}
+    }
     static synchronized void install(Path game)throws IOException{
         Path archive=game.resolve("GUI/overlay.viv");
         if(!Files.isRegularFile(archive))archive=game.resolve("gui/overlay.viv");

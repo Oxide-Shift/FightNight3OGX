@@ -74,11 +74,6 @@ def main():
             "--lib", jar, "--output", dex, compiled)
         unsigned = work / "unsigned.apk"
         manifest = app / "AndroidManifest.xml"
-        if args.disc_kit:
-            # The single-app build uses the platform icon and imports the game's artwork on the Thor.
-            manifest = work / "AndroidManifest.xml"
-            manifest.write_text((app / manifest.name).read_text(encoding="utf-8")
-                                .replace("@mipmap/fight_night", "@android:drawable/sym_def_app_icon"), encoding="utf-8")
         link = [sdk / "aapt2.exe", "link", "-I", jar, "--manifest", manifest, "-o", unsigned]
         if not args.setup:
             resources = work / "resources.zip"
@@ -88,8 +83,12 @@ def main():
                 (res / "values").mkdir(parents=True)
                 (res / "raw").mkdir()
                 assets.mkdir()
+                for name in ("drawable-nodpi/corner_glove.png","mipmap-xxxhdpi/fight_night.png","mipmap-anydpi-v26/fight_night.xml"):
+                    (res/name).parent.mkdir(exist_ok=True)
+                    shutil.copyfile(app/"res"/name,res/name)
                 shutil.copyfile(app / "res/values/colors.xml", res / "values/colors.xml")
                 shutil.copyfile(app / "res/raw/corner_unlock.wav", res / "raw/corner_unlock.wav")
+                shutil.copyfile(app / "assets/thor-controls.dxt3",assets / "thor-controls.dxt3")
                 shutil.copyfile(app / "assets/corner.html", assets / "corner.html")
             run(sdk / "aapt2.exe", "compile", "--dir", res, "-o", resources)
             link.extend(["-A", assets, resources])
