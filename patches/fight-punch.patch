@@ -1,0 +1,246 @@
+--- a/vkr.c
++++ b/vkr.c
+@@ -1781,7 +1781,8 @@
+     return 1;
+ }
+ 
+-static void begin_pass(VkrContext *c)
++static void fight_begin_pass(VkrContext *c,const float *color,int clear_depth,float depth,
++                             int clear_stencil,uint32_t stencil)
+ {
+     VkRenderingAttachmentInfo ca = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+     VkRenderingAttachmentInfo da = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+@@ -1797,10 +1798,18 @@
+     da.loadOp = c->color_valid ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+     da.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+     da.clearValue.depthStencil.depth = 1.0f;
++    VkRenderingAttachmentInfo sa = da;
++    if(color){
++        ca.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;
++        memcpy(ca.clearValue.color.float32,color,sizeof(float)*4);
++        if(c->tags)ca.clearValue.color.float32[3]=0.f;
++    }
++    if(clear_depth){da.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;da.clearValue.depthStencil.depth=depth;}
++    if(clear_stencil){sa.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;sa.clearValue.depthStencil.stencil=stencil;}
+     ri.renderArea = sc; ri.layerCount = 1;
+     ri.colorAttachmentCount = 1; ri.pColorAttachments = &ca; ri.pDepthAttachment = &da;
+     if (c->has_stencil)
+-        ri.pStencilAttachment = &da;
++        ri.pStencilAttachment = &sa;
+     vkCmdBeginRendering(c->cmd, &ri);
+     vkCmdSetViewport(c->cmd, 0, 1, &vp);
+     vkCmdSetScissor(c->cmd, 0, 1, &c->sc);
+@@ -1809,6 +1818,22 @@
+     c->fight_bindings_valid = 0;
+     c->fight_bound_pipeline = VK_NULL_HANDLE;
+     c->color_valid = 1;
++}
++
++static void begin_pass(VkrContext *c) {
++    fight_begin_pass(c,NULL,0,1.f,0,0);
++}
++
++/* A full-surface first clear can initialize the tiler's attachment without
++ * loading the old pixels. Partial and mid-pass clears retain their ordering. */
++int fight_clear_load(VkrContext *c,const float *color,int clear_depth,float depth,
++                     int clear_stencil,uint32_t stencil) {
++    if(c->in_pass || c->sc.offset.x || c->sc.offset.y ||
++       c->sc.extent.width!=c->sw || c->sc.extent.height!=c->sh ||
++       (!color && !clear_depth && !(clear_stencil && c->has_stencil)))return 0;
++    if(!begin_cmd(c))return 0;
++    fight_begin_pass(c,color,clear_depth,depth,clear_stencil,stencil);
++    return 1;
+ }
+ 
+ static void end_pass(VkrContext *c)
+--- a/nv2a_pb_exec.c
++++ b/nv2a_pb_exec.c
+@@ -1777,7 +1777,12 @@
+  * the title does reads it back, so a float buffer per zeta offset is enough. */
+ #define NV_ZBUF_W 1024
+ #define NV_ZBUF_H 1024
+-static struct { uint32_t offset; float *z; } s_zbufs[4];
++typedef struct {
++    uint32_t offset;
++    float *z, clear_value;
++    int valid, pending_clear;
++} SoftwareDepth;
++static SoftwareDepth s_zbufs[4];
+ static int s_ftrace;            /* frame trace: 0 idle, 2 tracing, 3 done */
+ static int s_zbuf_next;
+ 
+@@ -1838,34 +1843,41 @@
+     t->point_sprite = s_gpu.point_sprite != 0;
+ }
+ 
+-static float *zbuf_current(int create)
+-{
+-    int i;
+-    size_t k;
+-
+-    for (i = 0; i < 4; i++)
+-        if (s_zbufs[i].z && s_zbufs[i].offset == s_gpu.zeta_offset)
+-            return s_zbufs[i].z;
+-    if (!create)
+-        return NULL;
+-    i = s_zbuf_next++ & 3;
+-    if (!s_zbufs[i].z)
+-        s_zbufs[i].z = (float *)malloc(sizeof(float) * NV_ZBUF_W * NV_ZBUF_H);
+-    if (!s_zbufs[i].z)
+-        return NULL;
+-    s_zbufs[i].offset = s_gpu.zeta_offset;
+-    for (k = 0; k < (size_t)NV_ZBUF_W * NV_ZBUF_H; k++)
+-        s_zbufs[i].z[k] = 3.4e38f;
+-    return s_zbufs[i].z;
++/* Vulkan owns its depth attachment. Remember the latest software clear per
++ * surface and materialize it only on an actual software raster fallback. */
++static SoftwareDepth *software_depth(void)
++{
++    for (unsigned i = 0; i < 4; i++) {
++        if (s_zbufs[i].valid && s_zbufs[i].offset == s_gpu.zeta_offset)
++            return &s_zbufs[i];
++    }
++    SoftwareDepth *slot = &s_zbufs[s_zbuf_next++ & 3];
++    slot->offset = s_gpu.zeta_offset;
++    slot->valid = slot->pending_clear = 1;
++    slot->clear_value = 3.4e38f;
++    return slot;
++}
++
++static float *zbuf_current(void)
++{
++    SoftwareDepth *slot = software_depth();
++    if (!slot->z) {
++        slot->z = (float *)malloc(sizeof(float) * NV_ZBUF_W * NV_ZBUF_H);
++        if (!slot->z) return NULL;
++    }
++    if (slot->pending_clear) {
++        for (size_t k = 0; k < (size_t)NV_ZBUF_W * NV_ZBUF_H; k++)
++            slot->z[k] = slot->clear_value;
++        slot->pending_clear = 0;
++    }
++    return slot->z;
+ }
+ 
+ static void zbuf_clear(void)
+ {
+-    float *z = zbuf_current(1), v = zclear_value();
+-    size_t k;
+-    if (z)
+-        for (k = 0; k < (size_t)NV_ZBUF_W * NV_ZBUF_H; k++)
+-            z[k] = v;
++    SoftwareDepth *slot = software_depth();
++    slot->clear_value = zclear_value();
++    slot->pending_clear = 1;
+ }
+ 
+ static int depth_pass(float z, float stored)
+@@ -2520,7 +2532,7 @@
+     if (!surface_begin_batch(T.mem))
+         return;
+     if (s_gpu.depth_test || s_gpu.depth_mask)
+-        T.zb = zbuf_current(1);
++        T.zb = zbuf_current();
+     if (tex_size_from_format(s_gpu.texs[0].color)) {
+         su = (float)s_gpu.texs[0].width;
+         sv = (float)s_gpu.texs[0].height;
+@@ -4746,7 +4758,7 @@
+         size_t bytes = fight_texture_bytes(stage);
+         uint32_t physical=t->offset & 0x0fffffffu;
+         if(!bytes || (uint64_t)physical+bytes>g_xbox_total_ram)return 0;
+-        h=fight_texture_hash(XBOX_HOST(t->offset),bytes,t->format_raw);
++        h=fight_checked_texture(XBOX_HOST(t->offset),bytes,t->format_raw);
+         if(t->color==0x0b && t->palette) {
+             if((uint64_t)(t->palette & 0x0fffffffu)+1024>g_xbox_total_ram)return 0;
+             h=fight_texture_hash(XBOX_HOST(t->palette),1024,h);
+--- a/nv2a_pb_scan.c
++++ b/nv2a_pb_scan.c
+@@ -50,7 +50,14 @@
+  * the executor writes to guest memory. */
+ extern void nv2a_pb_exec_method(uint32_t subch, uint32_t method, uint32_t param);
+ extern void nv2a_pb_exec_report(void);
+-static int s_exec_enabled = -1;
++static int s_exec_enabled = -1, s_survey_enabled;
++static void configure_pushbuffer(void)
++{
++    if (s_exec_enabled < 0) {
++        s_exec_enabled = getenv("RECOMP_PB_EXEC") != NULL;
++        s_survey_enabled = getenv("RECOMP_PB_SCAN") != NULL;
++    }
++}
+ 
+ /* (subchannel, method) -> index into s_seen + 1, so counting a word is O(1):
+  * the linear scan this replaced was a third of the executor's time. Methods
+@@ -213,7 +220,7 @@
+ 
+             for (uint32_t i = 0; i < count && va < end_va; i++) {
+                 uint32_t m = noninc ? method : method + i * 4;
+-                note(subch, m);
++                if (s_survey_enabled) note(subch, m);
+                 /* Same walk, two consumers: the survey counts, the executor
+                  * acts. Keeping them on one decode means they can never
+                  * disagree about what the stream said. */
+@@ -252,8 +259,7 @@
+     const uint8_t *mem = (const uint8_t *)xbox_GetMemoryOffset();
+     uint32_t va = get_va, words = 0, jumps = 0, unknown = 0;
+ 
+-    if (s_exec_enabled < 0)
+-        s_exec_enabled = getenv("RECOMP_PB_EXEC") != NULL;
++    configure_pushbuffer();
+     while (va != put_va) {
+         uint32_t w;
+         /* Never walk out of RAM or forever: a GET that cannot reach PUT (the
+@@ -269,7 +275,7 @@
+             return put_va;
+         }
+         if (c_left) {                            /* method data */
+-            note(c_subch, c_method);
++            if (s_survey_enabled) note(c_subch, c_method);
+             if (s_exec_enabled)
+                 nv2a_pb_exec_method(c_subch, c_method,
+                                     *(const uint32_t *)(XBOX_HOST(va)));
+@@ -383,12 +389,8 @@
+ {
+     uint32_t words, jumps = 0, unknown = 0;
+ 
+-    if (s_exec_enabled < 0)
+-        s_exec_enabled = getenv("RECOMP_PB_EXEC") != NULL;
+-    static int scan = -1;
+-    if (scan < 0)
+-        scan = getenv("RECOMP_PB_SCAN") != NULL;
+-    if (!(scan || s_exec_enabled) || end_va <= start_va)
++    configure_pushbuffer();
++    if (!(s_survey_enabled || s_exec_enabled) || end_va <= start_va)
+         return;
+     if (end_va - start_va > 0x400000u)        /* a sane single-frame bound */
+         end_va = start_va + 0x400000u;
+--- a/xbox_memory_layout.c
++++ b/xbox_memory_layout.c
+@@ -3421,7 +3421,8 @@
+ uint32_t xbox_ContiguousAlloc(uint32_t size, uint32_t alignment)
+ {
+     uint32_t result = 0;
+-    int reclaim = xbox_HeapReclaimEnabled();
++    /* Arena is shared by successive venues and career scenes. */
++    const int reclaim = 1;
+     int i;
+ 
+     if (alignment < 4096) alignment = 4096;
+@@ -3487,8 +3488,6 @@
+ {
+     int i, found = 0;
+ 
+-    if (!xbox_HeapReclaimEnabled())
+-        return 0;
+     AcquireSRWLockExclusive(&g_contig_lock);
+     for (i = 0; i < g_contig_block_count; i++) {
+         if (g_contig_blocks[i].addr != addr || g_contig_blocks[i].free)
+@@ -3521,8 +3520,6 @@
+     uint32_t r = 0;
+     int i;
+ 
+-    if (!xbox_HeapReclaimEnabled())
+-        return 0;
+     AcquireSRWLockShared(&g_contig_lock);
+     for (i = 0; i < g_contig_block_count; i++)
+         if (g_contig_blocks[i].addr == addr && !g_contig_blocks[i].free) {

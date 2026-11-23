@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ringside scorecard</title><style>
+/* imported-stencil */
+:root{--paper:#eee8d9;--ink:#20211d;--dim:#54534a;--rule:#b5ae9c;--red:#952b25;--blue:#284c63}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px RingStencil,sans-serif}
+main{max-width:850px;margin:auto;padding:clamp(10px,3.3vw,28px)}
+header,.title,.round,.actions,.step{display:flex;align-items:center;justify-content:space-between;gap:8px}
+header{min-height:34px;border-top:3px solid var(--ink);border-bottom:1px solid var(--ink);padding:3px 0}
+.small,.link,nav button,th,.corner-label,dt{font:700 clamp(10px,2.1vmin,14px)/1.15 RingStencil,sans-serif;letter-spacing:.10em;text-transform:uppercase}
+header .small{letter-spacing:.15em}.link{color:var(--dim);letter-spacing:.05em}.link.live{color:#35553b}
+h1{font:700 clamp(32px,8.3vmin,69px)/1.0 RingStencil,sans-serif;letter-spacing:-.055em;margin:.18em 0 .14em}
+nav{display:flex;gap:16px;border-bottom:1px solid var(--rule)}button{font:600 15px RingStencil,sans-serif;background:transparent;color:inherit;border:0;min-height:42px;padding:4px 9px;touch-action:manipulation;cursor:pointer}
+button:focus-visible{outline:3px solid var(--blue);outline-offset:1px}button:disabled{opacity:.35}nav button{color:var(--dim);min-height:37px;letter-spacing:.09em;border-bottom:3px solid transparent;padding:3px 0}
+nav button[aria-pressed=true]{color:var(--ink);border-color:var(--red)}
+.round{margin:12px 0 7px;color:var(--dim)}#round{color:var(--red);font:bold clamp(17px,4vmin,25px)/1 RingStencil,sans-serif}.corners{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--rule)}
+.corner{padding:6px 8px 5px}.corner+.corner{border-left:1px solid var(--rule)}.corner-label{color:var(--red);display:block}.blue .corner-label{color:var(--blue)}
+.step{gap:3px}.step button{border:1px solid var(--rule);min-width:43px;font-size:21px;border-radius:0}.score{font:bold clamp(32px,9vmin,70px)/1.12 RingStencil,sans-serif;font-variant-numeric:tabular-nums}
+.actions{justify-content:flex-start;margin:8px 0 13px}.solid{background:var(--ink);color:var(--paper);padding:0 22px}.quiet{color:var(--dim)}
+table{border-collapse:collapse;width:100%;font:600 clamp(16px,3.8vmin,26px)/1.2 RingStencil,sans-serif;font-variant-numeric:tabular-nums;text-align:center}
+th,td{padding:5px 2px;border-bottom:1px solid var(--rule)}thead{border-block:2px solid var(--ink)}
+th[scope=row],th:first-child{text-align:left;width:20%}th.current{color:var(--red)}tbody tr:first-child th{color:var(--red)}tbody tr:nth-child(2) th{color:var(--blue)}
+tfoot th,tfoot td{padding-top:8px;border:0}tfoot td{text-align:right}.metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 14px}
+dl{margin:0;padding:10px 0;border-bottom:1px solid var(--rule)}dt{color:var(--dim)}dd{margin:4px 0 0;font-weight:600;overflow-wrap:anywhere}.reason,.events{font-size:14px}.events{padding-left:1.1em}#confirm{padding:7px 0}
+[hidden]{display:none!important}@media(max-height:380px){main{padding-top:5px}header{min-height:24px}h1{font-size:27px}.round{margin:5px 0}.actions{margin:4px 0}.corner{padding-block:3px}th,td{padding:3px}nav button{min-height:32px}}
+</style></head><body><main>
+<header><span class="small">Fight Night &nbsp;/&nbsp; Round 3</span><span class="link" id="link">Offline</span></header>
+<h1>Ringside scorecard</h1>
+<nav aria-label="Pages"><button id="cardTab" aria-pressed="true">My card</button><button id="sessionTab" aria-pressed="false">Session</button></nav>
+<section id="card"><div class="round"><b id="round"></b><span class="small">Your scoring</span></div>
+<div class="corners"><div class="corner"><span class="corner-label">Red corner</span><div class="step"><button data-side="r" data-step="-1" aria-label="Subtract red point">−</button><output class="score" id="r"></output><button data-side="r" data-step="1" aria-label="Add red point">+</button></div></div>
+<div class="corner blue"><span class="corner-label">Blue corner</span><div class="step"><button data-side="b" data-step="-1" aria-label="Subtract blue point">−</button><output class="score" id="b"></output><button data-side="b" data-step="1" aria-label="Add blue point">+</button></div></div></div>
+<div class="actions"><button class="solid" id="save">Record round</button><button id="undo">Undo</button><button class="quiet" id="newBout" hidden>New bout</button></div>
+<table aria-label="Recorded rounds"><thead><tr><th>Round</th><th scope="col" id="h0"></th><th scope="col" id="h1"></th><th scope="col" id="h2"></th><th scope="col" id="h3"></th><th scope="col" id="h4"></th><th scope="col" id="h5"></th></tr></thead><tbody><tr><th scope="row">Red</th><td id="red0"></td><td id="red1"></td><td id="red2"></td><td id="red3"></td><td id="red4"></td><td id="red5"></td></tr><tr><th scope="row">Blue</th><td id="blue0"></td><td id="blue1"></td><td id="blue2"></td><td id="blue3"></td><td id="blue4"></td><td id="blue5"></td></tr></tbody><tfoot><tr><th scope="row">Total</th><td colspan="6"><output id="total"></output></td></tr></tfoot></table>
+<details id="earlier" hidden><summary>Rounds 1–6</summary><table aria-label="First six rounds"><thead><tr><th>Round</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th></tr></thead><tbody><tr><th scope='row'>Red</th><td id='oldRed0'></td><td id='oldRed1'></td><td id='oldRed2'></td><td id='oldRed3'></td><td id='oldRed4'></td><td id='oldRed5'></td></tr><tr><th scope='row'>Blue</th><td id='oldBlue0'></td><td id='oldBlue1'></td><td id='oldBlue2'></td><td id='oldBlue3'></td><td id='oldBlue4'></td><td id='oldBlue5'></td></tr></tbody></table></details>
+<div id="confirm" hidden>Clear this scorecard? <button id="clear">Clear card</button><button id="keep">Keep card</button></div></section>
+<section id="session" hidden><div class="metrics"><dl><dt>Renderer</dt><dd id="renderer">—</dd></dl><dl><dt>Presented video</dt><dd id="output">—</dd></dl><dl><dt>Audio interruptions</dt><dd id="audio">—</dd></dl><dl><dt>Game session</dt><dd id="phase">—</dd></dl><dl><dt>Link latency</dt><dd id="latency">—</dd></dl><dl><dt>Replies</dt><dd id="replies">—</dd></dl><dl><dt>Xbox imports</dt><dd id="bridge">—</dd></dl><dl><dt>Guest thread</dt><dd id="thread">—</dd></dl><dl><dt>Frame submissions</dt><dd id="frames">—</dd></dl></div>
+<p class="reason" id="reason"></p><ul class="events" id="events"></ul></section></main><script>
+'use strict';
+const el=id=>document.getElementById(id), key='corner.card.v1';
+let state;
+function load(){state={rows:[],r:10,b:10};try{const x=JSON.parse(localStorage.getItem(key));if(x&&Array.isArray(x.rows)&&x.rows.length<=12&&[x.r,x.b,...x.rows.flat()].every(v=>Number.isInteger(v)&&v>=0&&v<=10)&&x.rows.every(p=>Array.isArray(p)&&p.length===2))state=x}catch(e){}}
+function paint(){const n=state.rows.length;el('round').textContent=n===12?'Card complete':'Round '+String(n+1).padStart(2,'0');for(const side of ['r','b'])el(side).textContent=state[side];
+document.querySelectorAll('[data-side]').forEach(b=>{const v=state[b.dataset.side]+Number(b.dataset.step);b.disabled=n===12||v>10||v<0});el('save').disabled=n===12;el('undo').disabled=!n;el('newBout').hidden=!n;
+el('total').textContent=n?state.rows.reduce((a,p)=>a+p[0],0)+'  /  '+state.rows.reduce((a,p)=>a+p[1],0):'—  /  —';
+const offset=n>=6?6:0;
+el('earlier').hidden=n<6;
+if(n>=6)for(let i=0;i<6;i++){el('oldRed'+i).textContent=state.rows[i][0];el('oldBlue'+i).textContent=state.rows[i][1];}
+for(let i=0;i<6;i++){const number=i+offset,row=state.rows[number];el('h'+i).textContent=number+1;el('red'+i).textContent=row?row[0]:'·';el('blue'+i).textContent=row?row[1]:'·';el('h'+i).className=number===n?'current':'';}
+}
+function persist(){try{localStorage.setItem(key,JSON.stringify(state))}catch(e){}paint()}
+document.querySelectorAll('[data-side]').forEach(b=>b.onclick=()=>{state[b.dataset.side]+=Number(b.dataset.step);persist()});
+el('save').onclick=()=>{state.rows.push([state.r,state.b]);state.r=state.b=10;persist()};
+el('undo').onclick=()=>{[state.r,state.b]=state.rows.pop();persist()};el('newBout').onclick=()=>{el('confirm').hidden=false};
+el('clear').onclick=()=>{state={rows:[],r:10,b:10};el('confirm').hidden=true;persist()};el('keep').onclick=()=>{el('confirm').hidden=true};
+let latestSession=null,eventSignature='';
+function page(runtime){el('card').hidden=runtime;el('session').hidden=!runtime;el('cardTab').setAttribute('aria-pressed',String(!runtime));el('sessionTab').setAttribute('aria-pressed',String(runtime));if(runtime&&latestSession)sessionValues(latestSession)}
+el('cardTab').onclick=()=>page(false);el('sessionTab').onclick=()=>page(true);
+function sessionValues(s){
+  for(const id of ['phase','latency','replies','bridge','thread','frames','reason','output','renderer','audio']){
+    const value=String(s[id]??'');if(el(id).textContent!==value)el(id).textContent=value;
+  }
+  const events=s.events||[],signature=JSON.stringify(events);
+  if(signature!==eventSignature){eventSignature=signature;const list=el('events');list.replaceChildren();for(const message of events){const li=document.createElement('li');li.textContent=message;list.appendChild(li)}}
+}
+window.cornerUpdate=s=>{latestSession=s;if(el('link').textContent!==s.link){el('link').textContent=s.link;el('link').className='link '+String(s.link).toLowerCase();}if(!el('session').hidden)sessionValues(s)};
+window.addEventListener('storage',()=>{load();paint()});load();paint();
+</script></body></html>

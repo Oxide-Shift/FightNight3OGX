@@ -1,0 +1,568 @@
+package org.oxideshift.corner;
+
+import android.app.*;
+import android.content.*;
+import android.content.res.AssetFileDescriptor;
+import android.hardware.display.DisplayManager;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.hardware.input.InputManager;
+import android.media.*;
+import android.net.Uri;
+import android.os.*;
+import android.view.*;
+import android.webkit.*;
+import android.widget.*;
+import org.json.JSONObject;
+import java.io.*;
+import java.nio.file.*;
+import java.util.Map;
+
+public final class CornerActivity extends Activity implements DisplayManager.DisplayListener, InputManager.InputDeviceListener {
+    private static final int DISC=1, SAVE=2, EXPORT_FOLDER=3, WRITE_SAVE=4;
+    private static final class Engine {
+        volatile boolean importing;
+        volatile long buildStarted;
+        volatile String note="";
+        volatile CornerSession session;
+        volatile File frame;
+    }
+    private static final Engine engine=new Engine();
+    private final Handler main=new Handler(Looper.getMainLooper());
+    private final FightPad pad=new FightPad();
+    private SharedPreferences prefs;
+    private DisplayManager displays;
+    private InputManager inputs;
+    private LinearLayout root;
+    private FrameLayout body;
+    private FightMenu menu;
+    private ReleaseUpdates updates;
+    private CrashReports crashReports;
+    private PadRumble rumble;
+    private boolean resumed,awake,screenOff,hingeClosed;
+    private SensorManager sensors;
+    private final BroadcastReceiver powerEvents=new BroadcastReceiver(){
+        @Override public void onReceive(Context c,Intent intent){
+            screenOff=Intent.ACTION_SCREEN_OFF.equals(intent.getAction());
+            syncPower();
+        }
+    };
+    private final SensorEventListener hinge=new SensorEventListener(){
+        public void onAccuracyChanged(Sensor sensor,int accuracy){}
+        public void onSensorChanged(SensorEvent event){
+            float angle=event.values[0];
+            boolean closed=angle<=3f || (hingeClosed && angle<12f);
+            if(closed!=hingeClosed){hingeClosed=closed;syncPower();}
+        }
+    };
+    private int hapticGeneration;
+    private GameScreen screen;
+    private WebView local;
+    private Button back;
+    private Presentation presentation;
+    private FrameLayout lowerPanel;
+    private AchievementDisplay achievementDisplay;
+    private RingsideView ringside;
+    private CornerControls.Key touchKey;
+    private boolean treating;
+    private int treatX,treatY;
+    private final Runnable release=()->{touchKey=null;sendPad();};
+    private MediaPlayer music;
+    private String html,lastJson="";
+    private File base,host;
+    private DiscBuild discBuild;
+    private boolean foreground, viewingGame,viewingCard;
+
+    @Override public void onCreate(Bundle state){
+        super.onCreate(state);
+        base=getFilesDir();prefs=getSharedPreferences("fight-setup",MODE_PRIVATE);
+        crashReports=new CrashReports(this);
+        inputs=getSystemService(InputManager.class);
+        sensors=getSystemService(SensorManager.class);
+        displays=(DisplayManager)getSystemService(DISPLAY_SERVICE);
+        host=new File(getApplicationInfo().nativeLibraryDir,"libfightnight_host.so");
+        if(new File(getApplicationInfo().nativeLibraryDir,"libdisc_runner.so").isFile()){
+            try{discBuild=new DiscBuild(this);host=discBuild.runner;}
+            catch(IOException e){engine.note="Cannot read the disc build kit";}
+        }
+        try(InputStream in=getAssets().open("corner.html");ByteArrayOutputStream out=new ByteArrayOutputStream()){
+            byte[] buf=new byte[8192];for(int n;(n=in.read(buf))!=-1;)out.write(buf,0,n);html=out.toString("UTF-8");
+        }catch(IOException e){throw new IllegalStateException(e);}
+        root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(FightMenu.INK);
+        back=new Button(this);back.setText("Return to fight setup");back.setOnClickListener(v->setup());root.addView(back);
+        body=new FrameLayout(this);root.addView(body,new LinearLayout.LayoutParams(-1,0,1));setContentView(root);
+        updates=new ReleaseUpdates(this,()->awake && !viewingGame && !viewingCard && !active() && !engine.importing);
+        String version="";
+        try{version=getPackageManager().getPackageInfo(getPackageName(),0).versionName;}
+        catch(android.content.pm.PackageManager.NameNotFoundException ignored){}
+        menu=new FightMenu(this,prefs,version==null?"":version,()->{if(active()){engine.session.stop();setup();}else choose(DISC);},
+                this::saveOptions,this::prepareSaveExport,this::launch,this::showCard,()->{
+            prefs.edit().remove("save").apply();engine.note="Default save selected";
+        },updates::tap);
+        if(discBuild!=null && discBuild.benchmark)menu.enableBenchmark(()->{
+            if(engine.importing || active() || updates.installing())return;
+            discBuild.repeatBenchmark();launch();
+        });
+        rumble=new PadRumble(this);
+        menu.soundtrack.setOnCheckedChangeListener((v,on)->{prefs.edit().putBoolean("music",on).apply();syncMusic();});
+        body.addView(menu);back.setVisibility(View.GONE);
+        root.post(this::immersive);
+        if(state!=null && state.getBoolean("game") && engine.frame!=null)showGame();
+    }
+    private File game(){
+        File fresh=new File(base,"retail/game");
+        return new File(fresh,"default.xbe").isFile()?fresh:new File(base,"game");
+    }
+    private File saves(){
+        String id=prefs.getString("save","");
+        return id.isEmpty()?new File(base,"saves"):new File(new File(base,"save-slots"),id);
+    }
+    private void choose(int type){
+        if(updates.installing())return;
+        if(engine.importing||active())return;
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivityForResult(intent,type);
+    }
+    private void saveOptions(){
+        if(updates.installing())return;
+        if(engine.importing || active())return;
+        new AlertDialog.Builder(this).setTitle("Import a Fight Night save")
+            .setPositiveButton("Choose ZIP",(d,w)->choose(SAVE))
+            .setNeutralButton("Find in export folder",(d,w)->findExport())
+            .setNegativeButton("Cancel",null).show();
+    }
+    private void pickExportFolder(){
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(intent,EXPORT_FOLDER);
+    }
+    private File stagedExport(){return new File(getCacheDir(),"fight-night-save-export.zip");}
+    private void prepareSaveExport(){
+        if(engine.importing || active() || updates.installing())return;
+        File source=saves(),stage=stagedExport();
+        engine.importing=true;engine.note="Preparing save export";
+        new Thread(()->{
+            try{
+                try(OutputStream out=new BufferedOutputStream(new FileOutputStream(stage))){
+                    GameLibrary.exportSave(source.toPath(),out);
+                }
+                main.post(()->{
+                    engine.importing=false;engine.note="";
+                    if(isFinishing() || isDestroyed()){stage.delete();return;}
+                    Intent pick=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                        .setType("application/zip").putExtra(Intent.EXTRA_TITLE,"Fight Night Round 3 saves.zip");
+                    startActivityForResult(pick,WRITE_SAVE);
+                });
+            }catch(Exception ex){
+                stage.delete();engine.note="Export failed — "+ex.getMessage();engine.importing=false;
+            }
+        },"prepare-fight-save").start();
+    }
+    private void writeSaveExport(Uri destination){
+        File stage=stagedExport();engine.importing=true;engine.note="Exporting save";
+        ContentResolver resolver=getApplicationContext().getContentResolver();
+        new Thread(()->{
+            try(OutputStream out=resolver.openOutputStream(destination,"wt")){
+                if(out==null)throw new IOException("Could not open the selected destination");
+                Files.copy(stage.toPath(),out);
+            }catch(Exception ex){
+                engine.note="Export failed — "+ex.getMessage();engine.importing=false;stage.delete();return;
+            }
+            stage.delete();engine.note="Save exported for hakuX";engine.importing=false;
+        },"write-fight-save").start();
+    }
+    private void findExport(){
+        String saved=prefs.getString("exportFolder","");
+        if(saved.isEmpty())pickExportFolder();else scanExportFolder(Uri.parse(saved));
+    }
+    private void scanExportFolder(Uri tree){
+        if(engine.importing || active())return;
+        engine.importing=true;engine.note="Looking for Fight Night saves";
+        ContentResolver resolver=getContentResolver();
+        new Thread(()->{
+            java.util.List<SaveExports.Entry> found=new java.util.ArrayList<>();
+            String failure=null;
+            try{found=SaveExports.find(resolver,tree);}catch(Exception e){failure="This folder could not be read.";}
+            final java.util.List<SaveExports.Entry> choices=found;
+            String message=failure!=null?failure:"No Fight Night save ZIP was found in this folder.";
+            main.post(()->{
+                engine.importing=false;engine.note="";
+                if(isFinishing()||isDestroyed()||active())return;
+                AlertDialog.Builder dialog=new AlertDialog.Builder(this)
+                    .setNeutralButton("Change folder",(d,w)->pickExportFolder()).setNegativeButton("Cancel",null);
+                if(choices.isEmpty())dialog.setTitle("Find an exported save").setMessage(message)
+                    .setPositiveButton("Choose ZIP",(d,w)->choose(SAVE));
+                else{
+                    String[] labels=new String[choices.size()];
+                    for(int i=0;i<labels.length;i++)labels[i]=choices.get(i).name;
+                    dialog.setTitle("Choose a Fight Night save").setItems(labels,(d,w)->importDocument(SAVE,choices.get(w).uri));
+                }
+                dialog.show();
+            });
+        },"find-fight-save").start();
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);
+        if(request==WRITE_SAVE){
+            if(result==RESULT_OK && data!=null && data.getData()!=null)writeSaveExport(data.getData());
+            else{stagedExport().delete();engine.note="";}
+            return;
+        }
+        if(request==ReleaseUpdates.INSTALL_PERMISSION){updates.permissionResult();return;}
+        if(result!=RESULT_OK||data==null||data.getData()==null||engine.importing||active())return;
+        Uri uri=data.getData();
+        if(request==EXPORT_FOLDER){
+            try{
+                getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                prefs.edit().putString("exportFolder",uri.toString()).apply();
+            }catch(SecurityException ignored){}
+            scanExportFolder(uri);
+        }else if(request==DISC || request==SAVE)importDocument(request,uri);
+    }
+    private void importDocument(int request,Uri uri){
+        if(engine.importing||active())return;
+        Context app=getApplicationContext();File files=base;
+        engine.importing=true;engine.note=request==DISC?"Opening Xbox ISO":"Opening save archive";
+        engine.buildStarted=request==DISC?SystemClock.elapsedRealtime():0;
+        new Thread(()->{
+            try {
+                if(request==DISC){
+                    AssetFileDescriptor descriptor=app.getContentResolver().openAssetFileDescriptor(uri,"r");
+                    if(descriptor==null)throw new IOException("The selected disc cannot be opened");
+                    try(AssetFileDescriptor fd=descriptor;InputStream in=fd.createInputStream()){
+                        GameLibrary.importDisc(in,fd.getLength(),files.toPath(),message->engine.note=message);
+                    }
+                    engine.note=discBuild==null?"Xbox disc installed":discBuild.prepare(new File(game(),"default.xbe"),message->engine.note=message);
+                }else{
+                    String slot=SaveExports.importDocument(app.getContentResolver(),uri,files.toPath());
+                    app.getSharedPreferences("fight-setup",MODE_PRIVATE).edit().putString("save",slot)
+                       .putBoolean("savePromptSeen",true).apply();
+                    engine.note="Imported save selected";
+                }
+            }catch(Exception e){
+                String reason=e.getMessage();
+                if(e instanceof java.util.zip.ZipException)reason="The ZIP could not be opened. Choose the original export file.";
+                if(reason==null || reason.trim().isEmpty())reason=e.getClass().getSimpleName();
+                engine.note="Import failed — "+reason;
+                final String details=reason;
+                if(request==SAVE)main.post(()->{
+                    if(!isFinishing()&&!isDestroyed()&&resumed)new AlertDialog.Builder(this)
+                        .setTitle("Save import failed").setMessage(details).setPositiveButton("OK",null).show();
+                });
+            }
+            finally{engine.buildStarted=0;engine.importing=false;}
+        },"fight-night-import").start();
+    }
+    private boolean active(){CornerSession s=engine.session;return s!=null&&s.active();}
+    private void launch(){
+        if(updates.installing())return;
+        if(active()){showGame();return;}
+        File disc=game(),xbe=new File(disc,"default.xbe"),save=saves();
+        if(!xbe.isFile()||!host.canExecute()||engine.importing)return;
+        if(discBuild!=null && discBuild.needsPreparation()){
+            engine.importing=true;
+            engine.note="Opening the installed disc";engine.buildStarted=SystemClock.elapsedRealtime();
+            new Thread(()->{
+                try{engine.note=discBuild.prepare(xbe,message->engine.note=message);}
+                catch(Exception e){engine.note="Game preparation failed: "+e.getMessage();}
+                finally{engine.buildStarted=0;engine.importing=false;}
+            },"prepare-xbox-disc").start();
+            return;
+        }
+        if(!prefs.getBoolean("savePromptSeen",false)){
+            boolean installed;
+            try{getPackageManager().getPackageInfo("com.rfandango.haku_x",0);installed=true;}
+            catch(android.content.pm.PackageManager.NameNotFoundException e){installed=false;}
+            String text=installed?"hakuX is installed. In hakuX, open Xbox hard disk and export your Fight Night saves. Choose the resulting ZIP here."
+                    :"Choose an Xbox save ZIP or a hakuX backup to bring your boxer and career into the game.";
+            AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Bring your career?")
+                .setMessage(text+" Imported saves open in a separate slot.")
+                .setPositiveButton("Choose save ZIP",(d,w)->choose(SAVE))
+                .setNeutralButton("Find in folder",(d,w)->findExport())
+                .setNegativeButton(save.isDirectory()?"Use current save":"Start fresh",(d,w)->{
+                    prefs.edit().putBoolean("savePromptSeen",true).apply();launch();
+                }).create();
+            dialog.show();
+            for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE,AlertDialog.BUTTON_NEUTRAL})
+                dialog.getButton(which).setTypeface(menu.fonts().brush);
+            return;
+        }
+        if(!save.isDirectory()&&!save.mkdirs()){engine.note="Cannot open the save folder";return;}
+        try {
+            File folder=new File(getCacheDir(),"video");
+            Files.createDirectories(folder.toPath());
+            File frame=File.createTempFile("session-",".rgba",folder);
+            File previous=engine.frame;
+            engine.frame=frame;
+            if(previous!=null)Files.deleteIfExists(previous.toPath());
+            String[] command=discBuild==null
+                    ? new String[]{host.getAbsolutePath(),xbe.getAbsolutePath(),disc.getAbsolutePath(),save.getAbsolutePath(),"--corner"}
+                    : new String[]{host.getAbsolutePath(),discBuild.playableModule().getAbsolutePath(),xbe.getAbsolutePath(),disc.getAbsolutePath(),save.getAbsolutePath(),"--corner"};
+            CornerSession next=new CornerSession(base,command);
+            next.installMenuFrom(disc);
+            CrashReports reports=crashReports;
+            next.onCrash((exit,pc,event,round,pixels,soft)->reports.record("game",exit,pc,event,round,pixels,soft?"software":"vulkan"));
+            SharedPreferences medals=getSharedPreferences("achievements",MODE_PRIVATE);
+            next.achievements=new Achievements(key->medals.getBoolean(key,false),key->medals.edit().putBoolean(key,true).apply());
+            next.setFrameFile(frame);
+            int quality=menu.qualityValue(),height=FightMenu.HEIGHTS[menu.resolution.getSelectedItemPosition()];
+            if(height==0){
+                android.graphics.Rect bounds=getWindowManager().getCurrentWindowMetrics().getBounds();
+                height=Math.max(480,Math.min(1080,Math.min(bounds.height(),bounds.width()*3/4)))/6*6;
+            }
+            next.setWidescreen(menu.aspect.getSelectedItemPosition()==0);
+            next.setVideo(height,quality,menu.renderer.getSelectedItemPosition()==1);
+            engine.session=next;engine.note="Starting original Xbox";new Thread(next::run,"fight-night-host").start();
+            showGame();
+        }catch(IOException e){engine.note="Cannot prepare video · "+e.getMessage();}
+    }
+    private void bindRumble(){
+        int generation=++hapticGeneration;
+        if(rumble==null)return;
+        rumble.stop();
+        CornerSession s=engine.session;
+        if(s==null)return;
+        int strength=menu.rumble.getSelectedItemPosition();
+        if(!acceptsPad() || strength<=0){s.motors(null);return;}
+        s.motors(new CornerSession.Motors(){
+            public void changed(int a,int b,int ms){main.post(()->{
+                if(generation==hapticGeneration && s==engine.session)rumble.apply(a,b,ms,strength);
+            });}
+            public void callout(){main.post(()->{
+                if(generation==hapticGeneration && s==engine.session)rumble.callout(strength);
+            });}
+            public void count(int value){main.post(()->{
+                if(generation==hapticGeneration && s==engine.session)rumble.count(value,strength);
+            });}
+        });
+    }
+    private void showGame(){
+        if(engine.frame==null||engine.session==null||viewingGame)return;
+        removeLocal();menu.setVisibility(View.GONE);viewingCard=false;viewingGame=true;sendPad();bindRumble();
+        screen=new GameScreen(this,engine.frame,menu.qualityValue(),prefs.getInt("aspect",0)==0,engine.session.presentationHeight(),DisplayCadence.target(menu.pacing.index()),menu.vsync.isChecked(),engine.session);
+        updateLower();
+        screen.setKeepScreenOn(awake);
+        body.addView(screen);
+        achievementDisplay=new AchievementDisplay(this,body,menu.fonts(),menu::mainMenuArt,engine.session,game(),this::neutralPad);
+        engine.session.onCabinet(()->main.post(this::refresh));
+        back.setVisibility(View.GONE);immersive();syncPower();
+    }
+    private void closeAchievements(){
+        if(achievementDisplay!=null){achievementDisplay.close();achievementDisplay=null;}
+    }
+    private void showCard(){
+        if(viewingGame||presentation!=null)return;
+        if(local==null){local=card(this);body.addView(local);}
+        viewingCard=true;menu.setVisibility(View.GONE);back.setVisibility(View.VISIBLE);lastJson="";refresh();
+    }
+    private void removeLocal(){if(local!=null){body.removeView(local);local.destroy();local=null;}}
+    private void setup(){
+        closeAchievements();neutralPad();
+        if(screen!=null){screen.onPause();body.removeView(screen);screen=null;}
+        updateLower();
+        removeLocal();viewingGame=false;bindRumble();viewingCard=false;back.setVisibility(View.GONE);menu.setVisibility(View.VISIBLE);syncPower();
+    }
+    @Override public void onBackPressed(){if(viewingCard||viewingGame)setup();else super.onBackPressed();}
+    private static void fullscreen(Window window){
+        if(window==null)return;
+        View decor=window.peekDecorView();
+        if(decor==null || !decor.isAttachedToWindow())return;
+        window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        WindowManager.LayoutParams attrs=window.getAttributes();
+        attrs.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        window.setAttributes(attrs);window.setDecorFitsSystemWindows(false);
+        WindowInsetsController bars=decor.getWindowInsetsController();
+        if(bars!=null){
+            bars.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            bars.hide(WindowInsets.Type.systemBars());
+        }
+    }
+    private void immersive(){fullscreen(getWindow());if(presentation!=null)fullscreen(presentation.getWindow());}
+    @Override public void onWindowFocusChanged(boolean focus){
+        super.onWindowFocusChanged(focus);
+        if(focus)immersive();else if(viewingGame)neutralPad();
+        bindRumble();
+    }
+    @Override public void onInputDeviceAdded(int id){}
+    @Override public void onInputDeviceChanged(int id){forgetDevice(id);}
+    @Override public void onInputDeviceRemoved(int id){forgetDevice(id);}
+    private void forgetDevice(int id){
+        if(pad.remove(id))sendPad();
+        rumble.forget(id);
+    }
+    private boolean acceptsPad(){return awake && viewingGame && hasWindowFocus() && engine.session!=null;}
+    private void sendPad(){
+        if(viewingGame && engine.session!=null)engine.session.controller(pad.report(touchKey,treating,treatX,treatY));
+    }
+    private boolean press(CornerControls.Key key){
+        if(!acceptsPad()||!active()||touchKey!=null)return false;
+        touchKey=key;sendPad();main.postDelayed(release,215);return true;
+    }
+    private void treatmentStick(boolean down,int x,int y){
+        if(down && (!acceptsPad()||!active()))return;
+        if(!down&&!treating)return;
+        treating=down;treatX=x;treatY=y;sendPad();
+    }
+    private void releaseTouch(){
+        main.removeCallbacks(release);touchKey=null;treating=false;
+        if(ringside!=null)ringside.releaseInput();
+        sendPad();
+    }
+    private void neutralPad(){pad.clear();releaseTouch();}
+    @Override public boolean dispatchKeyEvent(KeyEvent event){
+        if(acceptsPad() && (event.getAction()==KeyEvent.ACTION_DOWN||event.getAction()==KeyEvent.ACTION_UP)
+                && pad.key(event,event.getAction()==KeyEvent.ACTION_DOWN)){
+            if(event.getDeviceId()>=0)rumble.use(event.getDeviceId());
+            sendPad();return true;
+        }
+        return super.dispatchKeyEvent(event);
+    }
+    @Override public boolean dispatchGenericMotionEvent(MotionEvent event){
+        if(acceptsPad()&&pad.motion(event)){
+            if(event.getDeviceId()>=0)rumble.use(event.getDeviceId());
+            sendPad();return true;
+        }
+        return super.dispatchGenericMotionEvent(event);
+    }
+    private WebView card(Context context){
+        WebView view=new WebView(context);WebSettings settings=view.getSettings();
+        settings.setJavaScriptEnabled(true);settings.setDomStorageEnabled(true);settings.setAllowFileAccess(false);
+        settings.setAllowContentAccess(false);settings.setBlockNetworkLoads(true);view.setBackgroundColor(FightMenu.INK);
+        view.setWebViewClient(new WebViewClient(){
+            @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest req){return true;}
+            @Override public void onPageFinished(WebView v,String url){lastJson="";refresh();}
+        });
+        String scoreHtml=html;
+        File stencil=DiscFonts.stencilFile(game());
+        if(stencil!=null)try{
+            String data=android.util.Base64.encodeToString(Files.readAllBytes(stencil.toPath()),android.util.Base64.NO_WRAP);
+            scoreHtml=html.replace("/* imported-stencil */","@font-face{font-family:RingStencil;src:url(data:font/ttf;base64,"
+                    +data+") format('truetype');font-weight:100 900}");
+        }catch(IOException ignored){}
+        view.loadDataWithBaseURL("https://corner.invalid/",scoreHtml,"text/html","UTF-8",null);return view;
+    }
+    private void closeLower(){
+        if(achievementDisplay!=null && lowerPanel!=null)achievementDisplay.detach(lowerPanel);
+        lowerPanel=null;
+        if(ringside!=null){releaseTouch();ringside.activate(false);}ringside=null;
+        if(presentation!=null){presentation.dismiss();presentation=null;}
+    }
+    private void updateLower(){
+        if(ringside==null)return;
+        ringside.follow(screen,engine.session);
+        ringside.activate(awake);
+    }
+    private void layout(){
+        if(!foreground)return;
+        Display target=null;
+        for(Display d:displays.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION))
+            if(d.isValid()&&d.getDisplayId()!=getDisplay().getDisplayId()){target=d;break;}
+        if(target!=null&&presentation!=null&&presentation.isShowing()&&target.getDisplayId()==presentation.getDisplay().getDisplayId())return;
+        closeLower();
+        if(target!=null)try{
+            presentation=new Presentation(this,target);
+            Context ctx=presentation.getContext();FrameLayout panel=new FrameLayout(ctx);
+            lowerPanel=panel;panel.setBackgroundColor(RingsideView.INK);
+            ringside=new RingsideView(ctx,this::press,this::treatmentStick);
+            panel.addView(ringside,new FrameLayout.LayoutParams(-1,-1));
+            presentation.getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+            updateLower();presentation.setContentView(panel);presentation.show();
+            Window window=presentation.getWindow();window.setLayout(-1,-1);panel.post(()->fullscreen(window));
+            if(viewingCard)setup();
+        }catch(WindowManager.InvalidDisplayException e){closeLower();}
+        lastJson="";refresh();
+    }
+    private void syncMusic(){
+        boolean wanted=awake&&!viewingGame&&!viewingCard&&prefs.getBoolean("music",true);
+        if(!wanted){if(music!=null){music.release();music=null;}return;}
+        if(music!=null)return;
+        try(AssetFileDescriptor fd=getAssets().openFd("ring-focus-loop.ogg")){
+            music=new MediaPlayer();music.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_GAME)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());
+            music.setDataSource(fd.getFileDescriptor(),fd.getStartOffset(),fd.getLength());music.setLooping(true);
+            music.setVolume(.12f,.12f);music.prepare();
+            android.media.VolumeShaper fade=music.createVolumeShaper(new android.media.VolumeShaper.Configuration.Builder()
+                    .setDuration(1200).setCurve(new float[]{0,1},new float[]{0,1}).build());
+            fade.apply(android.media.VolumeShaper.Operation.PLAY);music.start();
+        }catch(Exception e){android.util.Log.w("FightNight","Launcher music could not start",e);if(music!=null)music.release();music=null;}
+    }
+    private void refresh(){
+        if(!foreground)return;
+        CornerSession session=engine.session;boolean ready=new File(game(),"default.xbe").isFile(),live=active();
+        Map<String,Object> data=session==null?new CornerSession(base).snapshot():session.snapshot();
+        String info=engine.note;
+        if(info.isEmpty())info=ready?"Xbox disc ready":"Choose your original Xbox ISO to install Fight Night.";
+        if(live)info="Xbox session · "+data.get("phase");
+        if(session!=null&&!live&&!engine.importing&&"Closed".equals(data.get("link"))&&engine.note.startsWith("Starting"))
+            info="Session ended · "+data.get("reason");
+        if(!host.isFile()&&ready)info="This package has no Fight Night runtime";
+        menu.showBuildProgress(info,engine.importing?engine.buildStarted:0);
+        menu.setKeepScreenOn(engine.importing && engine.buildStarted!=0);
+        menu.showState(info,ready,engine.importing || updates.installing(),live,host.canExecute(),!prefs.getString("save","").isEmpty(),presentation!=null,
+                discBuild!=null && discBuild.needsPreparation());
+        updates.refresh(menu.updates);
+        if(ready)menu.loadDiscPoster(game());
+        if(ready && ringside!=null)ringside.useFonts(menu.fonts());
+        if(ringside!=null){ringside.setCornerArt(menu.cornerArt());ringside.setTrainingArt(menu.trainingArt());ringside.setTraxArt(menu.traxArt());}
+        if(viewingGame&&screen!=null){
+            if(awake && live && achievementDisplay!=null)achievementDisplay.refresh(lowerPanel);
+            data.put("output",screen.output());
+            if(!live && "Closed".equals(data.get("link")))setup();
+        }else if(viewingCard)back.setText("Return to fight setup");
+        if(!live && resumed && awake && !viewingGame && !viewingCard && !engine.importing && !updates.installing())crashReports.refresh();
+        if(local==null)return;
+        String json=new JSONObject(data).toString();
+        if(!json.equals(lastJson)){lastJson=json;WebView v=local;if(v!=null)v.evaluateJavascript("window.cornerUpdate && window.cornerUpdate("+json+")",null);}
+    }
+    private final Runnable tick=new Runnable(){
+        public void run(){if(awake){refresh();main.postDelayed(this,750);}}
+    };
+    private void syncPower(){
+        Display display=getDisplay();
+        int state=display==null?Display.STATE_UNKNOWN:display.getState();
+        boolean visible=state==Display.STATE_ON || state==Display.STATE_UNKNOWN || state==Display.STATE_VR;
+        boolean next=foreground && resumed && !screenOff && !hingeClosed && visible
+                && getSystemService(PowerManager.class).isInteractive()
+                && !getSystemService(KeyguardManager.class).isKeyguardLocked();
+        boolean changed=next!=awake;
+        awake=next;
+        if(changed && !next)neutralPad();
+        if(next && updates!=null && !viewingCard && !viewingGame && !active() && !engine.importing)updates.check(false);
+        if(engine.session!=null)engine.session.setSleeping(!next || !viewingGame);
+        if(changed){
+            main.removeCallbacks(tick);
+            if(screen!=null){
+                screen.setKeepScreenOn(next);
+                if(next)screen.onResume();else screen.onPause();
+            }
+            if(ringside!=null)ringside.activate(next);
+            bindRumble();
+            if(next)main.post(tick);
+        }
+        syncMusic();
+    }
+    @Override protected void onStart(){
+        super.onStart();foreground=true;screenOff=false;hingeClosed=false;
+        IntentFilter filter=new IntentFilter(Intent.ACTION_SCREEN_OFF);
+        filter.addAction(Intent.ACTION_SCREEN_ON);filter.addAction(Intent.ACTION_USER_PRESENT);
+        registerReceiver(powerEvents,filter);
+        Sensor angle=sensors==null?null:sensors.getDefaultSensor(Sensor.TYPE_HINGE_ANGLE);
+        if(angle!=null)sensors.registerListener(hinge,angle,SensorManager.SENSOR_DELAY_NORMAL,main);
+        inputs.registerInputDeviceListener(this,main);displays.registerDisplayListener(this,main);
+        layout();syncPower();
+    }
+    @Override protected void onResume(){super.onResume();resumed=true;syncPower();}
+    @Override protected void onPause(){resumed=false;syncPower();super.onPause();}
+    @Override protected void onStop(){
+        foreground=false;syncPower();unregisterReceiver(powerEvents);
+        if(sensors!=null)sensors.unregisterListener(hinge);
+        inputs.unregisterInputDeviceListener(this);displays.unregisterDisplayListener(this);closeLower();super.onStop();
+    }
+    @Override protected void onDestroy(){closeAchievements();removeLocal();super.onDestroy();}
+    @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putBoolean("game",viewingGame);}
+    @Override public void onDisplayAdded(int id){layout();}
+    @Override public void onDisplayRemoved(int id){layout();}
+    @Override public void onDisplayChanged(int id){syncPower();layout();}
+}

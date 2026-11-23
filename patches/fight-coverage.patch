@@ -1,0 +1,114 @@
+--- a/vkr.c
++++ b/vkr.c
+@@ -18,6 +18,7 @@
+ #include "xbox_frag_spv.h"
+ #include "fight_programs.h"
+ #include "fight_depth_spv.h"
++#include "fight_full_coverage_spv.h"
+ #include "fight_depth_w_spv.h"
+ #include "xbox_frag_wdepth_spv.h"
+ #include "xbox_frag_tags_spv.h"
+@@ -130,7 +131,7 @@
+     VkPhysicalDevice phys;
+     VkDevice dev;
+     VkPipelineCache fight_cache;
+-    VkShaderModule fight_shaders[32], fight_depth[2];
++    VkShaderModule fight_shaders[32], fight_depth[2], fight_full_coverage;
+     unsigned cached_jobs;
+     VkQueue queue;
+     uint32_t qfam;
+@@ -565,6 +566,7 @@
+     }
+     c->fs = shader(c, xbox_frag_spv, xbox_frag_spv_len);
+     c->fs_wdepth = shader(c, xbox_frag_wdepth_spv, xbox_frag_wdepth_spv_len);
++    c->fight_full_coverage = shader(c, fight_full_coverage_spv, fight_full_coverage_spv_len);
+     c->fight_depth[0] = shader(c, fight_depth_spv, fight_depth_spv_len);
+     c->fight_depth[1] = shader(c, fight_depth_w_spv, fight_depth_w_spv_len);
+     c->vs_vsh = shader(c, xbox_vsh_vert_spv, xbox_vsh_vert_spv_len);
+@@ -861,6 +863,12 @@
+         stg[1].module = c->fight_depth[w_buffer];
+         stg[1].pSpecializationInfo = NULL;
+     }
++    /* No W-depth, shader clipping, alpha rejection or dual-source tag output.
++       These draws preserve every rasterized sample, so hidden samples can
++       be tested before running the Xbox color combiners. */
++    if (write_mask && key[8] && !(key[7] & (1u | 16u | 64u)) &&
++        (key[46] == 0 || key[46] == 0x207u) && c->fight_full_coverage)
++        stg[1].module = c->fight_full_coverage;
+     unsigned attributes = gpu_vsh >= 2 ? fight_programs[gpu_vsh-2].inputs : gpu_vsh ? 0 : 8;
+     if (gpu_vsh >= 2) bind.stride = attributes * 16;
+     for (i = 0; (unsigned)i < attributes; i++) {
+@@ -1534,6 +1542,7 @@
+     vkDestroyShaderModule(c->dev, c->vs, NULL);
+     vkDestroyShaderModule(c->dev, c->fs, NULL);
+     for(unsigned i=0;i<32;i++) if(c->fight_shaders[i])vkDestroyShaderModule(c->dev,c->fight_shaders[i],NULL);
++    vkDestroyShaderModule(c->dev,c->fight_full_coverage,NULL);
+     for (int i=0;i<2;i++) vkDestroyShaderModule(c->dev,c->fight_depth[i],NULL);
+     vkDestroyShaderModule(c->dev, c->fs_wdepth, NULL);
+     vkDestroyShaderModule(c->dev, c->vs_vsh, NULL);
+--- a/fight_full_coverage.frag
++++ b/fight_full_coverage.frag
+@@ -278,18 +278,10 @@
+     R[0] = vec4(0.0);
+ }
+ 
++layout(early_fragment_tests) in;
++
+ void main()
+ {
+-    /* Every sample, unless the alpha test below narrows it: a shader that
+-     * writes gl_SampleMask anywhere leaves it undefined wherever it does not
+-     * (random coverage -- noise all over the frame). */
+-    gl_SampleMask[0] = -1;
+-    /* Widescreen shows more than the Xbox's 4:3 screen: 2D the game parks
+-     * just off its edge (the B icon of the MCOMM Transport screen, panels
+-     * waiting to slide in) stays hidden, as on a TV. In guest coordinates,
+-     * so HUD elements moved to the wide frame's edges are kept. */
+-    if ((pc.point_sprite & 2u) != 0u && (v_gx < 0.0 || v_gx > 1.0))
+-        discard;
+     uint n = min(control() & 255u, 8u), flags = control() >> 8;
+     vec4 col;
+ 
+@@ -345,42 +337,6 @@
+         col = clamp(col, 0.0, 1.0);
+     }
+ 
+-    if (alpha_func() != 0u) {
+-        float a = floor(col.a * 255.0 + 0.5), r = float(pc.alpha_ref);
+-        uint ns = pc.point_sprite >> 8;
+-        bool pass;
+-        if (ns > 1u && (alpha_func() == 0x204u || alpha_func() == 0x206u)) {
+-            /* MSAA: "alpha above ref" as partial coverage across a pixel-wide
+-             * ramp instead of all or nothing, so cut-out edges (trees,
+-             * fences, crowds) are smoothed like polygon edges. */
+-            float cov = clamp((col.a * 255.0 - r) / max(fwidth(col.a * 255.0), 1e-3) + 0.5, 0.0, 1.0);
+-            uint n = uint(cov * float(ns) + 0.5);
+-            if (n == 0u)
+-                discard;
+-            gl_SampleMask[0] = int((1u << n) - 1u);
+-            out_color = col;
+-#ifdef TAGS
+-            out_src1 = col;
+-            out_color.a = float(pc.tag) / 255.0;
+-#endif
+-#ifdef W_DEPTH
+-            gl_FragDepth = clamp(pc.w_scale / gl_FragCoord.w, 0.0, 1.0);
+-#endif
+-            return;
+-        }
+-        switch (alpha_func()) {
+-        case 0x200u: pass = false; break;
+-        case 0x201u: pass = a < r; break;
+-        case 0x202u: pass = a == r; break;
+-        case 0x203u: pass = a <= r; break;
+-        case 0x204u: pass = a > r; break;
+-        case 0x205u: pass = a != r; break;
+-        case 0x206u: pass = a >= r; break;
+-        default:     pass = true; break;
+-        }
+-        if (!pass)
+-            discard;
+-    }
+     out_color = col;
+ #ifdef TAGS
+     out_src1 = col;

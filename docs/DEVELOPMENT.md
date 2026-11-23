@@ -1,0 +1,30 @@
+# Building the Android disc importer
+
+Use a Windows machine with Python 3.11 or newer, a JDK, Android SDK platform 34 and build tools 36, and Android NDK r30. The app targets ARM64 Android. The source tree contains the Android launcher, native runtime integration, build tools and tests.
+
+The Xbox toolkit revision is `c5d3979d8b05381b3a9c63af95b4114ef667c5b2` from [xboxrecomp](https://github.com/DouglasHalse/xboxrecomp). Apply `patches/pop16.patch` and `patches/setjmp-frame.patch` to that checkout. The Android reference revision is `d5b86480d2692aa4f64f1df952fe5043e748cf42` from [SSX3RecompAndroid](https://github.com/DouglasHalse/SSX3RecompAndroid).
+
+Keep the analysis directory and generated address map outside the repository. Set the paths below to your toolchain and private build directory. The current kit builder takes its Android Python, Capstone and LLVM tools from a local FF7Recomp 1.1.41 compiler APK. Provide the matching Capstone license text. Keep the signing folder for subsequent APK upgrades.
+
+```powershell
+& $python tools/bringup.py $discIso $toolkit $analysis
+& $python tools/record_disc_layout.py $analysis $toolkit "$analysis/disc_layout.json"
+& $python tools/build_host.py $engineBuild $toolkit --target android --clang $ndkClang --android-reference $reference --runtime-only
+& $python tools/build_disc_kit.py --compiler-apk $compilerApk --disc-layout "$analysis/disc_layout.json" --toolkit $toolkit --runtime "$engineBuild/runtime-android" --ndk $ndk --clang $ndkClang --android-reference $reference --capstone-license $capstoneLicense --output $kit
+& $python tools/build_apk.py $apkOut --disc-kit $kit --jdk $jdk --platform "$sdk/platforms/android-34/android.jar" --build-tools "$sdk/build-tools/36.0.0"
+```
+
+For a preparation benchmark, add `--benchmark` to the final command. The test package builds the game from scratch on each new app process. The default command produces a package that reuses compatible prepared data.
+
+## Validate a translation change
+
+The handheld reads instruction bytes from the verified, imported executable. The packaged address map describes boundaries, calling conventions and recovered control-flow ranges for this revision. The desktop full-analysis route remains available for regenerating the map.
+
+1. Run `tools/bringup.py` on your own supported disc to produce the reference analysis and generated sources in a private directory.
+2. Run `python tools/record_disc_layout.py <analysis-directory> <patched-toolkit> <analysis-directory>/disc_layout.json` after changing the toolkit, seed addresses or game hooks.
+3. Extract the resulting kit privately. Run its `tools/bringup.py` on the same executable with `--imported-xbe --disc-layout <kit>/native/disc_layout.json --jobs 4`. Compare the complete generated file inventory and file hashes to the reference. Compile and link the ARM64 output before timing it on a handheld.
+4. Run `python tools/audit_disc_apk.py <signed-apk>` to check the APK inventory. Review dependency notices in [third-party](../third-party/) when preparing a distribution.
+
+## Release format
+
+The launcher reads public releases from `Oxide-Shift/FightNight3OGX`. Use a tag such as `v0.4.0-alpha.42` and an asset named `FightNight-Round3-Thor-0.4.0-alpha.42.apk`. The launcher checks the version, repository download URL, advertised size and SHA-256, Android package name and signing certificate before installation.

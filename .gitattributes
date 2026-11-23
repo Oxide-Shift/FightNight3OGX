@@ -1,0 +1,2 @@
+*.patch text eol=lf
+native/texel_offset.h text eol=lf

@@ -1,0 +1,139 @@
+--- a/nv2a_pb_exec.c
++++ b/nv2a_pb_exec.c
+@@ -4780,6 +4780,33 @@
+         }
+ }
+ 
++#ifdef FNR3_VULKAN
++#include "fight_texture_layout.h"
++
++/* Borrow a tightly pitched linear surface directly. Swizzled colour targets
++ * are unswizzled into one reusable upload scratch by the submission thread. */
++const uint32_t *fight_color_pixels(int stage) {
++    const Texture *t=&s_gpu.texs[stage];
++    if(!t->valid || t->cube || !t->width || !t->height || (t->offset&3))return NULL;
++    if(t->color!=0x06 && t->color!=0x12)return NULL;
++    size_t bytes=(size_t)t->width*t->height*4;
++    if(bytes>64u*1024*1024 || (uint64_t)(t->offset&0x0fffffffu)+bytes>g_xbox_total_ram)return NULL;
++    const uint32_t *source=(const uint32_t *)XBOX_HOST(t->offset);
++    if(t->color==0x12)return t->pitch==t->width*4 ? source : NULL;
++    if(t->width<4 || t->height<2 || t->width>4096 ||
++       (t->width & (t->width-1)) || (t->height & (t->height-1)))return NULL;
++    static size_t capacity;
++    static uint32_t *scratch;
++    if(capacity<bytes){
++        uint32_t *more=realloc(scratch,bytes);
++        if(!more)return NULL;
++        scratch=more;capacity=bytes;
++    }
++    fight_unpack_argb(source,scratch,t->width,t->height);
++    return scratch;
++}
++#endif
++
+ int nv2a_exec_tex_decode(int stage, uint32_t *out)
+ {
+     const Texture *t;
+--- a/vkr.c
++++ b/vkr.c
+@@ -133,6 +133,8 @@
+     /* Each frame owns its copy. A slot used in this recording cannot be
+      * overwritten until its fence has signalled. The Xbox RAM is rechecked
+      * by the mesh cache before it supplies a token. */
++    struct FightImage { uint64_t key; uint32_t w,h; } fight_images_pool[48];
++    unsigned fight_image_next;
+     struct FightResident { uint64_t token; uint32_t serial; } resident[VKR_FRAMES][256];
+     int has_mesh_room[VKR_FRAMES];
+     VkrFrame fr[VKR_FRAMES];
+@@ -1979,7 +1981,7 @@
+     return NULL;
+ }
+ 
+-VkrTex *vkr_tex_find(VkrContext *c, uint64_t key)
++static VkrTex *fight_tex_probe(VkrContext *c, uint64_t key)
+ {
+     uint32_t h;
+     if (!c->hcap)
+@@ -1987,11 +1989,16 @@
+     for (h = tex_slot(key, c->hcap); c->hidx[h] >= 0; h = (h + 1) & (c->hcap - 1)) {
+         VkrTex *t = c->texs[c->hidx[h]];
+         if (t->key == key) {
+-            t->last_use = c->flip_serial;
+             return t;
+         }
+     }
+     return NULL;
++}
++
++VkrTex *vkr_tex_find(VkrContext *c,uint64_t key) {
++    VkrTex *t=fight_tex_probe(c,key);
++    if(t)t->last_use=c->flip_serial;
++    return t;
+ }
+ 
+ /* Into texs and the key index. */
+@@ -2010,6 +2017,25 @@
+             h = (h + 1) & (c->hcap - 1);
+         c->hidx[h] = (int32_t)(c->ntexs - 1);
+     }
++}
++
++/* Remove an old content key while preserving every collision chain. */
++static void fight_rekey(VkrContext *c,VkrTex *t,uint64_t key) {
++    if(!c->hcap){t->key=key;tex_rehash(c);return;}
++    unsigned mask=c->hcap-1, hole=tex_slot(t->key,c->hcap);
++    while(c->hidx[hole]>=0 && c->texs[c->hidx[hole]]!=t)hole=(hole+1)&mask;
++    if(c->hidx[hole]<0){t->key=key;tex_rehash(c);return;}
++    int index=c->hidx[hole];
++    for(unsigned scan=(hole+1)&mask;c->hidx[scan]>=0;scan=(scan+1)&mask){
++        unsigned home=tex_slot(c->texs[c->hidx[scan]]->key,c->hcap);
++        if(((hole-home)&mask)<((scan-home)&mask)){
++            c->hidx[hole]=c->hidx[scan];hole=scan;
++        }
++    }
++    c->hidx[hole]=-1;t->key=key;
++    unsigned at=tex_slot(key,c->hcap);
++    while(c->hidx[at]>=0)at=(at+1)&mask;
++    c->hidx[at]=index;
+ }
+ 
+ /* New contents for an existing texture of the same size (a render target
+@@ -2039,8 +2065,7 @@
+             VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+     t->last_use = c->flip_serial;
+     if (t->key != key) {
+-        t->key = key;
+-        tex_rehash(c);                  /* the index is by key */
++        fight_rekey(c,t,key);
+     }
+     return 1;
+ }
+@@ -2049,6 +2074,28 @@
+                        const uint32_t *pixels)
+ {
+     return vkr_tex_create_ex(c, key, w, h, pixels, 0);
++}
++
++/* Only recycle single-level BGRA images created here. Honor uses through
++ * every stage and cached content key, including two in-flight frame slots. */
++VkrTex *fight_upload_color(VkrContext *c,uint64_t key,uint32_t w,uint32_t h,const uint32_t *pixels) {
++    unsigned slots=sizeof c->fight_images_pool/sizeof c->fight_images_pool[0];
++    for(unsigned i=0;i<slots;i++){
++        struct FightImage *entry=&c->fight_images_pool[i];
++        if(entry->w!=w || entry->h!=h)continue;
++        VkrTex *t=fight_tex_probe(c,entry->key);
++        if(t && t->w==w && t->h==h && (uint32_t)(c->flip_serial-t->last_use)>2 &&
++           vkr_tex_update(c,t,key,pixels)){
++            entry->key=key;
++            return t;
++        }
++    }
++    VkrTex *t=vkr_tex_create(c,key,w,h,pixels);
++    if(t){
++        struct FightImage *entry=&c->fight_images_pool[c->fight_image_next++ % slots];
++        entry->w=w;entry->h=h;entry->key=key;
++    }
++    return t;
+ }
+ 
+ /* mips: also build the mip chain on the GPU (linear blits, level by level).

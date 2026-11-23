@@ -1,0 +1,7 @@
+Achievement unlock sound
+
+Boxing Bell 1.wav by Benboncan (2009), licensed under Creative Commons Attribution 4.0.
+The game plays a shortened mono excerpt with a faded tail.
+
+https://freesound.org/people/Benboncan/sounds/66952/
+https://creativecommons.org/licenses/by/4.0/

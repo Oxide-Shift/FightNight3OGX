@@ -1,0 +1,266 @@
+--- a/vkr.c
++++ b/vkr.c
+@@ -235,6 +235,8 @@
+         uint32_t w, h, sw, sh; float scale, scale_x, squeeze2d, squeeze_all, zmax;
+         VkRect2D sc; uint32_t gsc[4]; int color_valid; VkSampleCountFlagBits samples;
+     } main;
++    int tile_resolved;
++    struct PipeEntry *last_draw_pipe;
+     VkImage resolved;
+     VkDeviceMemory resolved_mem;
+     VkImageView resolved_view;
+@@ -1020,8 +1022,12 @@
+             key[7] |= 32u;
+     }
+     spec_words(c, st, key + 8);
+-    if (!(e = pipe_entry(c, key)))
+-        return VK_NULL_HANDLE;
++    e = c->last_draw_pipe;
++    if (!e || memcmp(e->key, key, sizeof e->key)) {
++        e = pipe_entry(c, key);
++        if (!e) return VK_NULL_HANDLE;
++        c->last_draw_pipe = e;
++    }
+     if (e->pending) {
+         pthread_mutex_lock(&c->pj_lock);
+         if (e->next_job == e) {
+@@ -1587,6 +1593,7 @@
+     if (c->color && !flush_wait(c))
+         return 0;
+     free_target(c);
++    c->tile_resolved = 0;
+     c->w = w; c->h = h; c->zmax = zmax;
+     c->sw = (uint32_t)((float)w * c->scale_x + 0.5f);
+     c->sh = (uint32_t)((float)h * c->scale + 0.5f);
+@@ -1613,7 +1620,7 @@
+     }
+     if (c->samples != VK_SAMPLE_COUNT_1_BIT
+         && !make_image(c, VK_FORMAT_B8G8R8A8_UNORM,
+-                       VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
++                       VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                        VK_IMAGE_ASPECT_COLOR_BIT, &c->resolved, &c->resolved_mem,
+                        &c->resolved_view, c->sw, c->sh))
+         return 0;
+@@ -1806,6 +1813,18 @@
+     }
+     if(clear_depth){da.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;da.clearValue.depthStencil.depth=depth;}
+     if(clear_stencil){sa.loadOp=VK_ATTACHMENT_LOAD_OP_CLEAR;sa.clearValue.depthStencil.stencil=stencil;}
++    /* Resolve while multisample color is resident in the tile. Keep the
++     * multisample attachment for guest passes that load it again. */
++    if (c->resolved && c->cur_off < 0 && !c->scene && c->samples != VK_SAMPLE_COUNT_1_BIT) {
++        barrier(c, c->resolved, VK_IMAGE_ASPECT_COLOR_BIT,
++                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
++                VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
++                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
++        ca.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
++        ca.resolveImageView = c->resolved_view;
++        ca.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
++        c->tile_resolved = 1;
++    }
+     ri.renderArea = sc; ri.layerCount = 1;
+     ri.colorAttachmentCount = 1; ri.pColorAttachments = &ca; ri.pDepthAttachment = &da;
+     if (c->has_stencil)
+@@ -2986,11 +3005,18 @@
+         scene_pass(c);
+     c->scene_done = 0;
+     c->cam_valid = 0;
+-    barrier(c, c->color, VK_IMAGE_ASPECT_COLOR_BIT,
++    int on_tile = c->tile_resolved && !c->scene;
++    c->tile_resolved = 0;
++    if (on_tile) {
++        barrier(c, frame, VK_IMAGE_ASPECT_COLOR_BIT,
++                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
++                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
++                VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
++    } else barrier(c, c->color, VK_IMAGE_ASPECT_COLOR_BIT,
+             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+             VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+             VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+-    if (c->resolved) {
++    if (c->resolved && !on_tile) {
+         /* MSAA: the samples averaged once per frame, here; draws keep
+          * accumulating into the multisampled target until then. */
+         VkImageResolve rs = {0};
+@@ -3045,11 +3071,12 @@
+         vkCmdCopyImageToBuffer(c->cmd, c->down, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                c->fr[slot].rb, 1, &cp);
+     }
+-    barrier(c, c->color, VK_IMAGE_ASPECT_COLOR_BIT,
+-            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+-            VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+-            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
++    if (!on_tile)
++        barrier(c, c->color, VK_IMAGE_ASPECT_COLOR_BIT,
++                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
++                VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
++                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
++                VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+     prof_mark(c, NULL, 0, -1);
+     CK_FRAME(vkEndCommandBuffer(c->cmd), return -1);
+     c->recording = 0;
+--- a/nv2a_vsh_interp.c
++++ b/nv2a_vsh_interp.c
+@@ -108,6 +108,34 @@
+         s_const_word = 0;
+         s_const_load++;
+     }
++}
++
++/* The upload cursor is shared with the scalar path, including split packets. */
++void fight_vsh_upload(const uint32_t *data, uint32_t count, int program)
++{
++    uint32_t *slot = program ? &s_load_slot : &s_const_load;
++    uint32_t *component = program ? &s_load_word : &s_const_word;
++    uint32_t limit = program ? NV2A_VSH_SLOTS : NV2A_VSH_CONSTANTS;
++    if (*slot >= limit || count > (limit - *slot) * 4 - *component) {
++        for (uint32_t i = 0; i < count; i++) {
++            if (program) nv2a_vsh_program_word(data[i]);
++            else nv2a_vsh_constant_word(data[i]);
++        }
++        return;
++    }
++    unsigned char *base = program ? (unsigned char *)s_program : (unsigned char *)s_const;
++    unsigned char *dst = base + (*slot * 4 + *component) * sizeof(uint32_t);
++    size_t bytes = count * sizeof(uint32_t);
++    if (!program || memcmp(dst, data, bytes)) {
++        if (program) {
++            mark_instruction(*slot);
++            mark_instruction(*slot + (*component + count - 1) / 4);
++            s_dirty = 1;
++        }
++        memcpy(dst, data, bytes);
++    }
++    *slot += (*component + count) / 4;
++    *component = (*component + count) % 4;
+ }
+ 
+ void nv2a_vsh_set_constant(uint32_t index, const float v[4])
+--- a/nv2a_pb_exec.c
++++ b/nv2a_pb_exec.c
+@@ -3472,6 +3472,13 @@
+     if ((s_gpu.draws % 200) == 0 && xbox_io_log())
+         fprintf(stderr, "  [GPU] draw #%u\n", s_gpu.draws);
+     s_gpu.verts += s_gpu.idx_count;
++    const Texture *badge = &s_gpu.texs[0];
++    if (badge->valid && !badge->cube && badge->color == 0x0e &&
++        (badge->width == 64 || badge->width == 16) && badge->height == 64 && (s_gpu.rc.stage_program & 31) &&
++        (uint64_t)(badge->offset & 0x0fffffffu) + badge->width * 64u <= g_xbox_total_ram) {
++        extern int fight_trax_badge(const uint8_t *, unsigned);
++        if (fight_trax_badge(XBOX_HOST(badge->offset), badge->width)) return;
++    }
+ 
+     /* How many batches carry coordinates at all, and what range they span.
+      * A pipeline that decodes perfectly and draws nothing is indistinguishable
+@@ -3914,6 +3921,52 @@
+         record_tex_reg(method, param);
+ }
+ 
++/* Only these register windows accept a contiguous payload with no other
++ * state transitions. The caller bounds the span at the current DMA PUT. */
++static uint32_t fight_bulk_words(uint32_t method, int noninc, const uint32_t *data, uint32_t count)
++{
++    if (method >= 0x0b00 && method < 0x0c00) {
++        int program = method < 0x0b80;
++        uint32_t room = ((program ? 0x0b80u : 0x0c00u) - method) / 4;
++        if (!noninc && count > room) count = room;
++        extern void fight_vsh_upload(const uint32_t *, uint32_t, int);
++        fight_vsh_upload(data, count, program);
++    } else if (noninc && method == NV097_ARRAY_ELEMENT16) {
++        if (s_gpu.prim) {
++            uint32_t room = (NV_MAX_INDICES - s_gpu.idx_count) / 2;
++            uint32_t used = count < room ? count : room;
++            /* The two supported hosts and the Xbox are little endian. */
++            memcpy(s_gpu.idx + s_gpu.idx_count, data, used * sizeof *data);
++            s_gpu.idx_count += used * 2;
++        }
++    } else if (noninc && method == NV097_INLINE_ARRAY) {
++        if (s_gpu.prim) {
++            uint32_t room = NV_MAX_INLINE - s_gpu.inline_count;
++            uint32_t used = count < room ? count : room;
++            memcpy(s_gpu.inline_buf + s_gpu.inline_count, data, used * sizeof *data);
++            s_gpu.inline_count += used;
++        }
++    } else return 0;
++    return count;
++}
++
++void nv2a_pb_exec_method(uint32_t subch, uint32_t method, uint32_t param);
++void fight_exec_packet(uint32_t subch, uint32_t method, int noninc,
++                       const uint32_t *data, uint32_t count)
++{
++    for (uint32_t i = 0; i < count;) {
++        uint32_t consumed = 0;
++        if (i && !subch && count - i >= 2)
++            consumed = fight_bulk_words(method, noninc, data + i, count - i);
++        if (!consumed) {
++            nv2a_pb_exec_method(subch, method, data[i]);
++            consumed = 1;
++        }
++        if (!noninc) method += consumed * 4;
++        i += consumed;
++    }
++}
++
+ void nv2a_pb_exec_method(uint32_t subch, uint32_t method, uint32_t param)
+ {
+     static int inited;
+--- a/nv2a_pb_scan.c
++++ b/nv2a_pb_scan.c
+@@ -50,12 +50,16 @@
+  * the executor writes to guest memory. */
+ extern void nv2a_pb_exec_method(uint32_t subch, uint32_t method, uint32_t param);
+ extern void nv2a_pb_exec_report(void);
+-static int s_exec_enabled = -1, s_survey_enabled;
++extern void fight_exec_packet(uint32_t, uint32_t, int, const uint32_t *, uint32_t);
++static int s_exec_enabled = -1, s_survey_enabled, s_batch_enabled;
+ static void configure_pushbuffer(void)
+ {
+     if (s_exec_enabled < 0) {
+         s_exec_enabled = getenv("RECOMP_PB_EXEC") != NULL;
+         s_survey_enabled = getenv("RECOMP_PB_SCAN") != NULL;
++        s_batch_enabled = s_exec_enabled && !s_survey_enabled &&
++            !getenv("RECOMP_C57_TRACE") && !getenv("RECOMP_PB_EXEC_VERBOSE") &&
++            !getenv("RECOMP_FRAME_TRACE_METHODS");
+     }
+ }
+ 
+@@ -218,6 +222,16 @@
+             uint32_t method =  w & 0x1FFCu;
+             int noninc = (w & 0xE0000000u) == 0x40000000u;
+ 
++            if (s_batch_enabled && count && va < end_va) {
++                uint32_t available = (end_va - va) / 4;
++                uint32_t room = (0x04000000u - (va & 0x0fffffffu)) / 4;
++                if ((va & 0x0fffffffu) < 0x04000000u && available >= count && room >= count) {
++                    fight_exec_packet(subch, method, noninc, (const uint32_t *)XBOX_HOST(va), count);
++                    va += 4 * count;
++                    words += count;
++                    continue;
++                }
++            }
+             for (uint32_t i = 0; i < count && va < end_va; i++) {
+                 uint32_t m = noninc ? method : method + i * 4;
+                 if (s_survey_enabled) note(subch, m);
+@@ -275,6 +289,21 @@
+             return put_va;
+         }
+         if (c_left) {                            /* method data */
++            if (s_batch_enabled) {
++                uint32_t n = c_left;
++                uint32_t room = (0x04000000u - (va & 0x0fffffffu)) / 4;
++                if (n > room) n = room;
++                if (n > 0x200000u - words) n = 0x200000u - words;
++                if (put_va > va && n > (put_va - va) / 4) n = (put_va - va) / 4;
++                if (n) {
++                    fight_exec_packet(c_subch, c_method, c_noninc, (const uint32_t *)XBOX_HOST(va), n);
++                    va += n * 4;
++                    words += n;
++                    if (!c_noninc) c_method += n * 4;
++                    c_left -= n;
++                    continue;
++                }
++            }
+             if (s_survey_enabled) note(c_subch, c_method);
+             if (s_exec_enabled)
+                 nv2a_pb_exec_method(c_subch, c_method,

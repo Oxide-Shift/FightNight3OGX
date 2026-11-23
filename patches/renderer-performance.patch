@@ -1,0 +1,229 @@
+--- a/vkr.h
++++ b/vkr.h
+@@ -61,6 +61,7 @@
+ #define VKR_TOPO_TRIANGLES 0
+ #define VKR_TOPO_LINES     1
+ #define VKR_TOPO_POINTS    2
++#define VKR_TOPO_TRIANGLE_STRIP 3
+ 
+ /* Headless device (no window). Returns NULL and prints why on failure. */
+ VkrContext *vkr_create(void);
+@@ -101,14 +102,14 @@
+ 
+ /* Draw an indexed triangle, line or point list (st->topology). */
+ int vkr_draw(VkrContext *c, const VkrVertex *v, uint32_t nverts,
+-             const uint32_t *idx, uint32_t nidx, const VkrDrawState *st);
++             const uint16_t *idx, uint32_t nidx, const VkrDrawState *st);
+ 
+ /* The same with the NV2A vertex program run on the GPU: in is nverts x nin
+  * float4 program inputs, prog nins x 8 words (toolkit nv2a_vsh_export),
+  * consts the 192 constants (float[192][4]). */
+ int vkr_draw_vsh(VkrContext *c, const float *in, uint32_t nverts, uint32_t nin,
+                  const uint32_t *prog, uint32_t nins, uint32_t prog_hash,
+-                 const float (*consts)[4], const uint32_t *idx, uint32_t nidx,
++                 const float (*consts)[4], const uint16_t *idx, uint32_t nidx,
+                  const VkrDrawState *st);
+ 
+ /* The scene camera for the frame being recorded (RECOMP_MBLUR): inv_m maps
+--- a/vkr.c
++++ b/vkr.c
+@@ -112,6 +112,9 @@
+ #define VKR_PROF_MAX 8192
+ 
+ struct VkrContext {
++    VkPipeline fight_bound_pipeline;
++    int fight_state_valid;
++    uint32_t fight_raster[19];
+     VkInstance inst;
+     VkPhysicalDevice phys;
+     VkDevice dev;
+@@ -839,6 +842,7 @@
+     }
+     ia.topology = topology == VKR_TOPO_LINES  ? VK_PRIMITIVE_TOPOLOGY_LINE_LIST
+                 : topology == VKR_TOPO_POINTS ? VK_PRIMITIVE_TOPOLOGY_POINT_LIST
++                : topology == VKR_TOPO_TRIANGLE_STRIP ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP
+                 : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+     vp.viewportCount = 1; vp.scissorCount = 1;
+     rs.polygonMode = VK_POLYGON_MODE_FILL; rs.cullMode = VK_CULL_MODE_NONE;
+@@ -1746,6 +1750,8 @@
+     vkCmdSetViewport(c->cmd, 0, 1, &vp);
+     vkCmdSetScissor(c->cmd, 0, 1, &c->sc);
+     c->in_pass = 1;
++    c->fight_state_valid = 0;
++    c->fight_bound_pipeline = VK_NULL_HANDLE;
+     c->color_valid = 1;
+ }
+ 
+@@ -1786,6 +1792,7 @@
+ 
+ void vkr_set_scissor(VkrContext *c, uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+ {
++    if (c->in_pass && c->gsc[0] == x && c->gsc[1] == y && c->gsc[2] == w && c->gsc[3] == h) return;
+     c->gsc[0] = x; c->gsc[1] = y; c->gsc[2] = w; c->gsc[3] = h;
+     apply_scissor(c);
+ }
+@@ -2271,8 +2278,32 @@
+     vkCmdSetStencilReference(c->cmd, f, st->stencil_ref);
+ }
+ 
++/* Fight Night often draws adjacent mesh groups with exactly the same depth,
++ * stencil, blend constant and culling state. These commands persist until
++ * another draw changes them. Other rendering passes reset the cache. */
++static void fight_raster_state(VkrContext *c, const VkrDrawState *st)
++{
++    uint32_t key[19] = {st->depth_test, st->depth_write, st->depth_func,
++        st->stencil_test, st->stencil_func, st->stencil_ref,
++        st->stencil_read_mask, st->stencil_write_mask, st->stencil_fail,
++        st->stencil_zfail, st->stencil_zpass, fight_cull_enable,
++        fight_cull_face, fight_front_face, (uint32_t)c->has_stencil};
++    memcpy(key + 15, st->blend_color, sizeof st->blend_color);
++    if (c->fight_state_valid && !memcmp(key, c->fight_raster, sizeof key)) return;
++    memcpy(c->fight_raster, key, sizeof key);
++    c->fight_state_valid = 1;
++    vkCmdSetDepthTestEnable(c->cmd, st->depth_test ? VK_TRUE : VK_FALSE);
++    vkCmdSetDepthWriteEnable(c->cmd, st->depth_write ? VK_TRUE : VK_FALSE);
++    vkCmdSetDepthCompareOp(c->cmd, st->depth_func >= 0x200 && st->depth_func <= 0x207
++                                       ? (VkCompareOp)(st->depth_func - 0x200)
++                                       : VK_COMPARE_OP_LESS_OR_EQUAL);
++    set_stencil(c, st);
++    vkCmdSetBlendConstants(c->cmd, st->blend_color);
++    fight_apply_cull(c->cmd);
++}
++
+ int vkr_draw(VkrContext *c, const VkrVertex *v, uint32_t nverts,
+-             const uint32_t *idx, uint32_t nidx, const VkrDrawState *st)
++             const uint16_t *idx, uint32_t nidx, const VkrDrawState *st)
+ {
+     uint32_t vb, ib, ub, end, k;
+     VkDeviceSize off;
+@@ -2294,7 +2325,7 @@
+     begin_pass(c);
+     vb = (c->buf_used + 15) & ~15u;
+     ib = vb + nverts * (uint32_t)sizeof *v;
+-    ub = (ib + nidx * 4 + 255) & ~255u;
++    ub = (ib + nidx * sizeof *idx + 255) & ~255u;
+     end = ub + (uint32_t)sizeof st->u;
+     if (end > VKR_BUF_BYTES) {
+         fprintf(stderr, "[VKR] upload buffer full\n");
+@@ -2302,11 +2333,14 @@
+     }
+     off = vb;
+     memcpy(c->buf_map + vb, v, nverts * sizeof *v);
+-    memcpy(c->buf_map + ib, idx, nidx * 4);
++    memcpy(c->buf_map + ib, idx, nidx * sizeof *idx);
+     memcpy(c->buf_map + ub, &st->u, sizeof st->u);
+     c->buf_used = end;
+ 
+-    vkCmdBindPipeline(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
++    if (c->fight_bound_pipeline != pipe) {
++        vkCmdBindPipeline(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
++        c->fight_bound_pipeline = pipe;
++    }
+     pcv[0] = 1.0f / (float)c->w; pcv[1] = 1.0f / (float)c->h;
+     pcv[2] = 1.0f / c->zmax;
+     pcv[3] = st->u.fog_enable ? st->u.fog_param[2] : 0.0f;
+@@ -2346,16 +2380,9 @@
+     w[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; w[1].pBufferInfo = &bi;
+     vkCmdPushDescriptorSet(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, c->layout, 0, 2, w);
+ 
+-    vkCmdSetDepthTestEnable(c->cmd, st->depth_test ? VK_TRUE : VK_FALSE);
+-    vkCmdSetDepthWriteEnable(c->cmd, st->depth_write ? VK_TRUE : VK_FALSE);
+-    vkCmdSetDepthCompareOp(c->cmd, st->depth_func >= 0x200 && st->depth_func <= 0x207
+-                                       ? (VkCompareOp)(st->depth_func - 0x200)
+-                                       : VK_COMPARE_OP_LESS_OR_EQUAL);
+-    set_stencil(c, st);
+-    vkCmdSetBlendConstants(c->cmd, st->blend_color);
++    fight_raster_state(c, st);
+     vkCmdBindVertexBuffers(c->cmd, 0, 1, &c->buf, &off);
+-    vkCmdBindIndexBuffer(c->cmd, c->buf, ib, VK_INDEX_TYPE_UINT32);
+-    fight_apply_cull(c->cmd);
++    vkCmdBindIndexBuffer(c->cmd, c->buf, ib, VK_INDEX_TYPE_UINT16);
+     vkCmdDrawIndexed(c->cmd, nidx, 1, 0, 0, 0);
+     prof_mark(c, st, nidx, 0);
+     return 1;
+@@ -2378,7 +2405,7 @@
+ }
+ int vkr_draw_vsh(VkrContext *c, const float *in, uint32_t nverts, uint32_t nin,
+                  const uint32_t *prog, uint32_t nins, uint32_t prog_hash,
+-                 const float (*consts)[4], const uint32_t *idx, uint32_t nidx,
++                 const float (*consts)[4], const uint16_t *idx, uint32_t nidx,
+                  const VkrDrawState *st)
+ {
+     uint32_t vb, ib, ub, end, k, po, co;
+@@ -2417,7 +2444,7 @@
+     }
+     vb = end;
+     ib = vb + in_bytes;
+-    ub = (ib + nidx * 4 + 255) & ~255u;
++    ub = (ib + nidx * sizeof *idx + 255) & ~255u;
+     end = ub + (uint32_t)sizeof st->u;
+     if (end > VKR_BUF_BYTES) {
+         fprintf(stderr, "[VKR] upload buffer full\n");
+@@ -2435,11 +2462,14 @@
+         c->vsh_prog_n = nins;
+     }
+     memcpy(c->buf_map + vb, in, in_bytes);
+-    memcpy(c->buf_map + ib, idx, nidx * 4);
++    memcpy(c->buf_map + ib, idx, nidx * sizeof *idx);
+     memcpy(c->buf_map + ub, &st->u, sizeof st->u);
+     c->buf_used = end;
+ 
+-    vkCmdBindPipeline(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
++    if (c->fight_bound_pipeline != pipe) {
++        vkCmdBindPipeline(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
++        c->fight_bound_pipeline = pipe;
++    }
+     pcv[0] = 1.0f / (float)c->w; pcv[1] = 1.0f / (float)c->h;
+     pcv[2] = 1.0f / c->zmax;
+     pcv[3] = st->u.fog_enable ? st->u.fog_param[2] : 0.0f;
+@@ -2482,15 +2512,8 @@
+     w[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; w[2].pBufferInfo = &sb;
+     vkCmdPushDescriptorSet(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, c->layout, 0, 3, w);
+ 
+-    vkCmdSetDepthTestEnable(c->cmd, st->depth_test ? VK_TRUE : VK_FALSE);
+-    vkCmdSetDepthWriteEnable(c->cmd, st->depth_write ? VK_TRUE : VK_FALSE);
+-    vkCmdSetDepthCompareOp(c->cmd, st->depth_func >= 0x200 && st->depth_func <= 0x207
+-                                       ? (VkCompareOp)(st->depth_func - 0x200)
+-                                       : VK_COMPARE_OP_LESS_OR_EQUAL);
+-    set_stencil(c, st);
+-    vkCmdSetBlendConstants(c->cmd, st->blend_color);
+-    vkCmdBindIndexBuffer(c->cmd, c->buf, ib, VK_INDEX_TYPE_UINT32);
+-    fight_apply_cull(c->cmd);
++    fight_raster_state(c, st);
++    vkCmdBindIndexBuffer(c->cmd, c->buf, ib, VK_INDEX_TYPE_UINT16);
+     vkCmdDrawIndexed(c->cmd, nidx, 1, 0, 0, 0);
+     prof_mark(c, st, nidx, 1);
+     return 1;
+--- a/nv2a_pb_exec.c
++++ b/nv2a_pb_exec.c
+@@ -2998,6 +2998,10 @@
+     }
+ }
+ 
++#ifdef FNR3_VULKAN
++#include "vertex_stream.h"
++#endif
++
+ /* Offer the batch to the backend with the program untransformed (draw_vsh:
+  * the GPU runs it). Returns 1 if the backend drew it. RECOMP_GPU_VSH=0
+  * keeps every program on the CPU. */
+@@ -3033,16 +3037,18 @@
+     static uint16_t slots[65536], draw_order[NV_MAX_INDICES];
+     if (++generation==0) {memset(generations,0,sizeof generations);++generation;}
+     uint32_t unique=0;
++    static uint16_t source_index[65536];
+     for (i=0;i<n;i++) {
+         uint16_t index=s_gpu.idx[i];
+         if(generations[index]!=generation) {
+             generations[index]=generation;slots[index]=(uint16_t)unique;
+-            fetch_inputs(index,&p,buf+(size_t)unique*p.nin*4);
++            source_index[unique]=index;
+             ++unique;
+         }
+         draw_order[i]=slots[index];
+     }
+     backend_target(&t);
++    fight_pack_streams(&p,source_index,unique,buf);
+     return fight_indexed_vsh(&t,s_gpu.prim,buf,unique,&p,draw_order,n);
+ #endif
+     for (i = 0; i < n; i++)

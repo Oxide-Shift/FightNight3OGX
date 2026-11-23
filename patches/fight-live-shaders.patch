@@ -1,0 +1,196 @@
+--- a/vkr.c
++++ b/vkr.c
+@@ -17,6 +17,7 @@
+ #include "xbox_vert_spv.h"
+ #include "xbox_frag_spv.h"
+ #include "fight_programs.h"
++#include <dlfcn.h>
+ #include "fight_depth_spv.h"
+ #include "fight_full_coverage_spv.h"
+ #include "fight_fragments.h"
+@@ -134,7 +135,17 @@
+     VkPipelineCache fight_cache;
+     VkShaderModule fight_fragments[FIGHT_FRAGMENT_COUNT ? FIGHT_FRAGMENT_COUNT : 1];
+     FILE *fight_fragment_profile;
+-    VkShaderModule fight_shaders[32], fight_depth[2], fight_full_coverage;
++    /* Immutable shader inputs are published before queueing a pipeline job. */
++    struct LiveVertex {
++        uint32_t hash, n, inputs, constants, words[136*8];
++        void *job;
++    } live_vertex[64];
++    unsigned live_count;
++    void *shader_library;
++    void *(*queue_vertex)(const uint32_t *, unsigned, unsigned);
++    int (*vertex_ready)(void *, const uint32_t **, size_t *);
++    size_t (*compile_fragment)(unsigned, const uint32_t *, size_t, const uint32_t *, uint32_t **);
++    VkShaderModule fight_shaders[96], fight_depth[2], fight_full_coverage;
+     unsigned cached_jobs;
+     VkQueue queue;
+     uint32_t qfam;
+@@ -890,7 +901,22 @@
+             }
+         }
+     }
+-    unsigned attributes = gpu_vsh >= 2 ? fight_programs[gpu_vsh-2].inputs : gpu_vsh ? 0 : 8;
++    VkShaderModule local_fragment = VK_NULL_HANDLE;
++    if (c->compile_fragment && write_mask && key[8] && stg[1].pSpecializationInfo &&
++        (stg[1].module == c->fs || stg[1].module == c->fight_full_coverage)) {
++        int full = stg[1].module == c->fight_full_coverage;
++        const unsigned char *source = full ? fight_full_coverage_spv : xbox_frag_spv;
++        size_t size = full ? sizeof fight_full_coverage_spv : sizeof xbox_frag_spv;
++        uint32_t *code = NULL;
++        size_t bytes = c->compile_fragment(full, (const uint32_t *)source, size, key+8, &code);
++        if (bytes) local_fragment = shader(c, (const unsigned char *)code, bytes);
++        free(code);
++        if (local_fragment) {
++            stg[1].module = local_fragment;
++            stg[1].pSpecializationInfo = NULL;
++        }
++    }
++    unsigned attributes = gpu_vsh >= 34 ? c->live_vertex[gpu_vsh-34].inputs : gpu_vsh >= 2 ? fight_programs[gpu_vsh-2].inputs : gpu_vsh ? 0 : 8;
+     if (gpu_vsh >= 2) bind.stride = attributes * 16;
+     for (i = 0; (unsigned)i < attributes; i++) {
+         at[i].location = (uint32_t)i; at[i].binding = 0;
+@@ -948,7 +974,9 @@
+     pi.pColorBlendState = &cb; pi.pDynamicState = &dy; pi.layout = c->layout;
+     {
+         double t0 = vkr_now_ms();
+-        if (vkCreateGraphicsPipelines(c->dev, c->fight_cache, 1, &pi, NULL, &pipe) != VK_SUCCESS) {
++        VkResult result = vkCreateGraphicsPipelines(c->dev, c->fight_cache, 1, &pi, NULL, &pipe);
++        if (local_fragment) vkDestroyShaderModule(c->dev, local_fragment, NULL);
++        if (result != VK_SUCCESS) {
+             fprintf(stderr, "[VKR] pipeline creation failed\n");
+             return VK_NULL_HANDLE;
+         }
+@@ -1047,7 +1075,7 @@
+ /* Pipeline for one blend/write-mask/combiner combination (depth state is
+  * dynamic): the specialized one once it is compiled, until then (or if it
+  * failed) the interpreting one. */
+-static VkPipeline get_pipeline(VkrContext *c, const VkrDrawState *st, int gpu_vsh)
++static VkPipeline get_pipeline(VkrContext *c, const VkrDrawState *st, int gpu_vsh, int *selected)
+ {
+     uint32_t key[8 + VKR_SPEC_WORDS];
+     struct PipeEntry *e;
+@@ -1086,7 +1114,10 @@
+     if ((p = e->pipe) || !key[8])
+         return p;
+     memset(key + 8, 0, VKR_SPEC_WORDS * sizeof key[0]);
+-    if(key[5]>1)key[5]=1; /* share the interpreter while the native pair compiles */
++    if(key[5]>1) {
++        key[5]=1;
++        if(selected) *selected=1; /* The fallback reads program words and all constants from the SSBO. */
++    }
+     e = pipe_entry(c, key);
+     return e ? e->pipe : VK_NULL_HANDLE;
+ }
+@@ -1257,6 +1288,12 @@
+ #endif
+     di.pNext = &f13; di.queueCreateInfoCount = 1; di.pQueueCreateInfos = &qi;
+     if (vkCreateDevice(c->phys, &di, NULL, &c->dev) != VK_SUCCESS) goto fail;
++    const char *library = getenv("FNR3_SHADER_LIBRARY");
++    if (library && (c->shader_library = dlopen(library, RTLD_NOW | RTLD_LOCAL))) {
++        c->queue_vertex = dlsym(c->shader_library, "fight_vertex_queue");
++        c->vertex_ready = dlsym(c->shader_library, "fight_vertex_ready");
++        c->compile_fragment = dlsym(c->shader_library, "fight_fragment_cached");
++    }
+     c->fight_cache=fight_open_cache(c->dev,c->phys);
+ #ifdef SSX3_VK_PUSH_DESC_EXT
+     ssx3_push_desc = (PFN_vkCmdPushDescriptorSetKHR)
+@@ -1588,7 +1625,7 @@
+         vkDestroySampler(c->dev, c->samplers[i].s, NULL);
+     vkDestroyShaderModule(c->dev, c->vs, NULL);
+     vkDestroyShaderModule(c->dev, c->fs, NULL);
+-    for(unsigned i=0;i<32;i++) if(c->fight_shaders[i])vkDestroyShaderModule(c->dev,c->fight_shaders[i],NULL);
++    for(unsigned i=0;i<96;i++) if(c->fight_shaders[i])vkDestroyShaderModule(c->dev,c->fight_shaders[i],NULL);
+     for (unsigned i = 0; i < FIGHT_FRAGMENT_COUNT; i++)
+         vkDestroyShaderModule(c->dev, c->fight_fragments[i], NULL);
+     vkDestroyShaderModule(c->dev,c->fight_full_coverage,NULL);
+@@ -1617,6 +1654,7 @@
+         vkDestroyFence(c->dev, c->fr[i].fence, NULL);
+     }
+     vkDestroyCommandPool(c->dev, c->pool, NULL);
++    if(c->shader_library)dlclose(c->shader_library);
+     if(c->fight_cache)vkDestroyPipelineCache(c->dev,c->fight_cache,NULL);
+     vkDestroyDevice(c->dev, NULL);
+     vkDestroyInstance(c->inst, NULL);
+@@ -2550,7 +2588,7 @@
+     VkDescriptorBufferInfo bi;
+     VkWriteDescriptorSet w[2];
+ 
+-    pipe = get_pipeline(c, st, 0);
++    pipe = get_pipeline(c, st, 0, NULL);
+     if (!pipe) return 0;
+     if (!c->white) {
+         static const uint32_t white = 0xFFFFFFFFu;
+@@ -2630,7 +2668,7 @@
+  * consts the 192 constants. The program and constants are uploaded once per
+  * recording while they stay the same. */
+ 
+-static int fight_shader_id(VkrContext *c,uint32_t hash,const uint32_t *words,uint32_t n){
++static int fight_shader_id(VkrContext *c,uint32_t hash,const uint32_t *words,uint32_t n,unsigned inputs){
+     for(unsigned i=0;fight_programs[i].n;i++){
+         if(fight_programs[i].hash!=hash || fight_programs[i].n!=n ||
+                 memcmp(fight_programs[i].words,words,(size_t)n*32))continue;
+@@ -2638,7 +2676,41 @@
+             c->fight_shaders[i]=shader(c,(const unsigned char *)fight_programs[i].spv,fight_programs[i].bytes);
+         return c->fight_shaders[i]?(int)i+2:1;
+     }
+-    return 1;
++    if (!c->queue_vertex || !c->vertex_ready || !n || n > 136 || inputs > 16) return 1;
++    unsigned i = 0;
++    while (i < c->live_count) {
++        struct LiveVertex *v = &c->live_vertex[i];
++        if (v->hash == hash && v->n == n && v->inputs == inputs && !memcmp(v->words, words, n*32)) break;
++        ++i;
++    }
++    if (i == 64) return 1;
++    struct LiveVertex *v = &c->live_vertex[i];
++    if (i == c->live_count) {
++        v->hash = hash; v->n = n; v->inputs = inputs;
++        v->constants = 1;
++        for (unsigned op=0; op<n; ++op) {
++            for (unsigned k=2; k<=4; ++k) {
++                uint32_t word=words[op*8+k], mux=word&3;
++                if (mux==1 || mux==2) continue;
++                unsigned reg=(word>>20)&255;
++                unsigned span=(word&(1u<<11)) ? 192 : reg<192 ? reg+1 : 1;
++                if (span>v->constants) v->constants=span;
++            }
++            if (words[op*8]&(1u<<26)) break;
++        }
++        memcpy(v->words, words, n*32);
++        v->job = c->queue_vertex(words, n, inputs);
++        ++c->live_count;
++    }
++    if (v->job) {
++        const uint32_t *code = NULL;
++        size_t bytes = 0;
++        if (c->vertex_ready(v->job, &code, &bytes)) {
++            if (bytes) c->fight_shaders[32+i] = shader(c, (const unsigned char *)code, bytes);
++            v->job = NULL;
++        }
++    }
++    return c->fight_shaders[32+i] ? (int)i+34 : 1;
+ }
+ int vkr_draw_mesh(VkrContext *c, const float *in, uint32_t nverts, uint32_t nin,
+                  const uint32_t *prog, uint32_t nins, uint32_t prog_hash,
+@@ -2654,8 +2726,8 @@
+     VkDescriptorBufferInfo bi, sb;
+     VkWriteDescriptorSet w[3];
+ 
+-    int fight_program=fight_shader_id(c,prog_hash,prog,nins);
+-    pipe = get_pipeline(c, st, fight_program);
++    int fight_program=fight_shader_id(c,prog_hash,prog,nins,nin);
++    pipe = get_pipeline(c, st, fight_program, &fight_program);
+     if (!pipe) return 0;
+     if (!c->white) {
+         static const uint32_t white = 0xFFFFFFFFu;
+@@ -2669,7 +2741,7 @@
+         c->vsh_const_off = c->vsh_prog_off = 0xFFFFFFFFu;
+     }
+     end = (c->buf_used + 15) & ~15u;
+-    unsigned const_count = fight_program >= 2 ? fight_programs[fight_program-2].constants : 192;
++    unsigned const_count = fight_program >= 34 ? c->live_vertex[fight_program-34].constants : fight_program >= 2 ? fight_programs[fight_program-2].constants : 192;
+     size_t const_bytes = const_count * sizeof c->vsh_consts[0];
+     co = c->vsh_const_off;
+     if (co == 0xFFFFFFFFu || c->fight_const_count < const_count ||

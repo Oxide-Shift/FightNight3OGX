@@ -1,0 +1,14 @@
+--- a/tools/recomp/lifter.py
++++ b/tools/recomp/lifter.py
+@@ -1859,6 +1859,11 @@
+             return ["/* pop: no operand */"]
+         if ops[0].type == "reg":
+             r = ops[0].reg
++            if _REG_WIDTH.get(r) == 2:
++                # Read the word before incrementing ESP. A pop to SP writes
++                # the destination after the increment, preserving upper bits.
++                write = _fmt_operand_write(ops[0], "_word")
++                return [f"{{ uint16_t _word = MEM16(esp); esp += 2; {write} }}"]
+             # Segment register pop → discard from stack
+             if r in ("fs", "gs", "cs", "ds", "es", "ss"):
+                 return [f"{{ uint32_t _tmp; POP32(esp, _tmp); }} /* pop {r} - segment register */"]

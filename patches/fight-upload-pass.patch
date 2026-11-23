@@ -1,0 +1,267 @@
+--- a/vkr.c
++++ b/vkr.c
+@@ -84,7 +84,8 @@
+ 
+ /* What one frame in flight owns: recorded while the previous one renders. */
+ typedef struct {
+-    VkCommandBuffer cmd;
++    VkCommandBuffer cmd, uploads;
++    int uploading;
+     VkFence fence;
+     VkBuffer buf, rb;
+     VkDeviceMemory buf_mem, rb_mem;
+@@ -447,7 +448,7 @@
+ }
+ 
+ /* Colour mip levels [base, base + n) of img. */
+-static void barrier_mips(VkrContext *c, VkImage img, uint32_t base, uint32_t n,
++static void fight_mip_barrier(VkCommandBuffer cmd, VkImage img, uint32_t base, uint32_t n,
+                          VkImageLayout from, VkImageLayout to,
+                          VkPipelineStageFlags2 ss, VkAccessFlags2 sa,
+                          VkPipelineStageFlags2 ds, VkAccessFlags2 da)
+@@ -462,7 +463,7 @@
+     b.subresourceRange.baseMipLevel = base;
+     b.subresourceRange.levelCount = n; b.subresourceRange.layerCount = 1;
+     d.imageMemoryBarrierCount = 1; d.pImageMemoryBarriers = &b;
+-    vkCmdPipelineBarrier2(c->cmd, &d);
++    vkCmdPipelineBarrier2(cmd, &d);
+ }
+ 
+ static void barrier(VkrContext *c, VkImage img, VkImageAspectFlags aspect,
+@@ -1221,6 +1222,7 @@
+     for (f = 0; f < VKR_FRAMES; f++) {
+         VkrFrame *fr = &c->fr[f];
+         if (vkAllocateCommandBuffers(c->dev, &cai, &fr->cmd) != VK_SUCCESS) goto fail;
++        if (vkAllocateCommandBuffers(c->dev, &cai, &fr->uploads) != VK_SUCCESS) goto fail;
+         if (vkCreateFence(c->dev, &fi, NULL, &fr->fence) != VK_SUCCESS) goto fail;
+         VkBufferUsageFlags stages = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+                                     VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+@@ -1312,6 +1314,26 @@
+         c->tags = c->scene && c->dual_src && !(e && *e == '0');
+         if (c->scene)
+             fprintf(stderr, "[VKR] rider tags %s\n", c->tags ? "on" : c->dual_src ? "off" : "off (no dualSrcBlend)");
++    }
++    /* Prepare the interpreter pipelines used by the retail menus and the
++     * Warehouse punch trace while the game is booting. More specialized
++     * shaders still compile on the worker as their actual keys arrive. */
++    if (c->vs_vsh && c->layout && !c->tags) {
++        static const struct {
++            uint32_t blend, src, dst, mask, topology;
++        } previous_draws[] = {
++            {0,0,0,15,3}, {1,1,0,15,3}, {1,32771,32772,15,3},
++            {1,770,1,15,0}, {1,770,1,15,3}, {1,770,771,0,0},
++            {1,770,771,0,3}, {1,770,771,15,0}, {1,770,771,15,1}, {1,770,771,15,3}
++        };
++        for (unsigned i=0; i<sizeof previous_draws/sizeof previous_draws[0]; ++i) {
++            uint32_t key[8 + VKR_SPEC_WORDS] = {
++                previous_draws[i].blend, previous_draws[i].src, previous_draws[i].dst,
++                previous_draws[i].blend ? 32774u : 0u, previous_draws[i].mask,
++                1, previous_draws[i].topology, (uint32_t)c->samples << 8
++            };
++            pipe_entry(c,key);
++        }
+     }
+     return c;
+ fail:
+@@ -1525,15 +1547,30 @@
+ /* Submit what has been recorded and wait for it. Texture uploads are in
+  * there: dropping the commands left those textures without content, and
+  * they stayed cached that way (magenta HUD in races after a resize). */
++static VkResult fight_submit_frame(VkrContext *c) {
++    VkrFrame *frame = &c->fr[c->cur];
++    VkCommandBuffer buffers[2] = {frame->uploads, c->cmd};
++    VkSubmitInfo submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
++    if (frame->uploading) {
++        VkResult result = vkEndCommandBuffer(frame->uploads);
++        if (result != VK_SUCCESS) return result;
++        frame->uploading = 0;
++        submit.commandBufferCount = 2;
++        submit.pCommandBuffers = buffers;
++    } else {
++        submit.commandBufferCount = 1;
++        submit.pCommandBuffers = &buffers[1];
++    }
++    return vkQueueSubmit(c->queue, 1, &submit, c->fence);
++}
++
+ static int flush_wait(VkrContext *c)
+ {
+-    VkSubmitInfo si = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+     if (!c->recording) return 1;
+     end_pass(c);
+     CK(vkEndCommandBuffer(c->cmd));
+     c->recording = 0;
+-    si.commandBufferCount = 1; si.pCommandBuffers = &c->cmd;
+-    CK(vkQueueSubmit(c->queue, 1, &si, c->fence));
++    CK(fight_submit_frame(c));
+     CK(vkWaitForFences(c->dev, 1, &c->fence, VK_TRUE, UINT64_MAX));
+     c->buf_used = 0;
+     c->upload_serial++;
+@@ -2041,16 +2078,32 @@
+ /* New contents for an existing texture of the same size (a render target
+  * the title redraws every frame: its shadow maps). Draws recorded before
+  * this still read the old contents -- the copy is ordered after them. */
++static VkCommandBuffer fight_upload_cmd(VkrContext *c, int independent) {
++    VkrFrame *frame = &c->fr[c->cur];
++    if (independent) {
++        if (frame->uploading) return frame->uploads;
++        VkCommandBufferBeginInfo begin = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
++        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
++        if (vkResetCommandBuffer(frame->uploads, 0) == VK_SUCCESS &&
++            vkBeginCommandBuffer(frame->uploads, &begin) == VK_SUCCESS) {
++            frame->uploading = 1;
++            return frame->uploads;
++        }
++    }
++    end_pass(c);
++    return c->cmd;
++}
++
+ int vkr_tex_update(VkrContext *c, VkrTex *t, uint64_t key, const uint32_t *pixels)
+ {
+     VkBufferImageCopy cp = {0};
+     uint32_t off = (c->buf_used + 15) & ~15u, bytes = t->w * t->h * 4;
+     if (off + bytes > VKR_BUF_BYTES || !begin_cmd(c))
+         return 0;
+-    end_pass(c);
++    VkCommandBuffer upload = fight_upload_cmd(c, (uint32_t)(c->flip_serial - t->last_use) > VKR_FRAMES);
+     memcpy(c->buf_map + off, pixels, bytes);
+     c->buf_used = off + bytes;
+-    barrier(c, t->img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
++    fight_mip_barrier(upload, t->img, 0, 1, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+             VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+             VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+@@ -2058,8 +2111,8 @@
+     cp.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+     cp.imageSubresource.layerCount = 1;
+     cp.imageExtent.width = t->w; cp.imageExtent.height = t->h; cp.imageExtent.depth = 1;
+-    vkCmdCopyBufferToImage(c->cmd, c->buf, t->img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cp);
+-    barrier(c, t->img, VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
++    vkCmdCopyBufferToImage(upload, c->buf, t->img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cp);
++    fight_mip_barrier(upload, t->img, 0, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+             VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+             VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+@@ -2146,10 +2199,10 @@
+     t->key = key; t->w = w; t->h = h;
+ 
+     if (!begin_cmd(c)) return NULL;
+-    end_pass(c);                         /* copies are not allowed inside a pass */
++    VkCommandBuffer upload = fight_upload_cmd(c, 1);
+     memcpy(c->buf_map + off, pixels, bytes);
+     c->buf_used = off + bytes;
+-    barrier_mips(c, t->img, 0, levels, VK_IMAGE_LAYOUT_UNDEFINED,
++    fight_mip_barrier(upload, t->img, 0, levels, VK_IMAGE_LAYOUT_UNDEFINED,
+                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                  VK_PIPELINE_STAGE_2_NONE, 0, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                  VK_ACCESS_2_TRANSFER_WRITE_BIT);
+@@ -2157,12 +2210,12 @@
+     cp.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+     cp.imageSubresource.layerCount = 1;
+     cp.imageExtent.width = w; cp.imageExtent.height = h; cp.imageExtent.depth = 1;
+-    vkCmdCopyBufferToImage(c->cmd, c->buf, t->img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cp);
++    vkCmdCopyBufferToImage(upload, c->buf, t->img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &cp);
+     {
+         int32_t mw = (int32_t)w, mh = (int32_t)h;
+         for (l = 1; l < levels; l++) {
+             VkImageBlit bl = {0};
+-            barrier_mips(c, t->img, l - 1, 1,
++            fight_mip_barrier(upload, t->img, l - 1, 1,
+                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                          VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                          VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+@@ -2172,16 +2225,16 @@
+             bl.srcOffsets[1].x = mw; bl.srcOffsets[1].y = mh; bl.srcOffsets[1].z = 1;
+             mw = mw > 1 ? mw / 2 : 1; mh = mh > 1 ? mh / 2 : 1;
+             bl.dstOffsets[1].x = mw; bl.dstOffsets[1].y = mh; bl.dstOffsets[1].z = 1;
+-            vkCmdBlitImage(c->cmd, t->img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
++            vkCmdBlitImage(upload, t->img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                            t->img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bl, VK_FILTER_LINEAR);
+         }
+         if (levels > 1)
+-            barrier_mips(c, t->img, 0, levels - 1,
++            fight_mip_barrier(upload, t->img, 0, levels - 1,
+                          VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                          VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+                          VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+     }
+-    barrier_mips(c, t->img, levels - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
++    fight_mip_barrier(upload, t->img, levels - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                  VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+@@ -2257,7 +2310,7 @@
+     t->key = key; t->w = w; t->h = h; t->bytes = pos; t->flags = flags;
+ 
+     if (!begin_cmd(c)) { tex_free_one(c, t); return NULL; }
+-    end_pass(c);
++    VkCommandBuffer upload = fight_upload_cmd(c, 1);
+     memcpy(c->buf_map + off, data, pos);
+     c->buf_used = off + (uint32_t)pos;
+     memset(cp, 0, sizeof cp);
+@@ -2270,11 +2323,11 @@
+         pos += (size_t)((lw + 3) / 4) * ((lh + 3) / 4) * block;
+         lw = lw > 1 ? lw / 2 : 1; lh = lh > 1 ? lh / 2 : 1;
+     }
+-    barrier_mips(c, t->img, 0, mips, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
++    fight_mip_barrier(upload, t->img, 0, mips, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                  VK_PIPELINE_STAGE_2_NONE, 0, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                  VK_ACCESS_2_TRANSFER_WRITE_BIT);
+-    vkCmdCopyBufferToImage(c->cmd, c->buf, t->img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mips, cp);
+-    barrier_mips(c, t->img, 0, mips, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
++    vkCmdCopyBufferToImage(upload, c->buf, t->img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mips, cp);
++    fight_mip_barrier(upload, t->img, 0, mips, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                  VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+@@ -2685,7 +2738,7 @@
+     int32_t mw = (int32_t)c->sw, mh = (int32_t)c->sh;
+     uint32_t i;
+ 
+-    barrier_mips(c, c->crt_in, 0, c->crt_levels,
++    fight_mip_barrier(c->cmd, c->crt_in, 0, c->crt_levels,
+                  VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                  VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, 0,
+                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+@@ -2696,7 +2749,7 @@
+                    c->crt_in, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &ic);
+     for (i = 1; i < c->crt_levels; i++) {
+         VkImageBlit bl = {0};
+-        barrier_mips(c, c->crt_in, i - 1, 1,
++        fight_mip_barrier(c->cmd, c->crt_in, i - 1, 1,
+                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                      VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                      VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+@@ -2709,11 +2762,11 @@
+         vkCmdBlitImage(c->cmd, c->crt_in, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                        c->crt_in, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &bl, VK_FILTER_LINEAR);
+     }
+-    barrier_mips(c, c->crt_in, c->crt_levels - 1, 1,
++    fight_mip_barrier(c->cmd, c->crt_in, c->crt_levels - 1, 1,
+                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+-    barrier_mips(c, c->crt_in, 0, c->crt_levels,
++    fight_mip_barrier(c->cmd, c->crt_in, 0, c->crt_levels,
+                  VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                  VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+@@ -2887,7 +2940,6 @@
+ int vkr_flip_submit(VkrContext *c)
+ {
+     VkBufferImageCopy cp = {0};
+-    VkSubmitInfo si = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+     int slot = c->cur;
+     VkImage frame;                       /* the finished, single-sample image */
+     vkr_offscreen_done(c);               /* the frame is the main target's */
+@@ -2976,8 +3028,7 @@
+     prof_mark(c, NULL, 0, -1);
+     CK_FRAME(vkEndCommandBuffer(c->cmd), return -1);
+     c->recording = 0;
+-    si.commandBufferCount = 1; si.pCommandBuffers = &c->cmd;
+-    CK_FRAME(vkQueueSubmit(c->queue, 1, &si, c->fence), return -1);
++    CK_FRAME(fight_submit_frame(c), return -1);
+     pthread_mutex_lock(&c->lock);
+     c->fr[slot].busy = 1;
+     pthread_mutex_unlock(&c->lock);

@@ -1,0 +1,186 @@
+#include "input/xinput_xbox.h"
+#include "usb/ohci.h"
+#include "kernel/guest_ptr.h"
+#include "kernel/xbox_memory_layout.h"
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdatomic.h>
+#include <string.h>
+#include <stdlib.h>
+#ifdef _WIN32
+#include <windows.h>
+#include <xinput.h>
+#else
+#include <signal.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#include "mmio_posix.h"
+#endif
+typedef struct MCPXAPUState MCPXAPUState;
+extern MCPXAPUState *g_apu_state;
+extern MCPXAPUState *mcpx_apu_init_standalone(uint8_t *);
+extern uint64_t mcpx_apu_mmio_read(MCPXAPUState *,uint64_t,unsigned);
+extern void mcpx_apu_mmio_write(MCPXAPUState *,uint64_t,uint64_t,unsigned);
+enum { APU_BASE=0xfe800000u, APU_SIZE=0x30000, AC97_BASE=0xfec00000u };
+
+/* Android sends one complete XID state, so the two sticks, analog buttons
+   and digital buttons are published as a single sample. */
+static XBOX_INPUT_STATE latest;
+static atomic_flag lock=ATOMIC_FLAG_INIT;
+static atomic_int connected;
+static atomic_uint received_packets, sampled_packet, player_one_packet;
+
+/* Both numbers are cumulative for one fight process. No buttons or stick
+   values are recorded. A rising receive count with a stranded sample points
+   to the emulated pad, rather than Android dispatch or the input pipe. */
+void fight_pad_report(void){
+    unsigned sampled=atomic_load_explicit(&sampled_packet,memory_order_relaxed);
+    unsigned received=atomic_load_explicit(&received_packets,memory_order_relaxed);
+    fprintf(stderr,"[Fight Night] pad received %u sampled %u player1 %u\n",received,sampled,
+            atomic_load_explicit(&player_one_packet,memory_order_relaxed));
+}
+
+static int nibble(char c){
+    if(c>='0'&&c<='9')return c-'0';
+    if(c>='a'&&c<='f')return c-'a'+10;
+    return -1;
+}
+int pad_message(const char *line){
+    if(strncmp(line,"PAD ",4))return 0;
+    const char *p=line+4;
+    if(strcspn(p,"\r\n")==3&&!strncmp(p,"off",3)){atomic_store(&connected,0);return 1;}
+    if(strcspn(p,"\r\n")!=36)return 0;
+    unsigned char bytes[18];
+    for(unsigned i=0;i<sizeof(bytes);i++){
+        int a=nibble(p[2*i]),b=nibble(p[2*i+1]);if(a<0||b<0)return 0;
+        bytes[i]=(unsigned char)((a<<4)|b);
+    }
+    while(atomic_flag_test_and_set(&lock)){}
+    _Static_assert(sizeof(XBOX_GAMEPAD)==18,"XID wire layout");
+    memcpy(&latest.Gamepad,bytes,18);latest.dwPacketNumber++;
+    atomic_store_explicit(&received_packets,latest.dwPacketNumber,memory_order_relaxed);
+    atomic_flag_clear(&lock);atomic_store(&connected,1);return 1;
+}
+/* The title normally reads the last completed XID transfer. A delayed USB
+   completion can leave that report latched even though PAD messages keep
+   arriving. Use the live sample on each successful read of the opened P1
+   handle. Leave enumeration, other slots, rumble and physical PC pads alone. */
+void fight_pad_read_player_one(uint32_t status,uint32_t handle,uint32_t player_one,uint32_t output){
+    if(status || !handle || handle!=player_one || !output || !atomic_load(&connected))return;
+    uint8_t *state=XBOX_HOST(output);
+    while(atomic_flag_test_and_set(&lock)){}
+    if(atomic_load(&connected)){
+        // Retail copies four packet bytes plus 18 gamepad bytes, with no tail padding.
+        memcpy(state,&latest.dwPacketNumber,4);
+        memcpy(state+4,&latest.Gamepad,sizeof(latest.Gamepad));
+        atomic_store_explicit(&player_one_packet,latest.dwPacketNumber,memory_order_relaxed);
+    }
+    atomic_flag_clear(&lock);
+}
+DWORD xbox_InputGetState(DWORD port,XBOX_INPUT_STATE *state){
+    if(!state||port!=0)return 1167;
+    if(atomic_load(&connected)){
+        while(atomic_flag_test_and_set(&lock)){}
+        *state=latest;
+        atomic_store_explicit(&sampled_packet,latest.dwPacketNumber,memory_order_relaxed);
+        atomic_flag_clear(&lock);return 0;
+    }
+#ifdef _WIN32
+    XINPUT_STATE x;
+    if(XInputGetState(port,&x)==ERROR_SUCCESS){
+        memset(state,0,sizeof(*state));state->dwPacketNumber=x.dwPacketNumber;
+        XBOX_GAMEPAD *p=&state->Gamepad;XINPUT_GAMEPAD *g=&x.Gamepad;
+        p->wButtons=g->wButtons&255;
+        const WORD mask[]={XINPUT_GAMEPAD_A,XINPUT_GAMEPAD_B,XINPUT_GAMEPAD_X,XINPUT_GAMEPAD_Y,XINPUT_GAMEPAD_RIGHT_SHOULDER,XINPUT_GAMEPAD_LEFT_SHOULDER};
+        for(int i=0;i<6;i++)p->bAnalogButtons[i]=(g->wButtons&mask[i])?255:0;
+        p->bAnalogButtons[6]=g->bLeftTrigger;p->bAnalogButtons[7]=g->bRightTrigger;
+        p->sThumbLX=g->sThumbLX;p->sThumbLY=g->sThumbLY;p->sThumbRX=g->sThumbRX;p->sThumbRY=g->sThumbRY;return 0;
+    }
+#endif
+    return 1167;
+}
+DWORD xbox_InputSetState(DWORD port,const XBOX_VIBRATION *v){
+#ifdef _WIN32
+    if(v&&!atomic_load(&connected)){XINPUT_VIBRATION vibration={v->wLeftMotorSpeed,v->wRightMotorSpeed};return XInputSetState(port,&vibration);}
+#endif
+    if(port!=0 || !atomic_load(&connected))return 1167;
+    if(v){
+        static atomic_uint last;
+        unsigned left=v->wLeftMotorSpeed,right=v->wRightMotorSpeed;
+        if(atomic_exchange(&last,left|(right<<16))!=(left|(right<<16))){
+            printf("FNR3/1 RUMBLE %u %u\n",left,right);fflush(stdout);
+        }
+    }
+    return 0;
+}
+int xbox_FramebufferKeyDown(int vk){(void)vk;return 0;}
+
+static int controller_address(uintptr_t host,uint32_t *va){
+    uintptr_t base=(uintptr_t)xbox_GetMemoryOffset();
+    if(host<base||host-base>UINT32_MAX)return 0;
+    *va=(uint32_t)(host-base);return 1;
+}
+#ifdef _WIN32
+extern bool apu_hook_handle_mmio(PCONTEXT,uintptr_t,uint32_t,int);
+static LONG CALLBACK controller_access(PEXCEPTION_POINTERS e){
+    if(e->ExceptionRecord->ExceptionCode!=EXCEPTION_ACCESS_VIOLATION||e->ExceptionRecord->NumberParameters<2)return EXCEPTION_CONTINUE_SEARCH;
+    uint32_t va;
+    uintptr_t address=e->ExceptionRecord->ExceptionInformation[1];
+    if(controller_address(address,&va)){
+        if(xbox_OhciOwnsAddress(va)&&xbox_OhciHandleMmio(e->ContextRecord,va))return EXCEPTION_CONTINUE_EXECUTION;
+        if(va-APU_BASE<APU_SIZE&&g_apu_state&&apu_hook_handle_mmio(e->ContextRecord,address,va,e->ExceptionRecord->ExceptionInformation[0]==1))
+            return EXCEPTION_CONTINUE_EXECUTION;
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+int pad_start(void){
+    if(!AddVectoredExceptionHandler(1,controller_access))return 0;
+    g_apu_state=mcpx_apu_init_standalone((uint8_t*)xbox_GetMemoryBase());
+    if(!g_apu_state)return 0;
+    _putenv_s("RECOMP_USB","1");xbox_OhciInit();return 1;
+}
+#else
+static struct sigaction prior;
+static uint8_t codec[65536];
+static size_t codec_page;
+static uint64_t pad_read(uintptr_t a,int size){
+    uint32_t va=(uint32_t)(a-xbox_GetMemoryOffset());uint64_t v=0;
+    if(va-APU_BASE<APU_SIZE)return mcpx_apu_mmio_read(g_apu_state,va-APU_BASE,size);
+    uint32_t off=va-AC97_BASE;
+    if(off<codec_page){if(off+(unsigned)size<=codec_page)memcpy(&v,codec+off,size);return v;}
+    xbox_OhciMmioAccess(va,0,&v,size);return v;
+}
+static void pad_write(uintptr_t a,uint64_t value,int size){
+    uint32_t va=(uint32_t)(a-xbox_GetMemoryOffset());
+    if(va-APU_BASE<APU_SIZE){mcpx_apu_mmio_write(g_apu_state,va-APU_BASE,value,size);return;}
+    uint32_t off=va-AC97_BASE;
+    if(off<codec_page){
+        if(off+(unsigned)size>codec_page)return;
+        memcpy(codec+off,&value,size);
+        for(unsigned cr=0x10b;cr<0x180;cr+=16)if(off<=cr&&cr<off+(unsigned)size)codec[cr]&=~2u;
+        return;
+    }
+    xbox_OhciMmioAccess(va,1,&value,size);
+}
+static void controller_access(int sig,siginfo_t *info,void *ctx){
+    uint32_t va,insn;
+    if(controller_address((uintptr_t)info->si_addr,&va)&&
+       (xbox_OhciOwnsAddress(va)||va-APU_BASE<APU_SIZE||va-AC97_BASE<codec_page)&&
+       mmio_posix_step(ctx,(uintptr_t)info->si_addr,pad_read,pad_write,&insn))return;
+    if(prior.sa_handler==SIG_DFL||prior.sa_handler==SIG_IGN){
+        struct sigaction action={0};action.sa_handler=SIG_DFL;sigaction(sig,&action,NULL);raise(sig);return;
+    }
+    if(prior.sa_flags&SA_SIGINFO)prior.sa_sigaction(sig,info,ctx);else prior.sa_handler(sig);
+}
+int pad_start(void){
+    struct sigaction a={0};a.sa_sigaction=controller_access;a.sa_flags=SA_SIGINFO;sigemptyset(&a.sa_mask);
+    if(sigaction(SIGSEGV,&a,&prior)!=0)return 0;
+    g_apu_state=mcpx_apu_init_standalone((uint8_t*)xbox_GetMemoryBase());
+    if(!g_apu_state)return 0;
+    long page=sysconf(_SC_PAGESIZE);
+    if(page<=0||(size_t)page>sizeof(codec))return 0;
+    codec_page=(size_t)page;codec[0x131]=1;
+    if(mprotect(XBOX_HOST(AC97_BASE),codec_page,PROT_NONE)!=0||mprotect(XBOX_HOST(APU_BASE),APU_SIZE,PROT_NONE)!=0)return 0;
+    setenv("RECOMP_USB","1",1);xbox_OhciInit();return 1;
+}
+#endif

@@ -1,0 +1,130 @@
+--- a/vkr.c
++++ b/vkr.c
+@@ -19,6 +19,7 @@
+ #include "fight_programs.h"
+ #include "fight_depth_spv.h"
+ #include "fight_full_coverage_spv.h"
++#include "fight_fragments.h"
+ #include "fight_depth_w_spv.h"
+ #include "xbox_frag_wdepth_spv.h"
+ #include "xbox_frag_tags_spv.h"
+@@ -131,6 +132,8 @@
+     VkPhysicalDevice phys;
+     VkDevice dev;
+     VkPipelineCache fight_cache;
++    VkShaderModule fight_fragments[FIGHT_FRAGMENT_COUNT ? FIGHT_FRAGMENT_COUNT : 1];
++    FILE *fight_fragment_profile;
+     VkShaderModule fight_shaders[32], fight_depth[2], fight_full_coverage;
+     unsigned cached_jobs;
+     VkQueue queue;
+@@ -167,6 +170,7 @@
+      * use the interpreting one; pipe stays VK_NULL_HANDLE until then. */
+     struct PipeEntry {
+         uint32_t key[8 + VKR_SPEC_WORDS];
++        uint32_t profile_draws;
+         VkPipeline pipe;                /* render thread */
+         VkPipeline built;               /* the worker's result, under pj_lock */
+         struct PipeEntry *next_job;
+@@ -567,6 +571,9 @@
+     c->fs = shader(c, xbox_frag_spv, xbox_frag_spv_len);
+     c->fs_wdepth = shader(c, xbox_frag_wdepth_spv, xbox_frag_wdepth_spv_len);
+     c->fight_full_coverage = shader(c, fight_full_coverage_spv, fight_full_coverage_spv_len);
++    for (unsigned i = 0; i < FIGHT_FRAGMENT_COUNT; i++)
++        c->fight_fragments[i] = shader(c, (const unsigned char *)fight_fragment_programs[i].code,
++                                      fight_fragment_programs[i].bytes);
+     c->fight_depth[0] = shader(c, fight_depth_spv, fight_depth_spv_len);
+     c->fight_depth[1] = shader(c, fight_depth_w_spv, fight_depth_w_spv_len);
+     c->vs_vsh = shader(c, xbox_vsh_vert_spv, xbox_vsh_vert_spv_len);
+@@ -869,6 +876,20 @@
+     if (write_mask && key[8] && !(key[7] & (1u | 16u | 64u)) &&
+         (key[46] == 0 || key[46] == 0x207u) && c->fight_full_coverage)
+         stg[1].module = c->fight_full_coverage;
++    /* Bake only constants the driver would specialize on this exact module.
++       Unseen combinations and interpreter pipelines retain their usual path. */
++    if (write_mask && key[8] && stg[1].module &&
++        (stg[1].module == c->fs || stg[1].module == c->fight_full_coverage)) {
++        int full_coverage = stg[1].module == c->fight_full_coverage;
++        for (unsigned i = 0; i < FIGHT_FRAGMENT_COUNT; i++) {
++            if (c->fight_fragments[i] && fight_fragment_programs[i].full_coverage == full_coverage &&
++                memcmp(fight_fragment_programs[i].words, key + 8, VKR_SPEC_WORDS * sizeof *key) == 0) {
++                stg[1].module = c->fight_fragments[i];
++                stg[1].pSpecializationInfo = NULL;
++                break;
++            }
++        }
++    }
+     unsigned attributes = gpu_vsh >= 2 ? fight_programs[gpu_vsh-2].inputs : gpu_vsh ? 0 : 8;
+     if (gpu_vsh >= 2) bind.stride = attributes * 16;
+     for (i = 0; (unsigned)i < attributes; i++) {
+@@ -1060,6 +1081,8 @@
+         }
+         pthread_mutex_unlock(&c->pj_lock);
+     }
++    if (c->fight_fragment_profile && key[4] && key[8])
++        e->profile_draws++;
+     if ((p = e->pipe) || !key[8])
+         return p;
+     memset(key + 8, 0, VKR_SPEC_WORDS * sizeof key[0]);
+@@ -1365,6 +1388,9 @@
+             pipe_entry(c,key);
+         }
+     }
++    const char *profile_path = getenv("FNR3_FRAGMENT_PROFILE");
++    if (profile_path && *profile_path)
++        c->fight_fragment_profile = fopen(profile_path, "ab");
+     return c;
+ fail:
+     fprintf(stderr, "[VKR] init failed\n");
+@@ -1517,9 +1543,30 @@
+     tex_rehash(c);
+ }
+ 
++/* The private build tool reads a draw count followed by the pipeline key.
++   Periodic writes keep captured states even if the game host exits abruptly. */
++static void save_fragment_profile(VkrContext *c)
++{
++    for (int i = 0; i < c->npipes; i++) {
++        struct PipeEntry *entry = c->pipes[i];
++        if (!entry->profile_draws)
++            continue;
++        uint32_t record[1 + sizeof entry->key / sizeof(uint32_t)];
++        record[0] = entry->profile_draws;
++        memcpy(record + 1, entry->key, sizeof entry->key);
++        fwrite(record, sizeof record, 1, c->fight_fragment_profile);
++        entry->profile_draws = 0;
++    }
++    fflush(c->fight_fragment_profile);
++}
++
+ void vkr_destroy(VkrContext *c)
+ {
+     if (!c) return;
++    if (c->fight_fragment_profile) {
++        save_fragment_profile(c);
++        fclose(c->fight_fragment_profile);
++    }
+     free_target(c);
+     vkDeviceWaitIdle(c->dev);
+     tex_free_all(c);
+@@ -1542,6 +1589,8 @@
+     vkDestroyShaderModule(c->dev, c->vs, NULL);
+     vkDestroyShaderModule(c->dev, c->fs, NULL);
+     for(unsigned i=0;i<32;i++) if(c->fight_shaders[i])vkDestroyShaderModule(c->dev,c->fight_shaders[i],NULL);
++    for (unsigned i = 0; i < FIGHT_FRAGMENT_COUNT; i++)
++        vkDestroyShaderModule(c->dev, c->fight_fragments[i], NULL);
+     vkDestroyShaderModule(c->dev,c->fight_full_coverage,NULL);
+     for (int i=0;i<2;i++) vkDestroyShaderModule(c->dev,c->fight_depth[i],NULL);
+     vkDestroyShaderModule(c->dev, c->fs_wdepth, NULL);
+@@ -3122,8 +3171,11 @@
+     c->fr[c->cur].qreset = 0;   /* its queries are reset when it is next begun */
+     c->buf_used = 0;
+     c->upload_serial++;
+-    if (++c->flip_serial % 120 == 0)     /* every ~2 s: textures unused for 5 s */
++    if (++c->flip_serial % 120 == 0) {   /* every ~2 s: textures unused for 5 s */
+         tex_evict_old(c, 300);
++        if (c->fight_fragment_profile)
++            save_fragment_profile(c);
++    }
+     if (c->tex_bytes > (768ull << 20) || c->purge_req) {  /* drop the cache once nothing is in flight */
+         c->purge_req = 0;
+         vkDeviceWaitIdle(c->dev);

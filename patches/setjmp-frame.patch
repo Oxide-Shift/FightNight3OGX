@@ -1,0 +1,11 @@
+--- a/tools/recomp/lifter.py
++++ b/tools/recomp/lifter.py
+@@ -2365,7 +2365,7 @@
+                 lines.append(
+                     "{ int _sjv = setjmp(*recomp_setjmp_slot(MEM32(esp)));"
+                     " if (_sjv) { ebp = g_seh_ebp; eax = (uint32_t)_sjv; }"
+-                    f" else {{ PUSH32(esp, 0x{ret_va:08X}u); {name}(); }} }}"
++                    f" else {{ g_ebp = ebp; g_seh_ebp = ebp; PUSH32(esp, 0x{ret_va:08X}u); {name}(); }} }}"
+                     f" /* setjmp 0x{insn.call_target:08X} */")
+             elif insn.call_target == self.LONGJMP_FN:
+                 lines.append(

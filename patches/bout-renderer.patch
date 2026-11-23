@@ -1,0 +1,246 @@
+--- a/vkr.h
++++ b/vkr.h
+@@ -111,6 +111,10 @@
+                  const uint32_t *prog, uint32_t nins, uint32_t prog_hash,
+                  const float (*consts)[4], const uint16_t *idx, uint32_t nidx,
+                  const VkrDrawState *st);
++int vkr_draw_mesh(VkrContext *c, const float *in, uint32_t nverts, uint32_t nin,
++                 const uint32_t *prog, uint32_t nins, uint32_t prog_hash,
++                 const float (*consts)[4], const uint16_t *idx, uint32_t nidx,
++                 const VkrDrawState *st, uint64_t mesh_token);
+ 
+ /* The scene camera for the frame being recorded (RECOMP_MBLUR): inv_m maps
+  * (guest pixel x, y, depth units - zmax, 1) to eye-relative world positions
+--- a/vkr.c
++++ b/vkr.c
+@@ -113,6 +113,12 @@
+ 
+ struct VkrContext {
+     VkPipeline fight_bound_pipeline;
++    int fight_bindings_valid;
++    uint32_t fight_uniform_offset;
++    VkrUniforms fight_uniform;
++    VkDescriptorImageInfo fight_images[4];
++    float fight_vertex_push[8], fight_squeeze_push[4];
++    uint32_t fight_fragment_push[5];
+     int fight_state_valid;
+     uint32_t fight_raster[19];
+     VkInstance inst;
+@@ -124,6 +130,11 @@
+     VkQueue queue;
+     uint32_t qfam;
+     VkCommandPool pool;
++    /* Each frame owns its copy. A slot used in this recording cannot be
++     * overwritten until its fence has signalled. The Xbox RAM is rechecked
++     * by the mesh cache before it supplies a token. */
++    struct FightResident { uint64_t token; uint32_t serial; } resident[VKR_FRAMES][256];
++    int has_mesh_room[VKR_FRAMES];
+     VkrFrame fr[VKR_FRAMES];
+     int cur;                        /* the frame being recorded */
+     pthread_mutex_t lock;           /* fr[].busy */
+@@ -1209,11 +1220,16 @@
+         VkrFrame *fr = &c->fr[f];
+         if (vkAllocateCommandBuffers(c->dev, &cai, &fr->cmd) != VK_SUCCESS) goto fail;
+         if (vkCreateFence(c->dev, &fi, NULL, &fr->fence) != VK_SUCCESS) goto fail;
+-        if (!make_buffer(c, VKR_BUF_BYTES, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+-                         | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+-                         | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
+-                         | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, &fr->buf, &fr->buf_mem, &map))
+-            goto fail;
++        VkBufferUsageFlags stages = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
++                                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
++        if (make_buffer(c, VKR_BUF_BYTES + (256u << 15), stages, &fr->buf, &fr->buf_mem, &map)) {
++            c->has_mesh_room[f] = 1;
++        } else {
++            vkDestroyBuffer(c->dev, fr->buf, NULL);
++            vkFreeMemory(c->dev, fr->buf_mem, NULL);
++            fr->buf = VK_NULL_HANDLE; fr->buf_mem = VK_NULL_HANDLE;
++            if (!make_buffer(c, VKR_BUF_BYTES, stages, &fr->buf, &fr->buf_mem, &map)) goto fail;
++        }
+         fr->buf_map = (uint8_t *)map;
+     }
+     {
+@@ -1751,6 +1767,7 @@
+     vkCmdSetScissor(c->cmd, 0, 1, &c->sc);
+     c->in_pass = 1;
+     c->fight_state_valid = 0;
++    c->fight_bindings_valid = 0;
+     c->fight_bound_pipeline = VK_NULL_HANDLE;
+     c->color_valid = 1;
+ }
+@@ -2323,6 +2340,7 @@
+     }
+     if (!begin_cmd(c)) return 0;
+     begin_pass(c);
++    c->fight_bindings_valid = 0;
+     vb = (c->buf_used + 15) & ~15u;
+     ib = vb + nverts * (uint32_t)sizeof *v;
+     ub = (ib + nidx * sizeof *idx + 255) & ~255u;
+@@ -2403,10 +2421,10 @@
+     }
+     return 1;
+ }
+-int vkr_draw_vsh(VkrContext *c, const float *in, uint32_t nverts, uint32_t nin,
++int vkr_draw_mesh(VkrContext *c, const float *in, uint32_t nverts, uint32_t nin,
+                  const uint32_t *prog, uint32_t nins, uint32_t prog_hash,
+                  const float (*consts)[4], const uint16_t *idx, uint32_t nidx,
+-                 const VkrDrawState *st)
++                 const VkrDrawState *st, uint64_t mesh_token)
+ {
+     uint32_t vb, ib, ub, end, k, po, co;
+     uint32_t in_bytes = nverts * (nin ? nin : 1) * 16, prog_bytes = nins * 32;
+@@ -2442,10 +2460,27 @@
+         po = end;
+         end += prog_bytes;
+     }
++    struct FightResident *resident = NULL;
++    uint32_t geometry_size = in_bytes + nidx * sizeof *idx;
++    int uploaded = 0;
+     vb = end;
++    if (mesh_token && geometry_size <= (1u << 15) && c->has_mesh_room[c->cur]) {
++        unsigned slot = (unsigned)mesh_token & 255;
++        struct FightResident *entry = &c->resident[c->cur][slot];
++        if (entry->token == mesh_token || !entry->token || entry->serial != c->upload_serial) {
++            resident = entry;
++            uploaded = entry->token == mesh_token;
++            vb = VKR_BUF_BYTES + (slot << 15);
++        }
++    }
+     ib = vb + in_bytes;
+-    ub = (ib + nidx * sizeof *idx + 255) & ~255u;
+-    end = ub + (uint32_t)sizeof st->u;
++    int same_uniform = c->fight_bindings_valid && !memcmp(&c->fight_uniform, &st->u, sizeof st->u);
++    if (!resident) end = ib + nidx * sizeof *idx;
++    ub = c->fight_uniform_offset;
++    if (!same_uniform) {
++        ub = (end + 255) & ~255u;
++        end = ub + (uint32_t)sizeof st->u;
++    }
+     if (end > VKR_BUF_BYTES) {
+         fprintf(stderr, "[VKR] upload buffer full\n");
+         return 0;
+@@ -2461,9 +2496,19 @@
+         c->vsh_prog_hash = prog_hash;
+         c->vsh_prog_n = nins;
+     }
+-    memcpy(c->buf_map + vb, in, in_bytes);
+-    memcpy(c->buf_map + ib, idx, nidx * sizeof *idx);
+-    memcpy(c->buf_map + ub, &st->u, sizeof st->u);
++    if (!uploaded) {
++        memcpy(c->buf_map + vb, in, in_bytes);
++        memcpy(c->buf_map + ib, idx, nidx * sizeof *idx);
++    }
++    if (resident) {
++        resident->token = mesh_token;
++        resident->serial = c->upload_serial;
++    }
++    if (!same_uniform) {
++        memcpy(c->buf_map + ub, &st->u, sizeof st->u);
++        c->fight_uniform = st->u;
++        c->fight_uniform_offset = ub;
++    }
+     c->buf_used = end;
+ 
+     if (c->fight_bound_pipeline != pipe) {
+@@ -2475,11 +2520,17 @@
+     pcv[3] = st->u.fog_enable ? st->u.fog_param[2] : 0.0f;
+     pcv[4] = st->u.fog_param[0]; pcv[5] = st->u.fog_param[1];
+     pcv[6] = st->point_size * c->scale; pcv[7] = st->point_params ? c->scale : 0.0f;
+-    vkCmdPushConstants(c->cmd, c->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, 32, pcv);
++    if (!c->fight_bindings_valid || memcmp(c->fight_vertex_push, pcv, sizeof pcv)) {
++        vkCmdPushConstants(c->cmd, c->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, 32, pcv);
++        memcpy(c->fight_vertex_push, pcv, sizeof pcv);
++    }
+     {
+         float sq[4] = {c->squeeze2d, c->squeeze_all, c->squeeze_all > 0.5f ? 0.0f : st->hud_shift,
+                        st->keep_edges ? 1.0f : 0.0f};
+-        vkCmdPushConstants(c->cmd, c->layout, VK_SHADER_STAGE_VERTEX_BIT, 48, 16, sq);
++        if (!c->fight_bindings_valid || memcmp(c->fight_squeeze_push, sq, sizeof sq)) {
++            vkCmdPushConstants(c->cmd, c->layout, VK_SHADER_STAGE_VERTEX_BIT, 48, 16, sq);
++            memcpy(c->fight_squeeze_push, sq, sizeof sq);
++        }
+     }
+     pcu[0] = vb / 16; pcu[1] = nin ? nin : 1; pcu[2] = po / 16; pcu[3] = co / 16;
+     vkCmdPushConstants(c->cmd, c->layout, VK_SHADER_STAGE_VERTEX_BIT, 32, 16, pcu);
+@@ -2492,7 +2543,10 @@
+     pcf[3] = (uint32_t)(st->topology == VKR_TOPO_POINTS && st->point_sprite)
+            | (uint32_t)(st->clip2d != 0) << 1 | (uint32_t)c->samples << 8;
+     pcf[4] = (uint32_t)st->rider;
+-    vkCmdPushConstants(c->cmd, c->layout, VK_SHADER_STAGE_FRAGMENT_BIT, 64, 20, pcf);
++    if (!c->fight_bindings_valid || memcmp(c->fight_fragment_push, pcf, sizeof pcf)) {
++        vkCmdPushConstants(c->cmd, c->layout, VK_SHADER_STAGE_FRAGMENT_BIT, 64, 20, pcf);
++        memcpy(c->fight_fragment_push, pcf, sizeof pcf);
++    }
+ 
+     for (k = 0; k < 4; k++) {
+         VkrTex *t = st->tex[k] ? st->tex[k] : c->white;
+@@ -2510,13 +2564,34 @@
+     w[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; w[1].pBufferInfo = &bi;
+     w[2].dstBinding = 5; w[2].descriptorCount = 1;
+     w[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; w[2].pBufferInfo = &sb;
+-    vkCmdPushDescriptorSet(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, c->layout, 0, 3, w);
++    /* A push descriptor retains bindings that a subsequent push omits. */
++    unsigned writes = 0;
++    int same_images = c->fight_bindings_valid;
++    for (k = 0; k < 4 && same_images; ++k)
++        same_images = di[k].imageView == c->fight_images[k].imageView &&
++                      di[k].sampler == c->fight_images[k].sampler;
++    if (!same_images) {
++        memcpy(c->fight_images, di, sizeof di);
++        ++writes;
++    }
++    if (!same_uniform) w[writes++] = w[1];
++    if (!c->fight_bindings_valid) w[writes++] = w[2];
++    if (writes)
++        vkCmdPushDescriptorSet(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, c->layout, 0, writes, w);
++    c->fight_bindings_valid = 1;
+ 
+     fight_raster_state(c, st);
+     vkCmdBindIndexBuffer(c->cmd, c->buf, ib, VK_INDEX_TYPE_UINT16);
+     vkCmdDrawIndexed(c->cmd, nidx, 1, 0, 0, 0);
+     prof_mark(c, st, nidx, 1);
+     return 1;
++}
++
++int vkr_draw_vsh(VkrContext *c, const float *in, uint32_t nverts, uint32_t nin,
++                 const uint32_t *prog, uint32_t nins, uint32_t prog_hash,
++                 const float (*consts)[4], const uint16_t *idx, uint32_t nidx,
++                 const VkrDrawState *st) {
++    return vkr_draw_mesh(c,in,nverts,nin,prog,nins,prog_hash,consts,idx,nidx,st,0);
+ }
+ 
+ /* Widescreen target: 1 = pillarbox (narrow every vertex to the 4:3 middle),
+--- a/nv2a_pb_exec.c
++++ b/nv2a_pb_exec.c
+@@ -3000,6 +3000,7 @@
+ 
+ #ifdef FNR3_VULKAN
+ #include "vertex_stream.h"
++#include "mesh_cache.h"
+ #endif
+ 
+ /* Offer the batch to the backend with the program untransformed (draw_vsh:
+@@ -3033,6 +3034,15 @@
+ #ifdef FNR3_VULKAN
+     extern int fight_indexed_vsh(const Nv2aTarget *,uint32_t,const float *,uint32_t,
+                                  const Nv2aVshProgram *,const uint16_t *,uint32_t);
++    extern int fight_cached_vsh(const Nv2aTarget *,uint32_t,const float *,uint32_t,
++                                const Nv2aVshProgram *,const uint16_t *,uint32_t,uint64_t);
++    FightMesh *write_mesh;
++    FightMesh *matched=fight_mesh_find(&p,n,&write_mesh);
++    if(matched){
++        backend_target(&t);
++        return fight_cached_vsh(&t,s_gpu.prim,(const float *)matched->data,matched->unique,
++                                 &p,fight_mesh_order(matched),n,matched->token);
++    }
+     static uint32_t generations[65536], generation;
+     static uint16_t slots[65536], draw_order[NV_MAX_INDICES];
+     if (++generation==0) {memset(generations,0,sizeof generations);++generation;}
+@@ -3049,6 +3059,7 @@
+     }
+     backend_target(&t);
+     fight_pack_streams(&p,source_index,unique,buf);
++    if(write_mesh)fight_mesh_save(write_mesh,&p,source_index,unique,n,buf,draw_order);
+     return fight_indexed_vsh(&t,s_gpu.prim,buf,unique,&p,draw_order,n);
+ #endif
+     for (i = 0; i < n; i++)

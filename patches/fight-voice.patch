@@ -1,0 +1,125 @@
+--- a/apu_vp.c
++++ b/apu_vp.c
+@@ -96,10 +96,11 @@
+     return v;
+ }
+ 
++static float voice_gain[4096];
++
+ static float attenuate(uint16_t vol)
+ {
+-    vol &= 0xFFF;
+-    return (vol == 0xFFF) ? 0.0f : powf(10.0f, vol / (64.0f * -20.0f));
++    return voice_gain[vol & 0xfff];
+ }
+ 
+ /* ============================================================
+@@ -197,6 +198,8 @@
+  * Front-End method dispatch
+  * ============================================================ */
+ 
++#include "voice_list.h"
++
+ static void fe_method(MCPXAPUState *d, uint32_t method, uint32_t argument)
+ {
+     unsigned int slot;
+@@ -207,6 +210,7 @@
+ 
+     switch (method) {
+     case NV1BA0_PIO_VOICE_LOCK:
++        if (d->regs[NV_PAPU_FECV] >= MCPX_HW_MAX_VOICES) break;
+         voice_lock(d, (uint16_t)d->regs[NV_PAPU_FECV], argument & 1);
+         break;
+ 
+@@ -216,36 +220,14 @@
+ 
+     case NV1BA0_PIO_VOICE_ON: {
+         selected_handle = argument & NV1BA0_PIO_VOICE_ON_HANDLE;
+-        if(selected_handle<MCPX_HW_MAX_VOICES) memset(&rates[selected_handle],0,sizeof rates[0]);
++        if (selected_handle >= MCPX_HW_MAX_VOICES) break;
++        memset(&rates[selected_handle], 0, sizeof rates[0]);
+ 
+         bool locked = is_voice_locked(d, (uint16_t)selected_handle);
+         if (!locked) voice_lock(d, (uint16_t)selected_handle, true);
+ 
+         list = GET_MASK(d->regs[NV_PAPU_FEAV], NV_PAPU_FEAV_LST);
+-        if (list != NV1BA0_PIO_SET_ANTECEDENT_VOICE_LIST_INHERIT) {
+-            unsigned int top_reg = voice_list_regs[list - 1].top;
+-            voice_set_mask(d, (uint16_t)selected_handle,
+-                           NV_PAVS_VOICE_TAR_PITCH_LINK,
+-                           NV_PAVS_VOICE_TAR_PITCH_LINK_NEXT_VOICE_HANDLE,
+-                           d->regs[top_reg]);
+-            d->regs[top_reg] = selected_handle;
+-        } else {
+-            unsigned int antecedent_voice =
+-                GET_MASK(d->regs[NV_PAPU_FEAV], NV_PAPU_FEAV_VALUE);
+-            assert(antecedent_voice != 0xFFFF);
+-
+-            uint32_t next_handle = voice_get_mask(
+-                d, (uint16_t)antecedent_voice, NV_PAVS_VOICE_TAR_PITCH_LINK,
+-                NV_PAVS_VOICE_TAR_PITCH_LINK_NEXT_VOICE_HANDLE);
+-            voice_set_mask(d, (uint16_t)selected_handle,
+-                           NV_PAVS_VOICE_TAR_PITCH_LINK,
+-                           NV_PAVS_VOICE_TAR_PITCH_LINK_NEXT_VOICE_HANDLE,
+-                           next_handle);
+-            voice_set_mask(d, (uint16_t)antecedent_voice,
+-                           NV_PAVS_VOICE_TAR_PITCH_LINK,
+-                           NV_PAVS_VOICE_TAR_PITCH_LINK_NEXT_VOICE_HANDLE,
+-                           selected_handle);
+-        }
++        relink_voice(d, selected_handle, list, GET_MASK(d->regs[NV_PAPU_FEAV], NV_PAPU_FEAV_VALUE));
+ 
+         voice_set_mask(d, (uint16_t)selected_handle, NV_PAVS_VOICE_PAR_OFFSET,
+                        NV_PAVS_VOICE_PAR_OFFSET_CBO, 0);
+@@ -302,6 +284,7 @@
+ 
+     case NV1BA0_PIO_VOICE_RELEASE: {
+         selected_handle = argument & NV1BA0_PIO_VOICE_ON_HANDLE;
++        if (selected_handle >= MCPX_HW_MAX_VOICES) break;
+ 
+         bool locked = is_voice_locked(d, (uint16_t)selected_handle);
+         if (!locked) voice_lock(d, (uint16_t)selected_handle, true);
+@@ -470,7 +453,7 @@
+     case NV1BA0_PIO_SET_VOICE_SSL_A: {
+         int ssl = 0;
+         int current_voice = d->regs[NV_PAPU_FECV];
+-        assert(current_voice < MCPX_HW_MAX_VOICES);
++        if ((unsigned)current_voice >= MCPX_HW_MAX_VOICES) break;
+         d->vp.ssl[current_voice].base[ssl] =
+             GET_MASK(argument, NV1BA0_PIO_SET_VOICE_SSL_A_BASE);
+         d->vp.ssl[current_voice].count[ssl] =
+@@ -480,7 +463,7 @@
+     case NV1BA0_PIO_SET_VOICE_SSL_B: {
+         int ssl = 1;
+         int current_voice = d->regs[NV_PAPU_FECV];
+-        assert(current_voice < MCPX_HW_MAX_VOICES);
++        if ((unsigned)current_voice >= MCPX_HW_MAX_VOICES) break;
+         d->vp.ssl[current_voice].base[ssl] =
+             GET_MASK(argument, NV1BA0_PIO_SET_VOICE_SSL_A_BASE);
+         d->vp.ssl[current_voice].count[ssl] =
+@@ -1206,12 +1189,8 @@
+ 
+         d->regs[current] = d->regs[top];
+ 
+-        for (int i = 0; d->regs[current] != 0xFFFF; i++) {
+-            if (i >= MCPX_HW_MAX_VOICES) {
+-                DPRINTF("Voice list contains invalid entry!\n");
+-                break;
+-            }
+-
++        VoiceVisits visited = {0};
++        while (visit_voice(&visited, d->regs[current])) {
+             uint16_t v = (uint16_t)d->regs[current];
+             d->regs[next] = voice_get_mask(d, v, NV_PAVS_VOICE_TAR_PITCH_LINK,
+                                NV_PAVS_VOICE_TAR_PITCH_LINK_NEXT_VOICE_HANDLE);
+@@ -1248,7 +1227,9 @@
+ 
+ void mcpx_apu_vp_init(MCPXAPUState *d)
+ {
+-    /* Single-threaded - no worker dispatch needed */
++    for (unsigned vol = 0; vol < 4096; vol++) {
++        voice_gain[vol] = vol == 4095 ? 0.0f : powf(10.0f, vol / (64.0f * -20.0f));
++    }
+     (void)d;
+ }
+ 

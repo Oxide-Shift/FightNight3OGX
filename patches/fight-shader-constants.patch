@@ -1,0 +1,48 @@
+--- a/vkr.c
++++ b/vkr.c
+@@ -44,7 +44,8 @@
+         VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR
+ #define SSX3_VK_PUSH_DESC_EXT 1
+ static PFN_vkCmdPushDescriptorSetKHR ssx3_push_desc;
+-static void vkCmdPushDescriptorSet(VkCommandBuffer cb, VkPipelineBindPoint bp,
++#define vkCmdPushDescriptorSet fight_push_descriptor_set
++static void fight_push_descriptor_set(VkCommandBuffer cb, VkPipelineBindPoint bp,
+                                    VkPipelineLayout lay, uint32_t set,
+                                    uint32_t n, const VkWriteDescriptorSet *w)
+ {
+@@ -262,6 +263,7 @@
+     double prof_thr, ts_period;
+     unsigned prof_said;
+     int prof_frame;                 /* RECOMP_VKR_GPUPROF_FRAME=1: frame start/end only */
++    unsigned fight_const_count;
+     float vsh_consts[192][4];
+
+     /* RECOMP_CRT=1: CRT post-process of the full-resolution image (crt.frag).
+@@ -2609,10 +2611,13 @@
+         c->vsh_const_off = c->vsh_prog_off = 0xFFFFFFFFu;
+     }
+     end = (c->buf_used + 15) & ~15u;
++    unsigned const_count = fight_program >= 2 ? fight_programs[fight_program-2].constants : 192;
++    size_t const_bytes = const_count * sizeof c->vsh_consts[0];
+     co = c->vsh_const_off;
+-    if (co == 0xFFFFFFFFu || memcmp(c->vsh_consts, consts, sizeof c->vsh_consts)) {
++    if (co == 0xFFFFFFFFu || c->fight_const_count < const_count ||
++            memcmp(c->vsh_consts, consts, const_bytes)) {
+         co = end;
+-        end += (uint32_t)sizeof c->vsh_consts;
++        end += (uint32_t)const_bytes;
+     }
+     po = c->vsh_prog_off;
+     if (fight_program == 1 && (po == 0xFFFFFFFFu || c->vsh_prog_hash != prog_hash || c->vsh_prog_n != nins)) {
+@@ -2645,8 +2650,9 @@
+         return 0;
+     }
+     if (co != c->vsh_const_off) {
+-        memcpy(c->buf_map + co, consts, sizeof c->vsh_consts);
+-        memcpy(c->vsh_consts, consts, sizeof c->vsh_consts);
++        memcpy(c->buf_map + co, consts, const_bytes);
++        memcpy(c->vsh_consts, consts, const_bytes);
++        c->fight_const_count = const_count;
+         c->vsh_const_off = co;
+     }
+     if (po != c->vsh_prog_off) {
