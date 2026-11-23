@@ -45,7 +45,7 @@ final class TraxArt {
         for(int[] image:result)if(image==null)throw invalid();
         return result;
     }
-    private static byte[] textureBank(File game,String archiveName,String group,String bank,int limit)throws IOException{
+    static byte[] textureBank(File game,String archiveName,String group,String bank,int limit)throws IOException{
         File archive=new File(game,"GUI/"+archiveName);
         if(!archive.isFile())archive=new File(game,"gui/"+archiveName);
         byte[] widget;
@@ -104,7 +104,7 @@ final class TraxArt {
         int r=((a>>16)*2+(b>>16))/3,g=(((a>>8)&255)*2+((b>>8)&255))/3;
         return r<<16|g<<8|((a&255)*2+(b&255))/3;
     }
-    private static int[] bc2(byte[] bytes,int p,int width,int height){
+    static int[] bc2(byte[] bytes,int p,int width,int height){
         int[] out=new int[width*height],colors=new int[4];
         for(int y=0;y<height;y+=4)for(int x=0;x<width;x+=4,p+=16){
             colors[0]=rgb(u16(bytes,p+8));colors[1]=rgb(u16(bytes,p+10));

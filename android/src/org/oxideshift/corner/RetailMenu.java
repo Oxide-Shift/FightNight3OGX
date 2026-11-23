@@ -53,7 +53,7 @@ final class RetailMenu {
         }
         return out;
     }
-    private static void verify(byte[] data,String expected)throws IOException{
+    static void verify(byte[] data,String expected)throws IOException{
         try{
             byte[] sum=MessageDigest.getInstance("SHA-256").digest(data);
             for(int i=0;i<sum.length;i++)

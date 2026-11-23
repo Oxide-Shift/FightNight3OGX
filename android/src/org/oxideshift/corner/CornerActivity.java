@@ -85,7 +85,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         base=getFilesDir();prefs=getSharedPreferences("fight-setup",MODE_PRIVATE);
         crashReports=new CrashReports(this);
         backups=SaveBackups.get(this);
-        if(!active())backups.snapshot(saves());
+        if(!active() && !backups.selectionPending())backups.snapshot(saves());
         inputs=getSystemService(InputManager.class);
         sensors=getSystemService(SensorManager.class);
         displays=(DisplayManager)getSystemService(DISPLAY_SERVICE);
@@ -131,6 +131,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivityForResult(intent,type);
     }
     private void chooseBackupFolder(){
+        if(engine.importing || active() || updates.installing())return;
         Intent picker=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|
                 Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION|Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         if(backups.folder()!=null)picker.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI,backups.folder());
@@ -139,9 +140,12 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     private void offerBackupFolder(){
         if(folderPromptShown || !hasWindowFocus() || isFinishing() || isDestroyed())return;
         folderPromptShown=true;
-        if(backups.hasFolder())return;
+        if(backups.hasFolder()){
+            if(backups.selectionPending())configureBackupFolder(backups.folder());
+            return;
+        }
         new AlertDialog.Builder(this).setTitle("Where should we back up your career?")
-                .setMessage("Choose a folder you can find after reinstalling. Each in-game save updates a ZIP with your career and achievements.")
+                .setMessage("Choose a folder you can find after reinstalling. Each profile gets its own backup folder. On a fresh install, we’ll restore your most recent career from here.")
                 .setPositiveButton("Choose folder",(d,w)->chooseBackupFolder())
                 .setNegativeButton("Later",null).show();
     }
@@ -231,7 +235,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                 Uri uri=data.getData();
                 try{
                     getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-                    backups.select(uri,saves());
+                    configureBackupFolder(uri);
                 }catch(SecurityException e){engine.note="Folder access unavailable. Choose a writable folder under Save & sound.";}
             }
             return;
@@ -251,6 +255,40 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
             }catch(SecurityException ignored){}
             scanExportFolder(uri);
         }else if(request==DISC || request==SAVE)importDocument(request,uri);
+    }
+    private String importCareer(Uri uri,boolean requireProfile)throws IOException{
+        return SaveExports.importDocument(getContentResolver(),uri,base.toPath(),keys->{
+            SharedPreferences.Editor restored=getSharedPreferences("achievements",MODE_PRIVATE).edit();
+            for(Achievements.Award award:Achievements.Award.values())
+                if(keys.contains(award.name()))restored.putBoolean(award.name(),true);
+            restored.apply();
+        },requireProfile);
+    }
+    private void selectImported(String slot)throws IOException{
+        if(!prefs.edit().putString("save",slot).putBoolean("savePromptSeen",true).commit())
+            throw new IOException("Could not select the restored career");
+    }
+    private void configureBackupFolder(Uri tree){
+        if(engine.importing || active())return;
+        engine.importing=true;engine.note="Checking save backup folder";
+        File current=saves();
+        backups.configure(tree,()->{
+            try{
+                if(!prefs.getBoolean("savePromptSeen",false) && prefs.getString("save","").isEmpty() &&
+                        ProfileSaves.list(current.toPath()).isEmpty()){
+                    java.util.List<SaveExports.Entry> files=SaveExports.candidates(getContentResolver(),tree);
+                    SaveExports.Entry restored=SaveExports.restoreNewest(files,uri->importCareer(uri,true),this::selectImported);
+                    if(restored!=null){
+                        engine.note="Restored "+restored.name;
+                        backups.rememberRestore(saves(),restored);return;
+                    }
+                    engine.note=files.isEmpty()?"Save backup folder ready":"No usable backup found. Choose a save ZIP or start fresh.";
+                }else{
+                    backups.snapshot(current);
+                    engine.note="Save backup folder ready";
+                }
+            }finally{engine.importing=false;}
+        },error->{engine.note="Save folder unavailable · "+error;engine.importing=false;});
     }
     private void importDocument(int request,Uri uri){
         if(engine.importing||active())return;
@@ -282,14 +320,8 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                         engine.note=result+"  ·  Disc to ready "+DiscBuild.duration(SystemClock.elapsedRealtime()-engine.buildStarted);
                     }
                 }else{
-                    String slot=SaveExports.importDocument(app.getContentResolver(),uri,files.toPath(),keys->{
-                        SharedPreferences.Editor restored=app.getSharedPreferences("achievements",MODE_PRIVATE).edit();
-                        for(Achievements.Award award:Achievements.Award.values())if(keys.contains(award.name()))restored.putBoolean(award.name(),true);
-                        restored.apply();
-                    });
-                    backups.snapshot(new File(new File(files,"save-slots"),slot));
-                    app.getSharedPreferences("fight-setup",MODE_PRIVATE).edit().putString("save",slot)
-                       .putBoolean("savePromptSeen",true).apply();
+                    selectImported(importCareer(uri,false));
+                    backups.snapshot(saves());
                     engine.note="Imported save selected";
                 }
             }catch(Exception e){
@@ -406,7 +438,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         updateLower();
         screen.setKeepScreenOn(awake);
         body.addView(screen);
-        achievementDisplay=new AchievementDisplay(this,body,menu.fonts(),menu::mainMenuArt,engine.session,game(),this::neutralPad);
+        achievementDisplay=new AchievementDisplay(this,body,menu.fonts(),menu::mainMenuArt,engine.session,game(),prefs.getInt("aspect",0)==0,this::neutralPad);
         engine.session.onCabinet(()->main.post(this::refresh));
         back.setVisibility(View.GONE);immersive();syncPower();
     }

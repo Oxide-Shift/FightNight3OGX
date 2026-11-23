@@ -93,10 +93,13 @@ public final class GameLibrary {
         return importSave(source,root,keys->{});
     }
     static String importSave(InputStream source,Path root,java.util.function.Consumer<Set<String>> medals)throws IOException{
+        return importSave(source,root,medals,false);
+    }
+    static String importSave(InputStream source,Path root,java.util.function.Consumer<Set<String>> medals,boolean requireProfile)throws IOException{
         Path copy=Files.createTempFile(root,"save-archive-",".zip");
         try {
             Files.copy(source,copy,StandardCopyOption.REPLACE_EXISTING);
-            try(ZipFile zip=new ZipFile(copy.toFile())){return importSave(zip,root,medals);}
+            try(ZipFile zip=new ZipFile(copy.toFile())){return importSave(zip,root,medals,requireProfile);}
         }finally{Files.deleteIfExists(copy);}
     }
 
@@ -109,6 +112,9 @@ public final class GameLibrary {
         exportSave(slot,output,Collections.emptySet());
     }
     static void exportSave(Path slot,OutputStream output,Set<String> awards)throws IOException{
+        exportSave(slot,output,awards,null);
+    }
+    static void exportSave(Path slot,OutputStream output,Set<String> awards,ProfileSaves profile)throws IOException{
         boolean[] hasProfile={false};
         try(ZipOutputStream zip=new ZipOutputStream(new BufferedOutputStream(output))){
             for(String area:new String[]{"UDATA","TDATA"}){
@@ -121,6 +127,7 @@ public final class GameLibrary {
                         return area+"/"+TITLE+(suffix.isEmpty()?"":"/"+suffix);
                     }
                     @Override public FileVisitResult preVisitDirectory(Path dir,java.nio.file.attribute.BasicFileAttributes attrs)throws IOException{
+                        if(profile!=null && !profile.includes(area,title.relativize(dir),true))return FileVisitResult.SKIP_SUBTREE;
                         ZipEntry entry=new ZipEntry(name(dir)+"/");entry.setTime(attrs.lastModifiedTime().toMillis());
                         zip.putNextEntry(entry);zip.closeEntry();return FileVisitResult.CONTINUE;
                     }
@@ -142,6 +149,9 @@ public final class GameLibrary {
     }
     static final String MEDALS="FightNight3OGX/achievements-v1.txt";
     static String saveFingerprint(Path slot,Set<String> awards)throws IOException{
+        return saveFingerprint(slot,awards,null);
+    }
+    static String saveFingerprint(Path slot,Set<String> awards,ProfileSaves selected)throws IOException{
         // Inspect only the game's title folders. Native renderer caches never participate.
         java.util.TreeMap<String,Path> files=new java.util.TreeMap<>();
         boolean profile=false;
@@ -151,6 +161,7 @@ public final class GameLibrary {
             try(java.util.stream.Stream<Path> walk=Files.walk(title)){
                 for(Path path:(Iterable<Path>)walk.filter(p->Files.isRegularFile(p,LinkOption.NOFOLLOW_LINKS))::iterator){
                     Path relative=title.relativize(path);
+                    if(selected!=null && !selected.includes(area,relative,false))continue;
                     files.put(area+"/"+relative,path);
                     if(area.equals("UDATA")&&relative.getNameCount()>=2)profile=true;
                 }
@@ -171,7 +182,7 @@ public final class GameLibrary {
             return java.util.Base64.getEncoder().encodeToString(digest.digest(String.join("\n",new TreeSet<>(awards)).getBytes("UTF-8")));
         }catch(java.security.NoSuchAlgorithmException e){throw new AssertionError(e);}
     }
-    private static Path childIgnoreCase(Path parent,String name)throws IOException{
+    static Path childIgnoreCase(Path parent,String name)throws IOException{
         if(!Files.isDirectory(parent,LinkOption.NOFOLLOW_LINKS))return null;
         try(DirectoryStream<Path> entries=Files.newDirectoryStream(parent)){
             for(Path child:entries)if(child.getFileName().toString().equalsIgnoreCase(name)
@@ -261,6 +272,9 @@ public final class GameLibrary {
         return importSave(zip,root,keys->{});
     }
     static String importSave(ZipFile zip,Path root,java.util.function.Consumer<Set<String>> medals)throws IOException{
+        return importSave(zip,root,medals,false);
+    }
+    static String importSave(ZipFile zip,Path root,java.util.function.Consumer<Set<String>> medals,boolean requireProfile)throws IOException{
         Set<String> keys=new HashSet<>();
         ZipEntry metadata=zip.getEntry(MEDALS);
         if(metadata!=null && metadata.getSize()>0 && metadata.getSize()<=8192){
@@ -316,11 +330,13 @@ public final class GameLibrary {
                     }
                 }
                 if(crc.getValue()!=entry.getCrc())throw new IOException("Damaged save archive");
+                if(entry.getTime()>0)Files.setLastModifiedTime(path,java.nio.file.attribute.FileTime.fromMillis(entry.getTime()));
                 files++;
             }
             if(files==0)throw new IOException(otherTitles.isEmpty()?
                 "No Xbox Fight Night save was found. Choose the original ZIP from hakuX’s Game saves export.":
                 "This ZIP contains Xbox title "+String.join(", ",otherTitles)+". Fight Night Round 3 uses "+TITLE+".");
+            if(requireProfile && ProfileSaves.list(stage).isEmpty())throw new IOException("No saved profile in this archive");
             try{Files.move(stage,slots.resolve(id),StandardCopyOption.ATOMIC_MOVE);}
             catch(AtomicMoveNotSupportedException e){Files.move(stage,slots.resolve(id));}
             medals.accept(keys);return id;

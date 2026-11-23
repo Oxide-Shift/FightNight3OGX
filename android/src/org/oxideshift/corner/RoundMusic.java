@@ -56,7 +56,7 @@ final class RoundMusic implements AutoCloseable {
                     .setSampleRate(DiscTrax.RATE).setChannelMask(AudioFormat.CHANNEL_OUT_STEREO).build())
                     .setBufferSizeInBytes(Math.max(minimum,16384)).setTransferMode(AudioTrack.MODE_STREAM).build();
             try{
-                speaker.setVolume(.04f);
+                speaker.setVolume(.12f);
                 short[] pcm=new short[DiscTrax.MAX_FRAMES*2];
                 DiscTrax.Song lastSong=null;
                 while(ready(speaker)){

@@ -42,7 +42,7 @@ On the **AYN Thor**, the tested dual-screen handheld, the upper display stays wi
 
 Select **Vulkan, 1080p, High and a 60 FPS target** for the sharpest Thor preset. High adds sharpening and 4× texture filtering. **VSync** starts on. You can toggle it, enable 2× MSAA or choose a 30 or 45 FPS target. Actual frame rate depends on the device and the action in the ring.
 
-The launcher’s two original Ring Focus tracks crossfade quietly. Turn on **EA Trax during fights** in **Save & sound** to hear the 12 original Xbox soundtrack songs shuffled under live rounds at 4% volume. The songs stream from your imported disc and resume across rounds. On Thor, six controller-loading screens also show the handheld alongside the game’s original prompts.
+The launcher’s two original Ring Focus tracks crossfade quietly. Turn on **EA Trax during fights** in **Save & sound** to hear the 12 original Xbox soundtrack songs shuffled under live rounds at 12% volume. The songs stream from your imported disc and resume across rounds. On Thor, six controller-loading screens also show the handheld alongside the game’s original prompts.
 
 ## Get in the ring
 
@@ -57,8 +57,8 @@ A full fresh install on a Thor Pro took **1 minute 39 seconds** on Alpha 46. Fig
 
 ### Keep your career
 
-Each in-game save updates a ZIP in your chosen folder. FightNight3OGX verifies the new copy and keeps the two latest backups for each save slot. Check the last completed backup or change its destination under **Save & sound**. If you skip choosing a folder, backups go to **Downloads/Fight Night Round 3**.
+Each Xbox profile gets a folder with its in-game name. Save as **Matt** and you'll find timestamped ZIPs under **Matt/**. Switch profiles and that player's saves go into their own folder. Each verified ZIP is a complete restore point for that profile, including shared game settings and cabinet awards. Check the last completed backup or change its destination under **Save & sound**. If you skip choosing a folder, backups go to **Downloads/Fight Night Round 3**.
 
-After a reinstall, choose the same folder again. Open **Import Xbox save**, then **Find in export folder** or **Choose ZIP**, to restore your career and achievements. Fight Setup can also import a hakuX career.
+After a reinstall, choose the same backup folder. Fight Setup selects the newest usable career across its profile folders and older loose ZIPs. To play another profile or roll back, open **Import Xbox save** and choose a different backup. Fight Setup can also import a hakuX career.
 
 [Build and test from source](docs/DEVELOPMENT.md) · [Achievement bell recording and license](third-party/BoxingBell.txt)

@@ -20,7 +20,10 @@ final class AchievementDisplay {
     private final Achievements awards;
     private final CornerSession session;
     private final Runnable neutralPad;
-    private boolean closing;
+    private boolean closing,changing;
+    private volatile MenuTransition transition;
+    private FrameLayout cabinetLayers,lowerDisplay;
+    private final boolean wide;
     private final SoundPool sounds;
     private final int chime;
     private final int[] menuSounds=new int[DiscMenuSounds.Cue.values().length];
@@ -35,13 +38,18 @@ final class AchievementDisplay {
     private View banner;
     private final Runnable retire=this::slideOut;
 
-    AchievementDisplay(Activity activity,FrameLayout top,DiscFonts fonts,java.util.function.Supplier<android.graphics.Bitmap[]> artwork,CornerSession session,File game,Runnable neutralPad){
+    AchievementDisplay(Activity activity,FrameLayout top,DiscFonts fonts,java.util.function.Supplier<android.graphics.Bitmap[]> artwork,CornerSession session,File game,boolean wide,Runnable neutralPad){
+        this.wide=wide;
         this.activity=activity;this.top=top;this.artwork=artwork;this.fonts=fonts;this.session=session;this.awards=session.achievements;this.neutralPad=neutralPad;
         sounds=new SoundPool.Builder().setMaxStreams(3).setAudioAttributes(new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_GAME).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()).build();
         sounds.setOnLoadCompleteListener((pool,id,status)->loaded(id,status));
         chime=load("corner_unlock");soundLoading=chime!=0;
-        new Thread(()->loadMenu(game),"Fight Night menu audio").start();
+        new Thread(()->{
+            try{transition=new MenuTransition(game,DiscFonts.load(game).stencil);}
+            catch(IOException | RuntimeException e){android.util.Log.w("FightNight","Disc menu transition unavailable",e);}
+            loadMenu(game);
+        },"Fight Night front end").start();
     }
     private void loadMenu(File game){
         try{
@@ -90,53 +98,51 @@ final class AchievementDisplay {
                 if(key.getAction()==KeyEvent.ACTION_UP)leave();
                 return true;
             }
-            if(!closing)page.navigate(key);
+            if(!closing && !changing)page.navigate(key);
             return true;
         });
-        dialog.setOnDismissListener(d->{if(gallery==dialog){routePrompts(null);galleryPage=null;gallery=null;closing=false;session.cabinetOpen=false;}});
-        gallery=dialog;galleryPage=page;session.cabinetOpen=true;
+        dialog.setOnDismissListener(d->{if(gallery==dialog){routePrompts(null);galleryPage=null;gallery=null;cabinetLayers=null;closing=false;changing=false;session.cabinetOpen=false;}});
+        gallery=dialog;galleryPage=page;cabinetLayers=layers;session.cabinetOpen=true;
         Window w=dialog.getWindow();
         w.setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
         w.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
         w.setWindowAnimations(0);
         w.getDecorView().setSystemUiVisibility(activity.getWindow().getDecorView().getSystemUiVisibility());
         dialog.show();w.setLayout(-1,-1);play(DiscMenuSounds.Cue.FORWARD);
-        if(ValueAnimator.areAnimatorsEnabled()){
-            android.graphics.Bitmap[] art=artwork.get();
-            android.graphics.Bitmap portrait=art!=null && art.length>3?art[3]:null;
-            if(portrait!=null){
-                // Crop the illustration above the original disc's loading meter.
-                View walkout=new View(activity){
-                    final android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG);
-                    final android.graphics.Rect crop=new android.graphics.Rect();
-                    final android.graphics.Rect dest=new android.graphics.Rect();
-                    @Override protected void onDraw(android.graphics.Canvas c){
-                        int w=portrait.getWidth(),h=portrait.getHeight()*72/100;
-                        float scale=Math.max(getWidth()/(float)w,getHeight()/(float)h);
-                        if(scale<=0)return;
-                        int sw=Math.max(1,Math.round(getWidth()/scale)),sh=Math.max(1,Math.round(getHeight()/scale));
-                        crop.set((w-sw)/2,(h-sh)/2,(w+sw)/2,(h+sh)/2);
-                        dest.set(0,0,getWidth(),getHeight());c.drawBitmap(portrait,crop,dest,paint);
-                    }
-                };
-                walkout.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-                layers.setBackgroundColor(0xff170603);page.setAlpha(0);
-                layers.addView(walkout);walkout.setAlpha(0);
-                walkout.animate().alpha(1).setDuration(100).withEndAction(()->{
-                    page.setAlpha(1);
-                    walkout.animate().alpha(0).setStartDelay(70).setDuration(185)
-                        .withEndAction(()->layers.removeView(walkout)).start();}).start();
-            }else{
-                page.setAlpha(0);page.animate().alpha(1).setDuration(150).start();
+        page.setVisibility(View.INVISIBLE);
+        swap(()->{page.setVisibility(View.VISIBLE);routePrompts(lowerDisplay);},()->{});
+    }
+    private void swap(Runnable change,Runnable done){
+        MenuTransition movie=transition;
+        if(movie==null || !ValueAnimator.areAnimatorsEnabled()){change.run();done.run();return;}
+        FrameLayout layers=cabinetLayers;
+        changing=true;
+        View film=new View(activity){
+            long start=-1;boolean switched;
+            @Override protected void onDraw(android.graphics.Canvas c){
+                long now=android.os.SystemClock.uptimeMillis();
+                if(start<0)start=now;
+                int frame=(int)((now-start)*60/1000);
+                int w=getWidth(),h=getHeight(),aw=wide?16:4,ah=wide?9:3;
+                int vw=Math.min(w,h*aw/ah),vh=Math.min(h,w*ah/aw);
+                c.save();c.translate((w-vw)/2f,(h-vh)/2f);c.clipRect(0,0,vw,vh);
+                movie.draw(c,frame,vw,vh);c.restore();
+                if(!switched && frame>=movie.changeFrame){switched=true;change.run();}
+                if(frame<movie.frames-1)postInvalidateOnAnimation();
+                else post(()->{
+                    if(getParent()!=layers || cabinetLayers!=layers)return;
+                    layers.removeView(this);changing=false;done.run();
+                });
             }
-        }
+        };
+        film.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        film.setClickable(true);
+        layers.addView(film,new FrameLayout.LayoutParams(-1,-1));
     }
     private void leave(){
-        Dialog dialog=gallery;if(dialog==null || closing)return;
+        Dialog dialog=gallery;if(dialog==null || closing || changing)return;
         closing=true;play(DiscMenuSounds.Cue.BACK);
-        View page=dialog.findViewById(android.R.id.content);
-        if(!ValueAnimator.areAnimatorsEnabled() || page==null){dialog.dismiss();return;}
-        page.animate().translationX(top.getWidth()).setDuration(170).withEndAction(dialog::dismiss).start();
+        swap(()->{if(galleryPage!=null)galleryPage.setVisibility(View.INVISIBLE);routePrompts(null);},dialog::dismiss);
     }
     private void routePrompts(FrameLayout host){
         if(promptHost==host)return;
@@ -151,8 +157,9 @@ final class AchievementDisplay {
         host.addView(promptOverlay,new FrameLayout.LayoutParams(-1,-1));
     }
     void refresh(FrameLayout lower){
+        lowerDisplay=lower;
         if(session.takeCabinetRequest())open();
-        if(gallery!=null)routePrompts(lower);
+        if(gallery!=null)routePrompts(galleryPage.getVisibility()==View.VISIBLE?lower:null);
         if(banner!=null || gallery!=null || soundLoading)return;
         FrameLayout host=lower!=null?lower:top;
         if(!host.isAttachedToWindow() || host.getWidth()<=0)return;
@@ -176,7 +183,7 @@ final class AchievementDisplay {
         if(!ValueAnimator.areAnimatorsEnabled()){removeBanner();return;}
         banner.animate().translationX(banner.getWidth()).setDuration(180).withEndAction(this::removeBanner).start();
     }
-    void detach(FrameLayout host){if(promptHost==host)routePrompts(null);if(banner!=null && banner.getParent()==host)removeBanner();}
+    void detach(FrameLayout host){if(lowerDisplay==host)lowerDisplay=null;if(promptHost==host)routePrompts(null);if(banner!=null && banner.getParent()==host)removeBanner();}
     private void removeBanner(){
         View old=banner;if(old==null)return;
         banner=null;old.removeCallbacks(retire);old.animate().cancel();

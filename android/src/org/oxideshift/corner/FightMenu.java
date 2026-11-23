@@ -67,6 +67,7 @@ final class FightMenu extends LinearLayout {
           progressDetail.setVisibility(GONE);panel.addView(progressDetail);
         play=button("Enter the ring",launch,true);panel.addView(play);
         disc=button("Choose Xbox ISO",pick,true);panel.addView(disc);
+        updates=button("Check for updates",checkUpdates,false);panel.addView(updates);
 
         LinearLayout rateHeader=row();rateHeader.setGravity(Gravity.CENTER_VERTICAL);
         TextView rateLabel=sectionLabel("FRAME RATE");
@@ -111,7 +112,7 @@ final class FightMenu extends LinearLayout {
         soundtrack=new Switch(c);soundtrack.setText("Menu music");soundtrack.setTextColor(PAPER);
         soundtrack.setTypeface(faces.body);soundtrack.setMinHeight(dp(46));
         soundtrack.setChecked(prefs.getBoolean("music",true));details.addView(soundtrack);
-        fightMusic=new Switch(c);fightMusic.setText("EA Trax during fights · 4%");fightMusic.setTextColor(PAPER);
+        fightMusic=new Switch(c);fightMusic.setText("EA Trax during fights · 12%");fightMusic.setTextColor(PAPER);
         fightMusic.setTypeface(faces.body);fightMusic.setMinHeight(dp(46));
         fightMusic.setChecked(prefs.getBoolean("fightMusic",false));details.addView(fightMusic);
         saveFolder=button("Choose save backup folder",()->{},false);details.addView(saveFolder);
@@ -120,7 +121,6 @@ final class FightMenu extends LinearLayout {
         rumble=choice(strength,"Controller rumble",new String[]{"Off","Light","Medium","Full"},
                 "rumbleLevel",prefs.getBoolean("rumble",true)?3:0);
         card=button("Open scorecard",onCard,false);panel.addView(card);
-        updates=button("Check for updates",checkUpdates,false);panel.addView(updates);
         arrange(c.getResources().getConfiguration().orientation==2);
     }
 
@@ -249,6 +249,16 @@ final class FightMenu extends LinearLayout {
         });
         return picker;
     }
+    static String buildPhase(String message){
+        if(message.startsWith("Linking") || message.startsWith("Saving prepared") || message.startsWith("Installing disc") || message.startsWith("Game ready"))
+            return "4/4 · Finish install";
+        if(message.startsWith("Compiling") || message.startsWith("Preparing shared") || message.startsWith("Reusing compiled") || message.startsWith("Retrying interrupted") || message.startsWith("Resuming saved"))
+            return "3/4 · Compile";
+        if(message.startsWith("Finding") || message.startsWith("Identifying") || message.startsWith("Analyzing") || message.startsWith("Translating") ||
+                message.startsWith("Writing translated") || message.startsWith("Applying game fixes"))
+            return "2/4 · Translate";
+        return "1/4 · Prepare";
+    }
     void showBuildProgress(String message,long started){
         int visibility=started>0?VISIBLE:GONE;
         if(progress.getVisibility()!=visibility){
@@ -264,7 +274,7 @@ final class FightMenu extends LinearLayout {
             amount=value/10+"% of this stage  ·  ";
         }else progress.setIndeterminate(true);
         long seconds=Math.max(0,(android.os.SystemClock.elapsedRealtime()-started)/1000);
-        String detail=amount+String.format(java.util.Locale.ROOT,"%d:%02d elapsed",seconds/60,seconds%60);
+        String detail=buildPhase(message)+"  ·  "+amount+String.format(java.util.Locale.ROOT,"%d:%02d elapsed",seconds/60,seconds%60);
         if(!detail.contentEquals(progressDetail.getText()))progressDetail.setText(detail);
         progress.setContentDescription(message);
     }
@@ -281,7 +291,7 @@ final class FightMenu extends LinearLayout {
             disc.setSelected(active);disc.setBackground(new RippleDrawable(ColorStateList.valueOf(0x44f8d58a),
                     states(active?TILE:RED,active?0xff59452f:0xffb25039),null));
         }
-        updates.setEnabled(!busy&&!active);save.setEnabled(!busy&&!active);exportSave.setEnabled(!busy&&!active);defaultSave.setVisibility(customSave?VISIBLE:GONE);
+        saveFolder.setEnabled(!busy&&!active);updates.setEnabled(!busy&&!active);save.setEnabled(!busy&&!active);exportSave.setEnabled(!busy&&!active);defaultSave.setVisibility(customSave?VISIBLE:GONE);
         defaultSave.setEnabled(!busy&&!active);aspect.setEnabled(!active);quality.setEnabled(!active);
         pacing.setEnabled(!active);vsync.setEnabled(!active);
         sessionActive=active;renderer.setEnabled(!active);updateGraphics();
@@ -325,8 +335,7 @@ final class FightMenu extends LinearLayout {
             Bitmap[] mainSprites=null;
             try{
                 int[][] pixels=TraxArt.mainMenu(game);
-                mainSprites=new Bitmap[pixels.length+1];
-                mainSprites[pixels.length]=portrait;
+                mainSprites=new Bitmap[pixels.length];
                 for(int i=0;i<pixels.length;i++)mainSprites[i]=Bitmap.createBitmap(pixels[i],
                         TraxArt.MENU_WIDTH[i],TraxArt.MENU_HEIGHT[i],Bitmap.Config.ARGB_8888);
             }catch(IOException ignored){}

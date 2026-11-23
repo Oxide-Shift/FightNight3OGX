@@ -25,7 +25,7 @@ final class SaveBackups {
     private final Context app;
     private final SharedPreferences state;
     private final ScheduledExecutorService io=Executors.newSingleThreadScheduledExecutor();
-    private String candidate="";
+    private final Map<String,String> candidates=new HashMap<>();
     volatile String status;
     private SaveBackups(Context context){
         app=context;state=app.getSharedPreferences("save-backups",0);
@@ -44,7 +44,9 @@ final class SaveBackups {
             if(folder.equals(grant.getUri()) && grant.isReadPermission() && grant.isWritePermission())return true;
         return false;
     }
-    void select(Uri tree,File slot){
+    interface Configured {void run()throws IOException;}
+    boolean selectionPending(){return state.getBoolean("checkingSelection",false);}
+    void configure(Uri tree,Configured ready,java.util.function.Consumer<String> failure){
         io.execute(()->{
             try{
                 ContentResolver r=app.getContentResolver();
@@ -56,15 +58,15 @@ final class SaveBackups {
                     label=c.getString(0);
                 }
                 String message="Automatic backups · "+label;
-                if(!state.edit().putString("folder",tree.toString()).putString("folderLabel",label).putString("last",message).commit())
+                if(!state.edit().putString("folder",tree.toString()).putString("folderLabel",label).putString("last",message).putBoolean("checkingSelection",true).commit())
                     throw new IOException("Cannot remember this folder");
-                status=message;check(slot,true);
-            }catch(Exception e){status="Save folder unavailable · "+e.getMessage();}
+                status=message;ready.run();state.edit().putBoolean("checkingSelection",false).apply();
+            }catch(Exception e){status="Save folder unavailable · "+e.getMessage();failure.accept(e.getMessage());}
         });
     }
     void start(File slot){io.execute(()->{
         stopWatching();
-        activeSlot=slot;candidate="";
+        activeSlot=slot;candidates.clear();
         changes=new SaveChanges(slot,io,()->check(slot,true));changes.refresh();
         check(slot,true);
         periodic=io.scheduleWithFixedDelay(()->{changes.refresh();check(slot,false);},10,10,TimeUnit.SECONDS);
@@ -84,20 +86,55 @@ final class SaveBackups {
     }
     private void check(File slot,boolean settled){
         try{
-            Uri destination=folder();
-            String key=slot.getName()+(destination==null?"":"@"+destination);
-            Set<String> awards=awards();
-            String fingerprint=GameLibrary.saveFingerprint(slot.toPath(),awards);
-            if(fingerprint.isEmpty())return;
-            String stamp=key+"/"+fingerprint;
-            if(!settled && !candidate.equals(stamp)){candidate=stamp;return;}
-            candidate=stamp;
-            if(fingerprint.equals(state.getString("stamp."+key,"")) && present(state.getString("current."+key,"")))return;
-            save(slot,key,fingerprint,awards,destination);
+            Uri destination=folder();Set<String> awards=awards();
+            IOException failure=null;
+            for(ProfileSaves profile:ProfileSaves.list(slot.toPath())){
+                try{
+                    String key=key(slot,destination,profile);
+                    String fingerprint=GameLibrary.saveFingerprint(slot.toPath(),awards,profile);
+                    String previous=candidates.put(key,fingerprint);
+                    if(fingerprint.isEmpty() || !settled && !fingerprint.equals(previous))continue;
+                    if(fingerprint.equals(state.getString("stamp."+key,"")) && present(state.getString("current."+key,"")))continue;
+                    save(slot,key,fingerprint,awards,destination,profile);
+                }catch(IOException e){failure=e;}
+            }
+            if(failure!=null)throw failure;
         }catch(Exception e){
             status="Backup pending · "+(e.getMessage()==null?"Storage unavailable":e.getMessage());
             android.util.Log.w("FightNight","Automatic save backup",e);
         }
+    }
+    private String key(File slot,Uri destination,ProfileSaves profile){
+        return slot.getName()+"@"+destination+"#"+Uri.encode(profile.folder);
+    }
+    void rememberRestore(File slot,SaveExports.Entry file)throws IOException{
+        for(ProfileSaves profile:ProfileSaves.list(slot.toPath())){
+            if(!file.name.startsWith(profile.folder+"/")){snapshot(slot);return;}
+            String key=key(slot,folder(),profile);
+            state.edit().putString("current."+key,file.uri.toString())
+                    .putString("stamp."+key,GameLibrary.saveFingerprint(slot.toPath(),awards(),profile)).apply();
+        }
+    }
+    private static Uri profileDirectory(ContentResolver resolver,Uri tree,String name)throws IOException{
+        String root=DocumentsContract.getTreeDocumentId(tree);
+        Uri children=DocumentsContract.buildChildDocumentsUriUsingTree(tree,root);
+        String[] columns={Document.COLUMN_DISPLAY_NAME,Document.COLUMN_DOCUMENT_ID,Document.COLUMN_MIME_TYPE};
+        Uri alternate=null;
+        try(Cursor rows=resolver.query(children,columns,null,null,null)){
+            if(rows==null)throw new IOException("Cannot list backup folder");
+            while(rows.moveToNext()){
+                if(!name.equalsIgnoreCase(rows.getString(0)))continue;
+                if(!Document.MIME_TYPE_DIR.equals(rows.getString(2)))throw new IOException("A file already uses the profile name "+name);
+                Uri existing=DocumentsContract.buildDocumentUriUsingTree(tree,rows.getString(1));
+                if(name.equals(rows.getString(0)))return existing;
+                alternate=existing;
+            }
+        }
+        if(alternate!=null)return alternate;
+        Uri parent=DocumentsContract.buildDocumentUriUsingTree(tree,root);
+        Uri dir=DocumentsContract.createDocument(resolver,parent,Document.MIME_TYPE_DIR,name);
+        if(dir==null)throw new IOException("Could not create profile folder "+name);
+        return dir;
     }
     private boolean present(String uri){
         if(uri.isEmpty())return false;
@@ -105,7 +142,7 @@ final class SaveBackups {
             return c!=null && c.moveToFirst();
         }
     }
-    private void save(File slot,String key,String fingerprint,Set<String> awards,Uri tree)throws Exception{
+    private void save(File slot,String key,String fingerprint,Set<String> awards,Uri tree,ProfileSaves profile)throws Exception{
         ContentResolver resolver=app.getContentResolver();
         String date=new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss-SSS",Locale.US).format(new Date());
         String id=slot.getName();
@@ -113,9 +150,9 @@ final class SaveBackups {
         ContentValues values=new ContentValues();
         values.put(MediaStore.MediaColumns.DISPLAY_NAME,name);
         values.put(MediaStore.MediaColumns.MIME_TYPE,"application/zip");
-        values.put(MediaStore.MediaColumns.RELATIVE_PATH,DIRECTORY);
+        values.put(MediaStore.MediaColumns.RELATIVE_PATH,DIRECTORY+profile.folder+"/");
         values.put(MediaStore.MediaColumns.IS_PENDING,1);
-        Uri parent=tree==null?null:DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree));
+        Uri parent=tree==null?null:profileDirectory(resolver,tree,profile.folder);
         boolean rename=false;
         Uri uri=parent==null?resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,values):
                 DocumentsContract.createDocument(resolver,parent,"application/octet-stream",name+".partial");
@@ -135,9 +172,9 @@ final class SaveBackups {
             MessageDigest digest=MessageDigest.getInstance("SHA-256");
             try(OutputStream out=resolver.openOutputStream(uri,"w")){
                 if(out==null)throw new IOException("Cannot write backup");
-                GameLibrary.exportSave(slot.toPath(),new DigestOutputStream(out,digest),awards);
+                GameLibrary.exportSave(slot.toPath(),new DigestOutputStream(out,digest),awards,profile);
             }
-            if(!fingerprint.equals(GameLibrary.saveFingerprint(slot.toPath(),awards())))return;
+            if(!fingerprint.equals(GameLibrary.saveFingerprint(slot.toPath(),awards(),profile)))return;
             byte[] expected=digest.digest(), buffer=new byte[65536];
             try(InputStream raw=resolver.openInputStream(uri)){
                 if(raw==null)throw new IOException("Cannot verify backup");
@@ -154,13 +191,11 @@ final class SaveBackups {
                 if(resolver.update(uri,values,null,null)!=1)throw new IOException("Cannot publish backup");
             }
             visible=true;
-            String older=state.getString("previous."+key,""),current=state.getString("current."+key,"");
-            String label="Backed up · "+(tree==null?"Downloads / Fight Night Round 3":state.getString("folderLabel","Save folder"))+" / "+name;
-            boolean recorded=state.edit().putString("previous."+key,current).putString("current."+key,uri.toString())
+            String label="Backed up · "+(tree==null?"Downloads / Fight Night Round 3":state.getString("folderLabel","Save folder"))+" / "+profile.folder+" / "+name;
+            boolean recorded=state.edit().putString("current."+key,uri.toString())
                 .putString("stamp."+key,fingerprint).putString("last",label).commit();
             if(!recorded)throw new IOException("Cannot record backup");
             status=label;
-            if(!older.isEmpty())try{remove(resolver,Uri.parse(older),tree!=null);}catch(Exception e){android.util.Log.i("FightNight","Previous backup retained",e);}
         }finally{if(!visible)remove(resolver,uri,tree!=null);}
     }
     private static void remove(ContentResolver r,Uri uri,boolean document)throws IOException{
