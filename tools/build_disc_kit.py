@@ -77,7 +77,12 @@ def assemble(args):
         for name in ("tools/device_build.py","tools/compile_objects.py","tools/bringup.py","native/texel_offset.h",
                      "native/title_hooks.c","native/observed_functions.json",
                      "tools/translate_disc.py"):
-            add(name,(ROOT/name).read_bytes())
+            data=(ROOT/name).read_bytes().replace(b"\r\n",b"\n")
+            # Keep the shipped Windows kit's byte representation on every checkout.
+            # These four source files were CRLF when the first reusable cache was written.
+            if name in {"tools/device_build.py","tools/compile_objects.py","tools/bringup.py","native/observed_functions.json"}:
+                data=data.replace(b"\n",b"\r\n")
+            add(name,data)
         from record_disc_layout import release_layout
         add("native/disc_layout.json", release_layout(args.disc_layout, args.toolkit))
         # Guest objects depend on the translator, compiler, headers and guest hooks.
