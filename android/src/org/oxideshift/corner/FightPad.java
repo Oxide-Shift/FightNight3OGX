@@ -9,10 +9,17 @@ import java.util.Arrays;
 final class FightPad {
     private final byte[] state=new byte[18];
     private final ByteBuffer words=ByteBuffer.wrap(state).order(ByteOrder.LITTLE_ENDIAN);
+    private final byte[] lastReport=new byte[18];
+    private String packet;
     private static final String DIGITS="0123456789abcdef";
     private static final class Source {
         final int id;
         int keys,buttons,hat,leftTrigger,rightTrigger;
+        InputDevice motionDevice;
+        int motionSource;
+        final int[] axes={MotionEvent.AXIS_X,MotionEvent.AXIS_Y,MotionEvent.AXIS_Z,MotionEvent.AXIS_RZ,
+                MotionEvent.AXIS_HAT_X,MotionEvent.AXIS_HAT_Y,MotionEvent.AXIS_LTRIGGER,MotionEvent.AXIS_RTRIGGER};
+        final float[] flat=new float[8];
         short lx,ly,rx,ry;
         Source(int id){this.id=id;}
     }
@@ -46,15 +53,21 @@ final class FightPad {
     boolean navigating(){return (state[0]&15)!=0 || Math.abs((int)words.getShort(12))>16000;}
     String report(){return report(null,false,0,0);}
     String report(CornerControls.Key touch,boolean treating,int rx,int ry){
-        StringBuilder packet=new StringBuilder("PAD ");
+        boolean changed=packet==null;
         for(int i=0;i<state.length;i++){
             int value=state[i]&255;
             if(touch!=null && touch.index==10 && (i==10||i==11))value=(touch.mask>>((i-10)*8))&255;
             else if(touch!=null && touch.index==i)value|=touch.mask;
             if(treating && i>=14)value=((i<16?rx:ry)>>((i%2)*8))&255;
-            packet.append(DIGITS.charAt(value>>4)).append(DIGITS.charAt(value&15));
+            if(lastReport[i]!=(byte)value){lastReport[i]=(byte)value;changed=true;}
         }
-        return packet.toString();
+        if(changed){
+            char[] encoded=new char[4+2*lastReport.length];"PAD ".getChars(0,4,encoded,0);
+            int pos=4;
+            for(byte b:lastReport){encoded[pos++]=DIGITS.charAt((b&255)>>4);encoded[pos++]=DIGITS.charAt(b&15);}
+            packet=new String(encoded);
+        }
+        return packet;
     }
     boolean key(KeyEvent e,boolean down){
         return key(e.getDeviceId(),e.getSource(),e.getKeyCode(),down && !e.isCanceled());
@@ -84,12 +97,24 @@ final class FightPad {
         combine();
         return true;
     }
-    private static float axis(MotionEvent e,int id){
-        InputDevice d=e.getDevice();if(d==null)return 0;
-        InputDevice.MotionRange range=d.getMotionRange(id,e.getSource());
-        float v=e.getAxisValue(id);return range!=null&&Math.abs(v)<=range.getFlat()?0:v;
+    private static int preferred(InputDevice device,int source,int first,int fallback){
+        return device.getMotionRange(first,source)!=null?first:fallback;
     }
-    private static boolean has(MotionEvent e,int id){return e.getDevice()!=null&&e.getDevice().getMotionRange(id,e.getSource())!=null;}
+    private static void configure(Source pad,InputDevice device,int source){
+        pad.motionDevice=device;pad.motionSource=source;
+        pad.axes[2]=preferred(device,source,MotionEvent.AXIS_Z,MotionEvent.AXIS_RX);
+        pad.axes[3]=preferred(device,source,MotionEvent.AXIS_RZ,MotionEvent.AXIS_RY);
+        pad.axes[6]=preferred(device,source,MotionEvent.AXIS_LTRIGGER,MotionEvent.AXIS_BRAKE);
+        pad.axes[7]=preferred(device,source,MotionEvent.AXIS_RTRIGGER,MotionEvent.AXIS_GAS);
+        for(int i=0;i<pad.axes.length;i++){
+            InputDevice.MotionRange range=device.getMotionRange(pad.axes[i],source);
+            pad.flat[i]=range==null?0:range.getFlat();
+        }
+    }
+    private static float axis(MotionEvent e,Source pad,int i){
+        float value=e.getAxisValue(pad.axes[i]);
+        return Math.abs(value)<=pad.flat[i]?0:value;
+    }
     private static short stick(float f){return (short)Math.round(Math.min(1,Math.max(-1,f))*(f<0?32768:32767));}
     void axes(int id,float lx,float ly,float rx,float ry,float hatX,float hatY,float lt,float rt){
         Source s=source(id);
@@ -106,13 +131,13 @@ final class FightPad {
         if(!e.isFromSource(InputDevice.SOURCE_JOYSTICK))return false;
         if(e.getActionMasked()==MotionEvent.ACTION_CANCEL)return remove(e.getDeviceId());
         if(e.getActionMasked()!=MotionEvent.ACTION_MOVE)return false;
-        int rx=has(e,MotionEvent.AXIS_Z)?MotionEvent.AXIS_Z:MotionEvent.AXIS_RX;
-        int ry=has(e,MotionEvent.AXIS_RZ)?MotionEvent.AXIS_RZ:MotionEvent.AXIS_RY;
-        int lt=has(e,MotionEvent.AXIS_LTRIGGER)?MotionEvent.AXIS_LTRIGGER:MotionEvent.AXIS_BRAKE;
-        int rt=has(e,MotionEvent.AXIS_RTRIGGER)?MotionEvent.AXIS_RTRIGGER:MotionEvent.AXIS_GAS;
-        axes(e.getDeviceId(),axis(e,MotionEvent.AXIS_X),axis(e,MotionEvent.AXIS_Y),
-                axis(e,rx),axis(e,ry),axis(e,MotionEvent.AXIS_HAT_X),axis(e,MotionEvent.AXIS_HAT_Y),
-                axis(e,lt),axis(e,rt));
+        InputDevice device=e.getDevice();
+        int id=e.getDeviceId(),bits=e.getSource();
+        if(device==null){axes(id,0,0,0,0,0,0,0,0);return true;}
+        Source pad=source(id);
+        if(device!=pad.motionDevice || bits!=pad.motionSource)configure(pad,device,bits);
+        axes(id,axis(e,pad,0),axis(e,pad,1),axis(e,pad,2),axis(e,pad,3),
+                axis(e,pad,4),axis(e,pad,5),axis(e,pad,6),axis(e,pad,7));
         return true;
     }
 }

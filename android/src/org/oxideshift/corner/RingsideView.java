@@ -107,7 +107,8 @@ final class RingsideView extends LinearLayout {
     };
     private long lastMenuRead;
     private int lastMenuSequence;
-    private long nextRootFooterRead;
+    private long nextFooterRead;
+    private boolean wasAtRoot,cabinetCovered;
     private long lastRecognizedAt;
     private String resultHeading="";
     private CutmanDesk cutman;
@@ -345,7 +346,7 @@ final class RingsideView extends LinearLayout {
         if(session!=null){session.lowerCallouts=false;}
         session=owner;editorPage=null;editorVisit=false;notebook.clear();careerBranch=false;careerFocus=-1;announced=null;announcement.clear();
         if(screen!=null){screen.lowerShows(BroadcastCues.NONE);screen.timing.suspend();}
-        deskScene.reset();currentPage=null;missingPageReads=0;tips.leave();displayedCamp=null;lastMenuRead=0;screen=next;sequence=0;lastSeen=0;scene=null;footerMask=0;
+        deskScene.reset();wasAtRoot=false;cabinetCovered=false;nextFooterRead=0;currentPage=null;missingPageReads=0;tips.leave();displayedCamp=null;lastMenuRead=0;screen=next;sequence=0;lastSeen=0;scene=null;footerMask=0;
         lastCard=null;bout=null;fighters=null;drawNames();java.util.Arrays.fill(levels,-1);
         boolean opening=next!=null && owner!=null && owner.openingSlate();
         if(opening){scene=Scene.INTRO;deskScene.observe(scene,0,SystemClock.uptimeMillis());}
@@ -353,6 +354,7 @@ final class RingsideView extends LinearLayout {
         build();schedule();
 
     }
+    boolean showingMenu(){return scene==Scene.MENU || scene==Scene.PAUSE;}
     void releaseInput(){if(cutman!=null)cutman.release();}
     void activate(boolean value){
         if(activeView==value)return;
@@ -361,11 +363,11 @@ final class RingsideView extends LinearLayout {
         else forceCapture=true;schedule();
     }
     void frontChanged(){
-        MenuContext.Page selected=session==null?null:MenuContext.root(session.frontPage);
-        if(selected!=null && scene==Scene.MENU && !inBout() && selected!=currentPage){
-            currentPage=selected;careerFocus=-1;careerBranch=false;missingPageReads=0;
-            describeMenu();
+        boolean root=session!=null && session.atRoot();
+        if(wasAtRoot && !root && MenuContext.isMain(currentPage)){
+            currentPage=null;missingPageReads=0;tips.leave();
         }
+        wasAtRoot=root;nextFooterRead=0;
         forceCapture=true;schedule();
     }
     private void schedule(){
@@ -632,17 +634,22 @@ final class RingsideView extends LinearLayout {
     }
     private void refreshFrame(){
         if(!activeView||!isAttachedToWindow()||screen==null)return;
+        if(session!=null && session.cabinetOpen){
+            if(!cabinetCovered){cabinetCovered=true;screen.lowerShows(BroadcastCues.NONE);menuDock.setAlpha(0f);}
+            postDelayed(tick,80);return;
+        }
+        if(cabinetCovered){cabinetCovered=false;forceCapture=true;nextFooterRead=0;}
         syncReadings();
         LiveFrame f=screen.latestFrame();
         if(f==null && scene==null && session!=null && session.openingSlate()){scene=Scene.INTRO;build();}
         // A menu can stop publishing frames before its prompts finish settling.
         boolean checkResult=session!=null && session.showingResult() && SystemClock.uptimeMillis()-lastMenuRead>=400;
         boolean readSettledMenu=editorPage==null && (scene==Scene.MENU || (scene==Scene.RINGSIDE && !inBout())) &&
-                f!=null && (f.sequence!=lastMenuSequence || (currentPage!=null && missingPageReads>0)) && SystemClock.uptimeMillis()-lastMenuRead>=220;
+                f!=null && f.sequence!=lastMenuSequence && SystemClock.uptimeMillis()-lastMenuRead>=80;
         boolean changedPage=session!=null && editorPage!=session.career.page &&
                 (editorPage!=null || CareerDesk.editingBoxer(session.career.page) && careerRevision!=session.career.revision);
         if(f!=null && (f.sequence!=sequence || forceCapture || deskScene.settling() || checkResult || changedPage || readSettledMenu))sample(f);
-        postDelayed(tick,110);
+        postDelayed(tick,scene==Scene.MENU?(session!=null && session.atRoot()?50:80):110);
     }
     private void updateLevel(int i,int v){if(levels[i]!=v){levels[i]=v;drawMeter(i);}}
     private boolean inBout(){return session!=null && session.inLiveBout();}
@@ -683,27 +690,26 @@ final class RingsideView extends LinearLayout {
         boolean live=inBout();
         CareerDesk.Page editor=inEditor && !live && !session.cabinetOpen?activePage:null;
         int front=session==null?CornerSession.FRONT_OTHER:session.frontPage;
-        MenuContext.Page root=live?null:MenuContext.root(front);
-        boolean playlist=front==CornerSession.FRONT_TRAX || session!=null && (session.browsingTrax || session.leaveTrax);
-        Scene next=root!=null || editor!=null?Scene.MENU:f.scene(live);
-        boolean showingMenu=next==Scene.MENU || (next==Scene.RINGSIDE && !inBout());
+        boolean root=!live && session!=null && session.atRoot();
+        boolean playlist=front==CornerSession.FRONT_TRAX;
+        Scene next=root || editor!=null?Scene.MENU:f.scene(live);
+        boolean showingMenu=next==Scene.MENU || (next==Scene.RINGSIDE && !live);
         int mask=0;
         long sampled=SystemClock.uptimeMillis();
         if(next==Scene.MENU && !inEditor && !playlist){
-            // Root captions stay put when the carousel moves. The renderer verifies visibility per frame.
-            if(root==null || sampled>=nextRootFooterRead){
+            if(forceCapture || sampled>=nextFooterRead){
                 cues.readMenu(f);
-                nextRootFooterRead=root==null?0:sampled+220;
+                nextFooterRead=sampled+(root?220:150);
             }
             mask=cues.mask;
-        }else nextRootFooterRead=0;
-        boolean readMenu=showingMenu && editor==null && (forceCapture || sampled-lastMenuRead>=150);
+        }else nextFooterRead=0;
+        boolean readMenu=showingMenu && editor==null && !playlist &&
+                (forceCapture || (f.sequence!=lastMenuSequence && sampled-lastMenuRead>=(root?45:80)));
         MenuContext.Page page=currentPage;
         int focus=-1;
-        if(root!=null){
-            page=root;readMenu=true;
-        }else if(readMenu){
+        if(readMenu){
             page=menuContext.identify(f);
+            if(root)page=MenuContext.rootSelection(page,currentPage,front);
             if(page!=null && "Career Central".equals(page.title))focus=menuContext.careerRow(f);
         }
         if(!screen.current(f))return;

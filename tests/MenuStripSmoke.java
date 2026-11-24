@@ -15,6 +15,15 @@ public class MenuStripSmoke {
     }
 
     public static void main(String[] args) {
+        MenuContext.Page previous=null;
+        for(int row=0;row<8;row++){
+            MenuContext.Page visible=MenuContext.root(row);
+            previous=MenuContext.rootSelection(visible,previous,0);
+            if(previous!=visible || MenuContext.rootSelection(null,previous,0)!=visible)
+                throw new AssertionError("Stale Play Now hover over row "+row);
+        }
+        if(MenuContext.rootSelection(null,null,-3)!=null)throw new AssertionError("Unconfirmed root row");
+
         for (int height : new int[] {480, 720, 1080}) {
             int width = height * 4 / 3;
             LiveFrame original = frame(width, height);

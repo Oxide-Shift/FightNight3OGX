@@ -232,19 +232,22 @@ void fight_store_price(int32_t price) {
     }
 }
 
-void fight_career_property(uint32_t key,uint32_t value) {
+static atomic_int playlist_armed;
+void fight_arm_playlist(int enabled){atomic_store(&playlist_armed,enabled);}
+
+int fight_career_property(uint32_t key,uint32_t value) {
 #ifdef __ANDROID__
     extern void fight_service_menu_cancel(void),fight_bind_menu_thread(void);
     fight_service_menu_cancel();
 #endif
     const uint8_t *k=guest(key,32);
-    if(!k || (k[8]|32)!='m' || k[9]!='_')return;
+    if(!k || (k[8]|32)!='m' || k[9]!='_')return 0;
     int screen=same_property(k+8,"m_sCurrentScreenId");
     int trophy=!screen && same_property(k+8,"m_trophyId");
     int trainer=!screen && !trophy && same_property(k+8,"m_trainerActualCost");
-    if(!screen && !trophy && !trainer)return;
+    if(!screen && !trophy && !trainer)return 0;
     const uint8_t *v=guest(value,12);
-    if(!v)return;
+    if(!v)return 0;
     uint32_t type=word(v+4)>>25;
     if(screen){
         // The imported root carousel publishes its selected index on a temporary object.
@@ -252,14 +255,23 @@ void fight_career_property(uint32_t key,uint32_t value) {
             unsigned index=word(v+8);
             if(type==6){
                 float f;memcpy(&f,v+8,sizeof f);
-                if(!(f>=0 && f<8) || (float)(unsigned)f!=f)return;
+                if(!(f>=0 && f<8) || (float)(unsigned)f!=f)return 0;
                 index=(unsigned)f;
             }
             if(index<8){printf("FNR3/1 MAINHOVER %u\n",index);fflush(stdout);}
-            return;
+            return 0;
         }
         const uint8_t *s=type==1?guest(word(v+8),72):NULL;
         const char *page=s && memchr(s+8,0,64)?(const char *)s+8:NULL;
+        // Only this private assignment may skip the normal APT setter. The handler
+        // tests the temporary object's member before calling the retail screen manager.
+        if(page && !strcmp(page,"fnr3/trax?")){
+#ifdef __ANDROID__
+            fight_bind_menu_thread();
+#endif
+            if(atomic_exchange(&playlist_armed,0))return 0;
+            puts("FNR3/1 MUSICMENU OPEN");fflush(stdout);return 1;
+        }
 #ifdef __ANDROID__
         if(page && (!strcmp(page,"fnr3/achievements") || !strcmp(page,"fnr3/music")))fight_bind_menu_thread();
 #endif
@@ -272,6 +284,7 @@ void fight_career_property(uint32_t key,uint32_t value) {
                           !strcmp(page,"5screengroups/options/options")?2:0;
                 if(previous!=front){
                     previous=front;
+                    atomic_store(&playlist_armed,0);
 #ifdef __ANDROID__
                     extern void fight_pad_menu(int enabled);
                     fight_pad_menu(front==1);
@@ -281,9 +294,9 @@ void fight_career_property(uint32_t key,uint32_t value) {
             }
             career_page(page);
         }
-        return;
+        return 0;
     }
-    if(!career_mode())return;
+    if(!career_mode())return 0;
     int number=-1;
     if(type==7)number=(int32_t)word(v+8);
     if(type==6){
@@ -295,6 +308,7 @@ void fight_career_property(uint32_t key,uint32_t value) {
     }else if(trainer){
         printf("FNR3/1 TRAINER %d %d\n",number,(int)career_wallet());fflush(stdout);
     }
+    return 0;
 }
 
 void fight_trophy_status(unsigned slot,unsigned owned) {

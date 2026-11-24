@@ -21,14 +21,16 @@ extern int pad_message(const char *);
 
 static int answer_ping(const char *line) {
 #ifdef __ANDROID__
+    extern void fight_request_menu_cancel(void),fight_arm_playlist(int);
     if (!strncmp(line,"SLEEP ",6) && line[6] && line[7]=='\n') {
         extern void fight_pad_suspend_menu(void);
-        fight_pad_suspend_menu();
+        fight_pad_suspend_menu();fight_arm_playlist(0);
         fight_audio_sleep(1);
         send(STDIN_FILENO,line+6,1,MSG_NOSIGNAL);
         return 1;
     }
-    extern void fight_request_menu_cancel(void);
+    if(!strcmp(line,"PLAYLIST 1\n") || !strcmp(line,"PLAYLIST 1\r\n")){fight_arm_playlist(1);return 1;}
+    if(!strcmp(line,"PLAYLIST 0\n") || !strcmp(line,"PLAYLIST 0\r\n")){fight_arm_playlist(0);return 1;}
     if (!strcmp(line,"MENUCANCEL\n") || !strcmp(line,"MENUCANCEL\r\n")){fight_request_menu_cancel();return 1;}
     if (!strcmp(line,"WAKE\n")) { fight_audio_sleep(0); puts("FNR3/1 AWAKE"); fflush(stdout); return 1; }
 #endif

@@ -7,6 +7,9 @@ public class ControllerInputSmoke {
     static void check(boolean b){if(!b)throw new AssertionError();}
     static int value(String report,int n){return Integer.parseInt(report.substring(4+2*n,6+2*n),16);}
     public static void main(String[] args){
+        FightPad idlePad=new FightPad();
+        if(idlePad.report()!=idlePad.report())throw new AssertionError("Duplicate input rebuilt the wire packet");
+
         FightPad pad=new FightPad();String neutral=pad.report();
         int gamepad=InputDevice.SOURCE_GAMEPAD;
         for(int i=0;i<10000;i++){

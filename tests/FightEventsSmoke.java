@@ -88,6 +88,18 @@ public class FightEventsSmoke {
         check(a.count(1,14));check(!a.count(12,20));a.reset();a.event("WON",3);check(a.current(3).words.equals("WON!!"));
         long[] time={20000};int[] hapticCount={0},hits={0};
         CornerSession s=new CornerSession(()->time[0],new java.io.File("."));
+        CornerSession musicMenu=new CornerSession(()->time[0],new java.io.File("."));
+        musicMenu.line("FNR3/1 FRONT 1");check(musicMenu.atRoot() && musicMenu.frontPage==CornerSession.FRONT_ROOT);
+        musicMenu.line("FNR3/1 MUSICMENU OPEN");check(musicMenu.takeMusicRequest() && !musicMenu.browsingTrax);
+        java.lang.reflect.Field running=CornerSession.class.getDeclaredField("running");
+        running.setAccessible(true);running.setBoolean(musicMenu,true);
+        musicMenu.retailMusicRoute=true;musicMenu.cabinetOpen=true;
+        check(musicMenu.requestPlaylist() && !musicMenu.requestPlaylist());
+        musicMenu.line("FNR3/1 FRONT 2");check(musicMenu.browsingTrax && !musicMenu.atRoot());
+        musicMenu.cabinetOpen=false;musicMenu.line("FNR3/1 FRONT 1");
+        check(musicMenu.atRoot() && musicMenu.takeMusicRequest() && musicMenu.takePlaylistReturn() && !musicMenu.browsingTrax);
+        musicMenu.line("FNR3/1 FRONT 0");check(!musicMenu.takeMusicRequest());
+
         s.motors(new CornerSession.Motors(){
             public void changed(int l,int r,int ms){hits[0]++;}
             public void count(int value){hapticCount[0]+=value;}

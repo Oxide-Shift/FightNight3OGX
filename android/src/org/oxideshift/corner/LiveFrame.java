@@ -7,17 +7,34 @@ final class LiveFrame {
     final ByteBuffer pixels;
     final int width,height,sequence;
     final boolean wide;
+    private final Grid grid;
+    private static volatile Grid lastGrid;
+    private static final class Grid {
+        final int w,h;
+        final boolean wide;
+        final int[] columns=new int[640],rows=new int[480];
+        Grid(int w,int h,boolean wide){
+            this.w=w;this.h=h;this.wide=wide;
+            for(int x=0;x<640;x++)columns[x]=4*((wide?80+(x*3+2)/4:x)*w/640);
+            for(int y=0;y<480;y++)rows[y]=8+4*(y*h/480)*w;
+        }
+    }
     LiveFrame(ByteBuffer pixels,int width,int height,int sequence){
         this(pixels,width,height,sequence,false);
     }
     LiveFrame(ByteBuffer pixels,int width,int height,int sequence,boolean wide){
         this.wide=wide;
+        Grid layout=lastGrid;
+        if(layout==null || layout.w!=width || layout.h!=height || layout.wide!=wide)
+            lastGrid=layout=new Grid(width,height,wide);
+        grid=layout;
         this.pixels=pixels;this.width=width;this.height=height;this.sequence=sequence;
     }
     // The retail 16:9 mode centres 4:3 interface artwork in the scanout.
     int sourceX(int logicalX){return wide?80+(logicalX*3+2)/4:logicalX;}
     int at(int x,int y){
-        int offset=8+4*((y*height/480)*width+sourceX(x)*width/640);
+        int offset=(x>=0 && x<640 && y>=0 && y<480)?grid.rows[y]+grid.columns[x]:
+                8+4*((y*height/480)*width+sourceX(x)*width/640);
         return pixels.getInt(offset)|0xff000000;
     }
     static int red(int c){return (c>>16)&255;}

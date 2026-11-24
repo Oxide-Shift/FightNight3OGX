@@ -126,10 +126,20 @@ final class MenuContext {
         for(int row=0;row<sample.length;row++){
             int y=top+3*row;
             long edges=0;
-            for(int col=0;col<61;col++){
-                int x=left+col*step;
-                int background=Math.min(light(frame.at(x-3,y)),light(frame.at(x+3,y)));
-                if(light(frame.at(x,y))-background>63)edges|=1L<<col;
+            if(step==3){
+                // Adjacent title samples share two of their three luminance values.
+                int before=light(frame.at(left-3,y)),center=light(frame.at(left,y));
+                for(int col=0;col<61;col++){
+                    int after=light(frame.at(left+(col+1)*3,y));
+                    if(center-Math.min(before,after)>63)edges|=1L<<col;
+                    before=center;center=after;
+                }
+            }else{
+                for(int col=0;col<61;col++){
+                    int x=left+col*step;
+                    int background=Math.min(light(frame.at(x-3,y)),light(frame.at(x+3,y)));
+                    if(light(frame.at(x,y))-background>63)edges|=1L<<col;
+                }
             }
             sample[row]=edges;
         }
@@ -158,6 +168,13 @@ final class MenuContext {
         if(index==5)return ACHIEVEMENTS;
         if(index==6)return MUSIC;
         return index==7?PAGES[5]:null;
+    }
+    // APT can repeat the previous index while the carousel is scrolling. Trust the
+    // visible title first and keep the last confirmed row through blank frames.
+    static Page rootSelection(Page visible,Page previous,int index){
+        if(visible!=null)return visible;
+        if(isMain(previous))return previous;
+        return root(index);
     }
     static boolean isMain(Page selection){
         if(selection==ACHIEVEMENTS || selection==MUSIC)return true;

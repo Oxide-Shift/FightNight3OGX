@@ -11,6 +11,8 @@ final class DisplayCadence {
     static int legacyIndex(int pacing){return pacing==1?1:2;}
     static int target(int index){return index>=0 && index<TARGETS.length?TARGETS[index]:60;}
 
+    // An empty vsync must not reserve the next slot ahead of an arriving frame.
+    boolean due(long frameTime,boolean pending){return pending && due(frameTime);}
     boolean due(long frameTime){
         if(next!=0 && frameTime+1_000_000L<next)return false;
         // Keep phase when the display rate is not a multiple of the requested FPS.

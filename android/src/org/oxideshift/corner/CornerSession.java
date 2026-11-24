@@ -100,15 +100,25 @@ public final class CornerSession {
         if(motors!=null)motors.callout();
     }
     volatile boolean cabinetOpen;
-    volatile boolean retailMusicRoute,browsingTrax,leaveTrax;
+    volatile boolean retailMusicRoute,browsingTrax;
     private boolean cabinetRequested,musicRequested;
-    static final int FRONT_OTHER=-2, FRONT_TRAX=-1;
+    static final int FRONT_ROOT=-3, FRONT_OTHER=-2, FRONT_TRAX=-1;
     volatile int frontPage=FRONT_OTHER;
-    private int lastRootIndex;
+    private boolean playlistPending,returningToMusic;
+    boolean atRoot(){return frontPage==FRONT_ROOT || frontPage>=0;}
+    synchronized boolean requestPlaylist(){
+        if(!running || sleeping || terminal || !retailMusicRoute || !cabinetOpen || playlistPending)return false;
+        playlistPending=true;commands.offer("PLAYLIST 1");return true;
+    }
+    synchronized void cancelPlaylistRequest(){
+        if(playlistPending){playlistPending=false;commands.offer("PLAYLIST 0");}
+    }
+    synchronized boolean takePlaylistReturn(){
+        boolean pending=returningToMusic;returningToMusic=false;return pending;
+    }
     private Runnable frontListener;
     synchronized void onFrontChanged(Runnable listener){frontListener=listener;}
     private void front(int page){
-        if(page>=0)lastRootIndex=page;
         if(frontPage==page)return;
         frontPage=page;
         if(frontListener!=null)frontListener.run();
@@ -353,8 +363,17 @@ public final class CornerSession {
             return;
         }
         if(line.equals("FNR3/1 FRONT 0")){front(FRONT_OTHER);return;}
-        if(line.equals("FNR3/1 FRONT 1")){front(lastRootIndex);return;}
-        if(line.equals("FNR3/1 FRONT 2")){front(FRONT_TRAX);return;}
+        if(line.equals("FNR3/1 FRONT 1")){
+            if(browsingTrax){
+                browsingTrax=false;returningToMusic=true;musicRequested=true;
+                if(cabinetListener!=null)cabinetListener.run();
+            }
+            front(FRONT_ROOT);return;
+        }
+        if(line.equals("FNR3/1 FRONT 2")){
+            playlistPending=false;browsingTrax=true;
+            front(FRONT_TRAX);return;
+        }
         if(line.equals("FNR3/1 MUSICMENU OPEN")){
             if(!cabinetOpen && !cabinetRequested && !musicRequested){musicRequested=true;if(cabinetListener!=null)cabinetListener.run();}
             return;

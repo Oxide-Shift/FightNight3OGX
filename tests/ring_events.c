@@ -62,6 +62,13 @@ int main(void){
     set(value+4,1u<<25);set(value+8,string);
     strcpy((char *)ram+string+8,"fnr3/achievements");
     fight_career_property(key,value);assert(!strcmp(events,"FNR3/1 CABINET OPEN\n"));events[0]=0;
+    strcpy((char *)ram+string+8,"fnr3/trax?");
+    assert(fight_career_property(key,value)==1 && !strcmp(events,"FNR3/1 MUSICMENU OPEN\n"));events[0]=0;
+    fight_arm_playlist(1);
+    assert(fight_career_property(key,value)==0 && !events[0]);
+    assert(fight_career_property(key,value)==1 && !strcmp(events,"FNR3/1 MUSICMENU OPEN\n"));events[0]=0;
+    fight_arm_playlist(1);fight_arm_playlist(0);
+    assert(fight_career_property(key,value)==1 && !strcmp(events,"FNR3/1 MUSICMENU OPEN\n"));events[0]=0;
     strcpy((char *)ram+string+8,"fnr3/music");
     fight_career_property(key,value);assert(!strcmp(events,"FNR3/1 MUSICMENU OPEN\n"));events[0]=0;
     set(value+4,7u<<25);set(value+8,0);

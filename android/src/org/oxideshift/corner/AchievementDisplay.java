@@ -21,11 +21,10 @@ final class AchievementDisplay {
     private final Achievements awards;
     private final CornerSession session;
     private final Runnable neutralPad;
-    private boolean closing,changing,backPending;
+    private boolean closing,awaitingPlaylist;
     private boolean musicHome;
-    private volatile MenuTransition transition;
-    private FrameLayout cabinetLayers,lowerDisplay;
-    private final boolean wide;
+    private FrameLayout lowerDisplay;
+    private final java.util.function.BooleanSupplier enterPlaylist;
     private final SoundPool sounds;
     private final int chime;
     private final int[] menuSounds=new int[DiscMenuSounds.Cue.values().length];
@@ -40,18 +39,14 @@ final class AchievementDisplay {
     private View banner;
     private final Runnable retire=this::slideOut;
 
-    AchievementDisplay(Activity activity,FrameLayout top,DiscFonts fonts,java.util.function.Supplier<android.graphics.Bitmap[]> artwork,CornerSession session,File game,boolean wide,Runnable neutralPad){
-        this.wide=wide;
+    AchievementDisplay(Activity activity,FrameLayout top,DiscFonts fonts,java.util.function.Supplier<android.graphics.Bitmap[]> artwork,CornerSession session,File game,java.util.function.BooleanSupplier enterPlaylist,Runnable neutralPad){
+        this.enterPlaylist=enterPlaylist;
         this.activity=activity;this.top=top;this.artwork=artwork;this.fonts=fonts==DiscFonts.FALLBACK?DiscFonts.load(game):fonts;this.session=session;this.awards=session.achievements;this.neutralPad=neutralPad;
         sounds=new SoundPool.Builder().setMaxStreams(3).setAudioAttributes(new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_GAME).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()).build();
         sounds.setOnLoadCompleteListener((pool,id,status)->loaded(id,status));
         chime=load("corner_unlock");soundLoading=chime!=0;
-        new Thread(()->{
-            try{transition=new MenuTransition(game,this.fonts.stencil);}
-            catch(IOException | RuntimeException e){android.util.Log.w("FightNight","Disc menu transition unavailable",e);}
-            loadMenu(game);
-        },"Fight Night front end").start();
+        new Thread(()->loadMenu(game),"Fight Night front end").start();
     }
     private void loadMenu(File game){
         try{
@@ -100,12 +95,9 @@ final class AchievementDisplay {
             public boolean enabled(int row){return prefs.getBoolean(key(row),false);}
             public boolean hasPlaylist(){return session.retailMusicRoute;}
             public void openTrax(){
-                Dialog current=gallery;
-                if(current==null || closing || changing || !session.retailMusicRoute)return;
-                closing=true;play(DiscMenuSounds.Cue.FORWARD);
-                swap(()->{galleryPage.setVisibility(View.INVISIBLE);routePrompts(null);},()->{
-                    session.browsingTrax=true;current.dismiss();
-                });
+                if(gallery==null || closing || awaitingPlaylist || !enterPlaylist.getAsBoolean())return;
+                awaitingPlaylist=true;
+                top.postDelayed(playlistTimeout,1500);
             }
             public void toggle(int row){
                 prefs.edit().putBoolean(key(row),!enabled(row)).apply();
@@ -122,11 +114,11 @@ final class AchievementDisplay {
                 if(key.getAction()==android.view.KeyEvent.ACTION_UP && !key.isCanceled())activity.onBackPressed();
                 return true;
             }
-            return page.handleKey(key,closing || changing);
+            return page.handleKey(key,closing || awaitingPlaylist);
         });
         dialog.setOnCancelListener(d->activity.onBackPressed());
-        dialog.setOnDismissListener(d->{if(gallery==dialog){routePrompts(null);galleryPage=null;gallery=null;cabinetLayers=null;closing=false;changing=false;backPending=false;session.cabinetOpen=false;}});
-        gallery=dialog;galleryPage=page;cabinetLayers=layers;session.cabinetOpen=true;
+        dialog.setOnDismissListener(d->{if(gallery==dialog){routePrompts(null);galleryPage=null;gallery=null;closing=false;session.cabinetOpen=false;}});
+        gallery=dialog;galleryPage=page;session.cabinetOpen=true;
         Window w=dialog.getWindow();
         w.setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
         w.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
@@ -135,49 +127,24 @@ final class AchievementDisplay {
         w.getDecorView().setSystemUiVisibility(activity.getWindow().getDecorView().getSystemUiVisibility());
         if(returning)page.selectPlaylist();
         dialog.show();w.setLayout(-1,-1);
-        if(returning)session.menuCancelSound();else play(DiscMenuSounds.Cue.FORWARD);
-        page.setVisibility(View.INVISIBLE);
-        swap(()->{page.setVisibility(View.VISIBLE);routePrompts(lowerDisplay);},()->{if(backPending){backPending=false;leave();}});
+        if(!returning)play(DiscMenuSounds.Cue.FORWARD);
+        routePrompts(lowerDisplay);
     }
-    private void swap(Runnable change,Runnable done){
-        MenuTransition movie=transition;
-        if(movie==null || !ValueAnimator.areAnimatorsEnabled()){change.run();done.run();return;}
-        FrameLayout layers=cabinetLayers;
-        changing=true;
-        View film=new View(activity){
-            long start=-1;boolean switched;
-            @Override protected void onDraw(android.graphics.Canvas c){
-                long now=android.os.SystemClock.uptimeMillis();
-                if(start<0)start=now;
-                int frame=(int)((now-start)*60/1000);
-                int w=getWidth(),h=getHeight(),aw=wide?16:4,ah=wide?9:3;
-                int vw=Math.min(w,h*aw/ah),vh=Math.min(h,w*ah/aw);
-                c.save();c.translate((w-vw)/2f,(h-vh)/2f);c.clipRect(0,0,vw,vh);
-                movie.draw(c,frame,vw,vh);c.restore();
-                if(!switched && frame>=movie.changeFrame){switched=true;change.run();}
-                if(frame<movie.frames-1)postInvalidateOnAnimation();
-                else post(()->{
-                    if(getParent()!=layers || cabinetLayers!=layers)return;
-                    layers.removeView(this);changing=false;done.run();
-                });
-            }
-        };
-        film.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        film.setClickable(true);film.setFocusable(false);
-        layers.addView(film,new FrameLayout.LayoutParams(-1,-1));
+    private final Runnable playlistTimeout=this::onPlaylistTimeout;
+    private void onPlaylistTimeout(){
+        if(awaitingPlaylist){
+            if(session.browsingTrax){playlistChanged();return;}
+            awaitingPlaylist=false;session.cancelPlaylistRequest();
+        }
+    }
+    void playlistChanged(){
+        if(gallery==null || !musicHome || !session.browsingTrax)return;
+        awaitingPlaylist=false;top.removeCallbacks(playlistTimeout);
+        if(gallery!=null)gallery.dismiss();
     }
     private void leave(){
-        Dialog dialog=gallery;if(dialog==null || closing)return;
-        if(changing){backPending=true;return;}
-        boolean leavePlaylist=musicHome && session.retailMusicRoute;
-        closing=true;if(!leavePlaylist)session.menuCancelSound();
-        swap(()->{if(galleryPage!=null)galleryPage.setVisibility(View.INVISIBLE);routePrompts(null);},()->{
-            session.leaveTrax=leavePlaylist;dialog.dismiss();
-        });
-    }
-    boolean backFromTrax(){
-        if(!session.browsingTrax || gallery!=null)return false;
-        session.browsingTrax=false;open(true,true);return true;
+        if(gallery==null || closing || awaitingPlaylist)return;
+        closing=true;session.menuCancelSound();gallery.dismiss();
     }
     private void routePrompts(FrameLayout host){
         if(promptHost==host)return;
@@ -193,7 +160,7 @@ final class AchievementDisplay {
     }
     void refresh(FrameLayout lower){
         lowerDisplay=lower;
-        if(session.takeMusicRequest())open(true);
+        if(session.takeMusicRequest())open(true,session.takePlaylistReturn());
         else if(session.takeCabinetRequest())open(false);
         if(gallery!=null)routePrompts(galleryPage.getVisibility()==View.VISIBLE?lower:null);
         if(banner!=null || gallery!=null || soundLoading)return;
@@ -235,9 +202,10 @@ final class AchievementDisplay {
         if(old.getParent() instanceof FrameLayout)((FrameLayout)old.getParent()).removeView(old);
     }
     void rememberOpenPage(){
-        if(gallery!=null)session.restoreCabinet(musicHome);
+        if(gallery!=null && !session.browsingTrax)session.restoreCabinet(musicHome);
     }
     void close(){
+        top.removeCallbacks(playlistTimeout);awaitingPlaylist=false;session.cancelPlaylistRequest();
         session.onCabinet(null);
         if(gallery!=null)gallery.dismiss();
         removeBanner();synchronized(this){released=true;sounds.release();}

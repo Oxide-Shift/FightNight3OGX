@@ -13,6 +13,7 @@ final class RetailMenu {
     private static final byte[] LEGACY=ascii("FNR3-ACHIEVEMENTS-1"), PRE_BRAND=ascii("FNR3-ACHIEVEMENTS-2"), FIRST_BRAND=ascii("FNR3-ACHIEVEMENTS-3"), SLOPED_BRAND=ascii("FNR3-ACHIEVEMENTS-4"), PRE_PAUSE=ascii("FNR3-ACHIEVEMENTS-5"), VERSION=ascii("FNR3-ACHIEVEMENTS-6");
     private static final byte[] MUSIC_ROUTE=ascii("FNR3-ACHIEVEMENTS-7");
     private static final byte[] NAVIGATION=ascii("FNR3-ACHIEVEMENTS-8");
+    private static final byte[] MUSIC_CHILD=ascii("FNR3-ACHIEVEMENTS-9");
     private static final int ALIGN=128;
 
     private static byte[] ascii(String s){return s.getBytes(StandardCharsets.US_ASCII);}
@@ -128,7 +129,7 @@ final class RetailMenu {
         }
         byte[] outer=Files.readAllBytes(archive);
         byte[] menuStamp=Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length);
-        if(!Arrays.equals(menuStamp,VERSION) && !Arrays.equals(menuStamp,MUSIC_ROUTE) && !Arrays.equals(menuStamp,NAVIGATION))
+        if(!Arrays.equals(menuStamp,VERSION) && !Arrays.equals(menuStamp,MUSIC_ROUTE) && !Arrays.equals(menuStamp,NAVIGATION) && !Arrays.equals(menuStamp,MUSIC_CHILD))
             throw new IOException("Install the retail menu first");
         for(String variant:new String[]{"CM","CR","HH","PN","Training","Tutorial"}){
             String stem="lp-"+variant+"-ContConfig",group="screengroups/load/"+stem+".big",bankName=stem+".xsh";
@@ -199,12 +200,13 @@ final class RetailMenu {
         try(RandomAccessFile f=new RandomAccessFile(archive.toFile(),"r")){
             if(f.length()<VERSION.length || f.length()>48L*1024*1024)throw new IOException("Unrecognized overlay archive");
             byte[] tail=new byte[VERSION.length];f.seek(f.length()-tail.length);f.readFully(tail);
-            if(Arrays.equals(tail,NAVIGATION))return;
+            if(Arrays.equals(tail,MUSIC_CHILD))return;
         }
         byte[] outer=Files.readAllBytes(archive);
         byte[] installed=Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length);
+        if(Arrays.equals(installed,NAVIGATION)){writeArchive(archive,musicChild(outer));return;}
         if(Arrays.equals(installed,MUSIC_ROUTE) || Arrays.equals(installed,VERSION)){
-            writeArchive(archive,navigation(Arrays.equals(installed,VERSION)?musicRoute(outer):outer));return;
+            writeArchive(archive,musicChild(navigation(Arrays.equals(installed,VERSION)?musicRoute(outer):outer)));return;
         }
         boolean legacy=Arrays.equals(Arrays.copyOfRange(outer,outer.length-LEGACY.length,outer.length),LEGACY);
         byte[] stage=Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length);
@@ -245,7 +247,7 @@ final class RetailMenu {
         }
         if(found!=1)throw new IOException("Missing pause title");
         result=replace(result,pauseGroup,replace(pause,"pausemenu.xsh",textures));
-        writeArchive(archive,navigation(musicRoute(Arrays.copyOf(result,result.length+VERSION.length))));
+        writeArchive(archive,musicChild(navigation(musicRoute(Arrays.copyOf(result,result.length+VERSION.length)))));
     }
 
     private static byte[] musicRoute(byte[] outer)throws IOException{
@@ -283,6 +285,34 @@ final class RetailMenu {
         byte[] result=replace(outer,optionsName,options==packed?updated:repack(packed,updated));
         System.arraycopy(MUSIC_ROUTE,0,result,result.length-MUSIC_ROUTE.length,MUSIC_ROUTE.length);
         little(result).putInt(4,result.length);return result;
+    }
+
+    private static byte[] musicChild(byte[] outer)throws IOException{
+        byte[] packed=member(outer,GROUP),group=TraxArt.inflate(packed,2*1024*1024);
+        byte[] apt=member(group,"mainmenu.apt"),pool=member(group,"mainmenu.const");
+        verify(apt,"5df8292a36610671e3e1131b173e0c4dbc1de7f5bfbb58cc80415b4bffae3e6d");
+        // Slot 312 is Music's extension string in both the current and legacy imports.
+        ByteBuffer table=little(pool);
+        int offset=table.getInt(table.getInt(28)+312*8+4);
+        byte[] signal=ascii("fnr3/music");
+        if(offset<0 || offset+signal.length>=pool.length || pool[offset+signal.length]!=0 ||
+                !Arrays.equals(signal,Arrays.copyOfRange(pool,offset,offset+signal.length)))
+            throw new IOException("Unexpected Music action");
+        System.arraycopy(ascii("fnr3/trax?"),0,pool,offset,signal.length);
+        ByteBuffer code=little(apt);
+        code.position(0xd06c);jump(code,0x99,0xce70);
+        // The remaining original-Xbox-skipped sign-in block is inside the same input handler.
+        code.position(0xce70);
+        code.put((byte)0x59).put((byte)0x43).put((byte)0x4c); // temporary object, duplicate
+        code.put((byte)0xa3).putShort((short)303).put((byte)0xa3).putShort((short)305).put((byte)0x4f);
+        code.put((byte)0xa3).putShort((short)303).put((byte)0x4e);
+        code.put((byte)0xa3).putShort((short)305).put((byte)0x49);
+        jump(code,0x9d,0xd075); // Only an explicit EA Trax request opens the stock playlist.
+        code.put((byte)0x76).put((byte)0x3e);
+        byte[] updated=replace(replace(group,"mainmenu.apt",apt),"mainmenu.const",pool);
+        byte[] result=replace(outer,GROUP,packed==group?updated:repack(packed,updated));
+        System.arraycopy(MUSIC_CHILD,0,result,result.length-MUSIC_CHILD.length,MUSIC_CHILD.length);
+        return result;
     }
 
     private static byte[] navigation(byte[] outer)throws IOException{

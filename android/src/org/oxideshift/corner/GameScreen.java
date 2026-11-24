@@ -101,7 +101,7 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
         public void doFrame(long frameTime){
             if(!scheduled)return;
             ByteBuffer map=shared;
-            if(cadence.due(frameTime) && (routeRedraw || map==null || sequence(map)!=serial)){
+            if(cadence.due(frameTime,routeRedraw || map==null || sequence(map)!=serial)){
                 routeRedraw=false;requestRender();
             }
             android.view.Choreographer.getInstance().postFrameCallback(this);
@@ -189,7 +189,7 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
         int request=placement.mode,visible=0,actual=BroadcastCues.NONE;
         // The lower desk locates the captions. Only validate those positions on the render thread.
         if((request&255)==BroadcastCues.FOOTER && frame!=null && !CareerDesk.editingBoxer(session.career.page)
-                && session.frontPage!=CornerSession.FRONT_TRAX && !session.browsingTrax && !session.leaveTrax && !session.cabinetOpen){
+                && session.frontPage!=CornerSession.FRONT_TRAX && !session.browsingTrax && !session.cabinetOpen){
             visible=BroadcastCues.visibleAt(frame,request>>>8,placement.centers);
             if(visible!=0)actual=BroadcastCues.FOOTER;
         }

@@ -54,7 +54,7 @@ def observe_career_menus(directory):
     guard = " || ".join(f"ecx == 0x{apt_hash(name):04x}u" for name in watched)
     hooks = {
         "loc_0023709E: ;\n    eax = MEM32(edi);\n    ecx = ZX16(MEM16(eax + 6));":
-            f"extern void fight_career_property(uint32_t, uint32_t);\n    if ({guard}) fight_career_property(eax, ebx);",
+            f"extern int fight_career_property(uint32_t, uint32_t);\n    if (({guard}) && fight_career_property(eax, ebx)) goto loc_00237171;",
         # GetActualRatings and GetEstimatedRatings expose eight adjacent signed
         # shorts, in the same order as the retail APT training screen.
         "loc_0015302E: ;\n    ecx = (uint32_t)(int32_t)SMEM16(esp + 0x10);":
@@ -80,8 +80,13 @@ def observe_career_menus(directory):
                 continue
             if source.count(anchor) != 1:
                 raise ValueError(f"Ambiguous career menu observer in {path.name}")
+            setter = anchor.startswith("loc_0023709E:")
+            if setter and "loc_00237171: ;" not in source[source.index(anchor):].split("\n}", 1)[0]:
+                raise ValueError("Unexpected retail menu setter return")
             if observer not in source:
-                previous = observer.split("\n    extern void fight_training_choice")[0]
+                previous = (f"extern void fight_career_property(uint32_t, uint32_t);\n    "
+                            f"if ({guard}) fight_career_property(eax, ebx);" if setter else
+                            observer.split("\n    extern void fight_training_choice")[0])
                 if previous != observer and previous in source:
                     updated = updated.replace(previous, observer)
                 else:

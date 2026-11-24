@@ -20,6 +20,11 @@ public final class DisplayCadenceSmoke {
             cadence.reset();
             if(!cadence.due(20_006_000_000L))throw new AssertionError("Resume");
         }
+        DisplayCadence idle=new DisplayCadence(60);
+        long tick=1_000_000_000L;
+        if(!idle.due(tick,true) || idle.due(tick+16_666_667L,false) ||
+                !idle.due(tick+25_000_000L,true) || idle.due(tick+26_000_000L,true))
+            throw new AssertionError("An empty refresh delayed a ready frame");
         int[] tiers={0,1,2,2,1}, samples={1,1,2,1,2}, filtering={1,2,4,4,2};
         for(int i=0;i<tiers.length;i++){
             GraphicsPreset preset=GraphicsPreset.stored(i);
