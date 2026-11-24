@@ -11,28 +11,28 @@ final class MenuContext {
         }
     }
     private static final Page[] PAGES={
-        new Page("Play Now", "Try a matchup", new String[]{"Use an exhibition to try a new fighter or stance before taking it into career.",
+        new Page("Play Now", "Jump straight into the ring.", new String[]{"Use an exhibition to try a new fighter or stance before taking it into career.",
             "Fight the same opponent twice and switch corners for the rematch. See which punches are harder to defend from the other side.",
             "Pick a familiar venue when you try a new boxer. It makes changes in reach and timing easier to feel."},
             0x69564498deL, 0x202d5ac69857L, 0xad5ac29157L, 0xaf594bb557L, 0x40b75943b557L, 0x401353433557L),
-        new Page("ESPN Classic", "Switch sides", new String[]{"Replay the same rivalry from the other corner. Look for the openings you gave your opponent the first time.",
+        new Page("ESPN Classic", "Relive boxing’s defining rivalries.", new String[]{"Replay the same rivalry from the other corner. Look for the openings you gave your opponent the first time.",
             "Switch corners on the rematch and try to counter the punch that gave you trouble.",
             "Watch the first exchange before you commit. A jab that falls short tells you a lot about this matchup."},
             0xb4adef31a8dad5eL, 0xb4b56b35ec5a967L, 0xd4b5e75d8cdadc7L, 0x4b586598c6a9dbL, 0x1b56969ed6a967L, 0x4a56b48a96a943L),
-        new Page("Career Mode", "Build your fighter", new String[]{"Between fights, visit Career Central to review your record, scout your next opponent and choose a contract.",
+        new Page("Career Mode", "Fight your way from prospect to champion.", new String[]{"Between fights, visit Career Central to review your record, scout your next opponent and choose a contract.",
             "Check your cash before visiting the Fight Store. Come back after a bout to see what the purse added.",
             "Career Central shows your opponent once a bout is scheduled. Between contracts, your own record stays on the sheet."},
             0x35eacc6aaa994L, 0x4d4aec4996bb7L, 0x355acd6896a97L, 0x154a846a82b47L, 0x55ab449d6b17L, 0x354ab56aa6a57L),
-        new Page("Game Modes", "Work on one thing", new String[]{"Take a punch into training first. Then try landing it in Hard Hits against a moving opponent.",
+        new Page("Game Modes", "Hit the gym or take a shot at Hard Hits.", new String[]{"Take a punch into training first. Then try landing it in Hard Hits against a moving opponent.",
             "Training gives you room to repeat the same move. Try a jab to the body, then one upstairs.",
             "In Hard Hits, see how far one step back takes you out of hook range."},
             0x54aa9b949994L, 0x5b6a5ac6dbb7L, 0x1756b5b94da97L, 0x646b5b9ecb53L, 0xd96a5586ab57L, 0xd40a5592aa57L),
-        new Page("Create Champ", "Pick a stance", new String[]{"Orthodox leads with the left hand. Southpaw leads with the right. Your jab comes from that lead side.",
+        new Page("Create Champ", "Build a boxer with your own look and fighting style.", new String[]{"Orthodox leads with the left hand. Southpaw leads with the right. Your jab comes from that lead side.",
             "Try a southpaw against an orthodox boxer. Pay attention to where the two lead hands meet.",
             "Take your created fighter into Play Now to feel the reach and stance you picked."},
             0x6b576a854b2b54L, 0x6b576a53b39b57L, 0x16b556a45b2ab57L, 0x2a954845b6ab47L, 0x2ab56a41b6ab57L, 0x2aad6a45b6cb57L),
-        new Page("Options", "Tune the corner", new String[]{"For clearer corner advice, open Audio. Speech and crowd volume have separate sliders.",
-            "Look under Audio for the song rotation and the individual volume controls.",
+        new Page("Options", "Set the rules, sound and controls for your fights.", new String[]{"For clearer corner advice, open Audio. Speech and crowd volume have separate sliders.",
+            "To pick which songs play, open EA Trax from the main Music menu.",
             "Try your round-length setting in a Play Now bout before committing to a career fight."},
             0xf4bd4b54L, 0x2002b4b5b657L, 0x275b5b357L, 0xe4b5bb57L, 0x400096b5b057L, 0x4002b6b5b157L),
         new Page("Hard Hits", "Mind your stamina", new String[]{"Leave enough stamina after a combination to defend the counter. A clean single can be worth more than a missed flurry.",
@@ -77,15 +77,15 @@ final class MenuContext {
             0x3bd6a46295L, 0xbc2a29695L, 0xbc2a29693L, 0x1be6c20a96L, 0xbf2c29694L, 0xbf2c29691L),
         new Page("Options", "Hear your trainer", new String[]{"In Audio, Speech Volume controls voices. Lower Crowd Volume if the arena is drowning out your corner.",
             "Check Gameplay for round length, then play a short exhibition to try it.",
-            "Visit EA Trax under Audio to set the music you hear in the menus."},
+            "Visit Music on the main menu and open EA Trax to set your song rotation."},
             0x5558d5L, 0x555955L, 0x175955L, 0x375955L, 0x675915L, 0x555915L),
-        new Page("EA Trax", "Set your rotation", new String[]{"Song rotation lives under Audio. The lower banner shows the artist and title when a track plays.",
+        new Page("EA Trax", "Set your rotation", new String[]{"Choose the songs in your rotation. The lower banner shows the artist and title when a track plays.",
             "Look closely at the lettering down here. The port reads the original stencil font straight from your disc.",
             "The soundtrack has its own volume setting. You can keep the ring and corner voices louder."},
             0xedc0a35L, 0xc558e31L, 0xc558e21L, 0xc5d8035L, 0xd558029L, 0xd558069L),
         new Page("Audio", "Bring the voice forward", new String[]{"Raise Speech Volume for the coach between rounds. If the crowd competes with the dialogue, bring Crowd Volume down.",
             "Crowd volume and speech have separate controls. Try a change in the same venue to hear the difference.",
-            "Open EA Trax here to choose which tracks are in rotation."},
+            "Open Music on the main menu to choose which EA Trax songs are in rotation."},
             0xae56L, 0xad56L, 0xad56L, 0xad54L, 0xad54L, 0xad51L),
         new Page("Gameplay", "Make rounds count", new String[]{"Shorter rounds leave less time to recover from a knockdown or win a close round back.",
             "A shorter round gives you fewer exchanges to win it back. Check the clock after a knockdown.",
@@ -93,17 +93,42 @@ final class MenuContext {
             0xacf9db5L, 0xaca9db5L, 0x2aa98d5L, 0x6af98d5L, 0x4ac98d5L, 0x4ac9ad5L)
     };
     private static final int ROOT_PAGES=8;
+    private static final Page ACHIEVEMENTS=new Page("Achievements","See what you’ve earned and pick your next challenge.",
+            new String[]{"Read the unlock condition on a badge before a bout so you know what to work on.",
+                    "Fight Score adds up across your unlocked badges. Check your progress after a career milestone."});
+    private static final Page MUSIC=new Page("Music","Build the soundtrack for your corner.",
+            new String[]{"Open EA Trax to pick which songs from the original soundtrack are in rotation.",
+                    "Turn on Music during fights to carry the soundtrack into the ring. Expanded Music has its own switch."});
+    // Lit strokes on the selected carousel row, independent of the moving film behind it.
+    private static final long[][] LETTERING={
+        {0x157b2b2eL,0x75a2b3aL,0x11d12b2L,0xa6916f2L},
+        {0x1c7bab3e4f56L,0x1c188b124d12L,0x5a229a6942L,0x6baede497eL},
+        {0x1bb68fe76aL,0x2ee0a4562L,0x2ef0a4d7aL,0x13b50be59eL},
+        {0x6fdb4eb6aL,0x256742362L,0xc563c2f6aL,0x6ddaced9eL},
+        {0x1f6d78fd77aL,0x176d444a952L,0x7bd604b91aL,0x7b358caf5eL},
+        {0xaaf76aL,0x2ab2baL,0x8ab23aL,0xaad23eL},
+        {0x1dfa276aL,0x4ba456aL,0x10ba4d6aL,0x1cba259aL},
+        {0x3ab327eL,0xbb7754L,0x2abb714L,0x1ab3554L},
+        {0x1de7eb5f564L,0x4ace15351aL,0x10b4f16359eL,0x1ca7d32f56aL}
+    };
+    private static final int[] ROWS={295,299,305,310};
+    private static final long[] OPTIONS_BELOW={0x140,0x2854a,0x1416a,0x96c,0x296a,0x22b6a};
+    private static final long[] OPTIONS_BELOW_HD={0x4a,0x4552,0x1454a,0x54c,0x2542,0x22142};
+    private static final long[] ACHIEVEMENTS_ABOVE={0x60a542140L,0x54a524942L,0x1428544150L,0x42a525b40L,0x16a5b5942L,0x5285a4152L};
     private final long[] sample=new long[6];
 
     private static int light(int pixel){
         return LiveFrame.red(pixel)+2*LiveFrame.green(pixel)+LiveFrame.blue(pixel);
     }
     private void read(LiveFrame frame,boolean root){
+        read(frame,root?294:49,root?389:57,root?3:5);
+    }
+    private void read(LiveFrame frame,int top,int left,int step){
         for(int row=0;row<sample.length;row++){
-            int y=(root?294:49)+3*row;
+            int y=top+3*row;
             long edges=0;
             for(int col=0;col<61;col++){
-                int x=(root?389:57)+col*(root?3:5);
+                int x=left+col*step;
                 int background=Math.min(light(frame.at(x-3,y)),light(frame.at(x+3,y)));
                 if(light(frame.at(x,y))-background>63)edges|=1L<<col;
             }
@@ -129,11 +154,52 @@ final class MenuContext {
         }
         return found;
     }
-    boolean mainMenu(LiveFrame frame){
-        Page selection=identify(frame);
+    static boolean isMain(Page selection){
+        if(selection==ACHIEVEMENTS || selection==MUSIC)return true;
         // The last two carousel captions belong to the Game Modes submenu.
         for(int i=0;i<6;i++)if(selection==PAGES[i])return true;
         return false;
+    }
+    boolean mainMenu(LiveFrame frame){return isMain(identify(frame));}
+    private static boolean orange(int pixel){
+        int r=LiveFrame.red(pixel),g=LiveFrame.green(pixel);
+        return r>=212 && g>=72 && g<=135 && LiveFrame.blue(pixel)<25 && Math.abs(2*r-5*g)<72;
+    }
+    private int likeness(long[] known,long mask){
+        int overlap=0,union=0;
+        for(int i=0;i<known.length;i++){
+            overlap+=Long.bitCount(known[i]&sample[i]&mask);union+=Long.bitCount((known[i]|sample[i])&mask);
+        }
+        return union==0?0:100*overlap/union;
+    }
+    private Page carousel(LiveFrame f){
+        int best=-1,score=0,runner=0,span=0,ink=0;
+        for(int shift=-1;shift<=1;shift++){
+            long whole=0;
+            for(int i=0;i<ROWS.length;i++){
+                long bits=0;
+                for(int col=0;col<46;col++){
+                    int x=372+3*col+shift;
+                    if(orange(f.at(x,ROWS[i])) || orange(f.at(x+1,ROWS[i])))bits|=1L<<col;
+                }
+                sample[i]=bits;whole|=bits;
+            }
+            if(shift==0){span=64-Long.numberOfLeadingZeros(whole);ink=Long.bitCount(whole);}
+            for(int i=0;i<LETTERING.length;i++){
+                int value=likeness(LETTERING[i],-1L);
+                if(value>score){if(i!=best)runner=score;score=value;best=i;}
+                else if(i!=best && value>runner)runner=value;
+            }
+        }
+        // Music is the short caption between Achievements and Options. Check the visible
+        // neighbouring lettering as well so an animation or unrelated short word cannot select it.
+        if(span>=13 && span<=21 && ink>=10){
+            read(f,325,389,3);
+            int after=Math.max(likeness(OPTIONS_BELOW,0x7ffffL),likeness(OPTIONS_BELOW_HD,0x7ffffL));
+            read(f,264,389,3);
+            if(after>=56 || (after>=32 && likeness(ACHIEVEMENTS_ABOVE,0x3fffffffffL)>=35))return MUSIC;
+        }
+        return score>=62 && score-runner>=5?(best==ROOT_PAGES?ACHIEVEMENTS:PAGES[best]):null;
     }
     Page identify(LiveFrame frame){
         int best=-1,score=0,second=0;
@@ -153,6 +219,7 @@ final class MenuContext {
         }
         // The root carousel lettering moves slightly while settling between frames.
         boolean clearRoot=best>=0 && best<ROOT_PAGES && score>=63 && score-second>=15;
-        return clearRoot || (score>=66 && score-second>=7)?PAGES[best]:null;
+        if(clearRoot || (score>=66 && score-second>=7))return PAGES[best];
+        return carousel(frame);
     }
 }

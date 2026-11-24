@@ -24,7 +24,7 @@ final class TraxOverlay extends LinearLayout {
         setBackground(new TraxBanner(null,dp(69)));
         setPadding(dp(single?65:79),dp(7),dp(24),dp(8));setMinimumHeight(dp(single?54:63));
         title=label(single?17:21,GameInk.GOLD,fonts.stencil);title.setMaxLines(2);
-        artist=label(single?12:15,GameInk.MUTED,fonts.body);artist.setSingleLine(true);
+        artist=label(single?12:15,GameInk.MUTED,fonts.stencil);artist.setSingleLine(true);
         FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(single?dp(360):-1,-2,Gravity.BOTTOM|Gravity.LEFT);
         lp.setMargins(dp(12),0,dp(12),dp(6));setVisibility(GONE);host.addView(this,lp);
     }

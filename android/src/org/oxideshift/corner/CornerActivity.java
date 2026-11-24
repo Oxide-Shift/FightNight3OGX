@@ -83,6 +83,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
         base=getFilesDir();prefs=getSharedPreferences("fight-setup",MODE_PRIVATE);
+        try{GameLibrary.recoverDisc(base.toPath());}catch(IOException e){engine.note="Could not recover the previous disc installation";}
         crashReports=new CrashReports(this);
         backups=SaveBackups.get(this);
         if(!active() && !backups.selectionPending())backups.snapshot(saves());
@@ -295,12 +296,25 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         engine.importing=true;engine.note=request==DISC?"Opening Xbox ISO":"Opening save archive";
         engine.buildStarted=request==DISC?SystemClock.elapsedRealtime():0;
         new Thread(()->{
+            DiscImport attempt=new DiscImport(message->engine.note=message);
             try {
                 if(request==DISC){
+                    try(android.database.Cursor meta=app.getContentResolver().query(uri,
+                            new String[]{android.provider.OpenableColumns.DISPLAY_NAME,android.provider.OpenableColumns.SIZE},null,null,null)){
+                        if(meta!=null && meta.moveToFirst()){
+                            int name=meta.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                            int size=meta.getColumnIndex(android.provider.OpenableColumns.SIZE);
+                            if(name>=0)attempt.filenameHint(meta.getString(name));
+                            if(size>=0 && !meta.isNull(size))attempt.bytes=Math.max(-1,meta.getLong(size));
+                        }
+                    }catch(RuntimeException ignored){/* Some providers supply only a readable descriptor. */}
                     AssetFileDescriptor descriptor=app.getContentResolver().openAssetFileDescriptor(uri,"r");
-                    if(descriptor==null)throw new IOException("The selected disc cannot be opened");
-                    GameLibrary.Status status=message->engine.note=message;
-                    GameLibrary.Prepare prepare=discBuild==null?null:(xbe,progress)->discBuild.prepare(xbe.toFile(),progress);
+                    if(descriptor==null)throw new FileNotFoundException();
+                    GameLibrary.Status status=attempt;
+                    GameLibrary.Prepare prepare=discBuild==null?null:(xbe,progress)->{
+                        try{return discBuild.prepare(xbe.toFile(),progress);}
+                        catch(Exception e){throw new DiscImport.Failure(DiscImport.Reason.COMPILER,"The disc was verified, but game preparation stopped. Tap Prepare game to retry.");}
+                    };
                     try(AssetFileDescriptor fd=descriptor;
                         android.os.ParcelFileDescriptor.AutoCloseInputStream raw=new android.os.ParcelFileDescriptor.AutoCloseInputStream(
                             android.os.ParcelFileDescriptor.dup(fd.getFileDescriptor()))){
@@ -312,7 +326,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                                 size=fd.getDeclaredLength()<0?available:fd.getDeclaredLength();
                         }catch(IOException ignored){/* A pipe-backed provider supplies a stream below. */}
                         String result;
-                        if(size>0)result=GameLibrary.importDisc(channel,offset,size,files.toPath(),status,prepare);
+                        if(size>0){attempt.bytes=size;result=GameLibrary.importDisc(channel,offset,size,files.toPath(),status,prepare);}
                         else try(InputStream in=fd.createInputStream()){
                             result=GameLibrary.importDisc(in,fd.getLength(),files.toPath(),status,prepare);
                         }
@@ -324,14 +338,21 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                     engine.note="Imported save selected";
                 }
             }catch(Exception e){
+                if(request==DISC){
+                    DiscImport.Failure failure=attempt.explain(e);
+                    engine.note=failure.getMessage();
+                    crashReports.recordImport(attempt,failure);
+                    return;
+                }
                 String reason=e.getMessage();
                 if(e instanceof java.util.zip.ZipException)reason="The ZIP could not be opened. Choose the original export file.";
                 if(reason==null || reason.trim().isEmpty())reason=e.getClass().getSimpleName();
                 engine.note="Import failed â€” "+reason;
                 final String details=reason;
                 if(request==SAVE)main.post(()->{
-                    if(!isFinishing()&&!isDestroyed()&&resumed)new AlertDialog.Builder(this)
-                        .setTitle("Save import failed").setMessage(details).setPositiveButton("OK",null).show();
+                    if(isFinishing() || isDestroyed() || !resumed)return;
+                    new AlertDialog.Builder(this).setTitle("Save import failed")
+                        .setMessage(details).setPositiveButton("OK",null).show();
                 });
             }
             finally{engine.buildStarted=0;engine.importing=false;}
@@ -343,12 +364,29 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         if(active()){showGame();return;}
         File disc=game(),xbe=new File(disc,"default.xbe"),save=saves();
         if(!xbe.isFile()||!host.canExecute()||engine.importing)return;
+        try{DiscImage.checkInstalledMenu(disc.toPath());}
+        catch(IOException e){
+            DiscImport attempt=new DiscImport(message->engine.note=message);
+            attempt.stage("verify");
+            DiscImport.Failure issue=attempt.explain(e);
+            engine.note=issue.getMessage();
+            new Thread(()->{
+                attempt.facts=DiscFacts.installed(base.toPath());
+                crashReports.recordImport(attempt,issue);
+            },"report-installed-disc").start();
+            return;
+        }
         if(discBuild!=null && discBuild.needsPreparation()){
             engine.importing=true;
             engine.note="Opening the installed disc";engine.buildStarted=SystemClock.elapsedRealtime();
             new Thread(()->{
                 try{engine.note=discBuild.prepare(xbe,message->engine.note=message);}
-                catch(Exception e){engine.note="Game preparation failed: "+e.getMessage();}
+                catch(Exception e){
+                    DiscImport attempt=new DiscImport(message->engine.note=message);
+                    attempt.stage("prepare");attempt.facts=DiscFacts.installed(base.toPath());
+                    DiscImport.Failure issue=attempt.explain(e);
+                    engine.note=issue.getMessage();crashReports.recordImport(attempt,issue);
+                }
                 finally{engine.buildStarted=0;engine.importing=false;}
             },"prepare-xbox-disc").start();
             return;
@@ -396,7 +434,8 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                 };
             }
             CrashReports reports=crashReports;
-            next.onCrash((exit,pc,event,round,pixels,soft)->reports.record("game",exit,pc,event,round,pixels,soft?"software":"vulkan"));
+            final int fpsLimit=DisplayCadence.target(menu.pacing.index());
+            next.onCrash((exit,pc,event,round,pixels,soft,state)->reports.record("game",exit,pc,event,round,pixels,soft?"software":"vulkan",state,fpsLimit));
             SharedPreferences medals=getSharedPreferences("achievements",MODE_PRIVATE);
             next.achievements=new Achievements(key->medals.getBoolean(key,false),key->{medals.edit().putBoolean(key,true).apply();backups.snapshot(save);});
             next.setFrameFile(frame);
@@ -451,7 +490,8 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         CornerSession owner=engine.session;
         MenuContext soundMenus=new MenuContext();
         owner.onMenuSelection(stem->main.post(()->{
-            if(owner!=engine.session || screen==null || !viewingGame || !awake)return;
+            if(owner!=engine.session || screen==null || !viewingGame || !awake || owner.cabinetOpen || owner.leaveTrax)return;
+            if(owner.browsingTrax){owner.previewTrack(stem);return;}
             LiveFrame frame=screen.latestFrame();
             MenuContext.Page page=frame==null?null:soundMenus.identify(frame);
             if(page!=null && "EA Trax".equals(page.title))owner.previewTrack(stem);
@@ -492,7 +532,10 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         updateLower();
         removeLocal();viewingGame=false;bindRumble();viewingCard=false;back.setVisibility(View.GONE);menu.setVisibility(View.VISIBLE);syncPower();
     }
-    @Override public void onBackPressed(){if(viewingCard||viewingGame)setup();else super.onBackPressed();}
+    @Override public void onBackPressed(){
+        if(achievementDisplay!=null && achievementDisplay.backFromTrax())return;
+        if(viewingCard||viewingGame)setup();else super.onBackPressed();
+    }
     private static void fullscreen(Window window){
         if(window==null)return;
         View decor=window.peekDecorView();
@@ -510,7 +553,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     private void immersive(){fullscreen(getWindow());if(presentation!=null)fullscreen(presentation.getWindow());}
     @Override public void onWindowFocusChanged(boolean focus){
         super.onWindowFocusChanged(focus);
-        if(focus)immersive();else if(viewingGame)neutralPad();
+        if(focus){immersive();finishMusicExit();}else if(viewingGame)neutralPad();
         bindRumble();
     }
     @Override public void onInputDeviceAdded(int id){}
@@ -521,11 +564,16 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         rumble.forget(id);
     }
     private boolean acceptsPad(){return awake && viewingGame && hasWindowFocus() && engine.session!=null;}
+    private void finishMusicExit(){
+        CornerSession session=engine==null?null:engine.session;
+        if(session!=null && session.leaveTrax && press(CornerControls.Key.B))session.leaveTrax=false;
+    }
     private void sendPad(){
         if(viewingGame && engine.session!=null)engine.session.controller(pad.report(touchKey,treating,treatX,treatY));
     }
     private boolean press(CornerControls.Key key){
         if(!acceptsPad()||!active()||touchKey!=null)return false;
+        if(key==CornerControls.Key.B && achievementDisplay!=null && achievementDisplay.backFromTrax())return true;
         touchKey=key;sendPad();main.postDelayed(release,215);return true;
     }
     private void treatmentStick(boolean down,int x,int y){
@@ -541,6 +589,10 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     private void neutralPad(){pad.clear();releaseTouch();}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
         int code=event.getKeyCode();
+        if(code==KeyEvent.KEYCODE_BUTTON_B && viewingGame && engine.session!=null && engine.session.browsingTrax && achievementDisplay!=null){
+            if(event.getAction()==KeyEvent.ACTION_UP)achievementDisplay.backFromTrax();
+            return true;
+        }
         if(code==KeyEvent.KEYCODE_BUTTON_Y || code==KeyEvent.KEYCODE_BUTTON_B){
             long key=((long)event.getDeviceId()<<32)|code;
             if(event.getAction()==KeyEvent.ACTION_UP && editorKeys.remove(key))return true;
@@ -655,11 +707,12 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         if(ringside!=null){ringside.setCornerArt(menu.cornerArt());ringside.setTrainingArt(menu.trainingArt());ringside.setCareerArt(menu.careerArt());}
         if(viewingGame&&screen!=null){
             if(awake && live && achievementDisplay!=null)achievementDisplay.refresh(lowerPanel);
+            finishMusicExit();
             data.put("output",screen.output());
             if(!live && "Closed".equals(data.get("link")))setup();
         }else if(viewingCard)back.setText("Return to fight setup");
         if(!live && resumed && awake && !viewingGame && !viewingCard && !engine.importing && !updates.installing()){
-            crashReports.refresh();
+            crashReports.refresh(()->choose(DISC),this::launch);
             if(!crashReports.showing())offerBackupFolder();
         }
         if(local==null)return;

@@ -9,7 +9,8 @@ final class PadIcon extends View {
     enum Cap {
         A(0xffbfd674,0xff36531a), B(0xffee7960,0xff7a2018), X(0xff83badf,0xff184f73),
         Y(0xfff7d56c,0xff946b16), LEFT(0xffaa9781,0xff44382c), RIGHT(0xffaa9781,0xff44382c),
-        LB(0xffaeaaa0,0xff534e48), RB(0xffaeaaa0,0xff534e48), START(0xffb9b4aa,0xff534e48);
+        LB(0xffaeaaa0,0xff534e48), RB(0xffaeaaa0,0xff534e48), LT(0xffaeaaa0,0xff534e48),
+        RT(0xffaeaaa0,0xff534e48), R3(0xffaeaaa0,0xff534e48), START(0xffb9b4aa,0xff534e48);
         final int light, dark;
         Cap(int light,int dark){this.light=light;this.dark=dark;}
     }
@@ -22,7 +23,7 @@ final class PadIcon extends View {
     PadIcon(Context context,Cap cap,Typeface face){
         super(context);
         this.cap=cap;
-        shoulder=cap==Cap.LB || cap==Cap.RB;
+        shoulder=cap==Cap.LB || cap==Cap.RB || cap==Cap.LT || cap==Cap.RT;
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         ink.setTypeface(face);
         ink.setTextAlign(Paint.Align.CENTER);

@@ -43,13 +43,13 @@ final class TrainingSheet extends LinearLayout {
         mast.setMinimumHeight(dp(compact?56:76));mast.setGravity(Gravity.CENTER_VERTICAL);
         mast.setPadding(dp(12),dp(6),dp(compact?96:136),dp(6));header.addView(mast);
         stage=label(fonts.stencil,compact?13:15,GameInk.GOLD);stage.setLetterSpacing(.09f);mast.addView(stage);
-        title=label(fonts.title,compact?25:33,0xffffe2a8);title.setShadowLayer(dp(2),1,2,0xff210a04);mast.addView(title);
+        title=label(fonts.stencil,compact?25:33,0xffffe2a8);title.setShadowLayer(dp(2),1,2,0xff210a04);mast.addView(title);
         View keyline=new View(context);keyline.setBackgroundColor(GameInk.ORANGE);addView(keyline,new LayoutParams(-1,dp(2)));
         LinearLayout body=new LinearLayout(context);body.setOrientation(VERTICAL);
         body.setPadding(dp(12),dp(5),dp(12),dp(7));addView(body);
-        cue=label(fonts.body,compact?13:16,GameInk.TEXT);body.addView(cue);
+        cue=label(fonts.stencil,compact?13:16,GameInk.TEXT);body.addView(cue);
         quote=new LinearLayout(context);quote.setOrientation(VERTICAL);body.addView(quote);
-        fee=label(fonts.stencil,30,GameInk.GOLD);wallet=label(fonts.body,17,GameInk.TEXT);
+        fee=label(fonts.stencil,30,GameInk.GOLD);wallet=label(fonts.stencil,17,GameInk.TEXT);
         quote.addView(fee);quote.addView(wallet);
         legend=label(fonts.stencil,compact?13:16,GameInk.GOLD);legend.setPadding(0,dp(8),0,dp(3));body.addView(legend);
         table=new LinearLayout(context);table.setOrientation(VERTICAL);body.addView(table);
@@ -61,7 +61,7 @@ final class TrainingSheet extends LinearLayout {
                 cell.setPadding(dp(6),dp(compact?1:3),dp(6),dp(compact?2:5));cell.setBackgroundColor(i%2==0?0xff431a0d:0xff30130b);
                 LayoutParams slot=new LayoutParams(0,-2,1);slot.setMargins(0,0,dp(col==0?3:0),dp(1));row.addView(cell,slot);
                 LinearLayout labels=new LinearLayout(context);labels.setGravity(Gravity.CENTER_VERTICAL);cell.addView(labels);
-                TextView name=label(fonts.body,compact?13:16,GameInk.MUTED);name.setText(STATS[k]);
+                TextView name=label(fonts.stencil,compact?13:16,GameInk.MUTED);name.setText(STATS[k]);
                 labels.addView(name,new LayoutParams(0,-2,1));values[k]=label(fonts.stencil,compact?14:18,GameInk.TEXT);labels.addView(values[k]);
                 meters[k]=new Meter(context);cell.addView(meters[k],new LayoutParams(-1,dp(3)));
             }

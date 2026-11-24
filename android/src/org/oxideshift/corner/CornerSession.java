@@ -10,7 +10,9 @@ import java.util.regex.*;
 public final class CornerSession {
     private static final Pattern THREAD = Pattern.compile("PsCreateSystemThreadEx #(\\d+): routine=(0x[0-9A-Fa-f]+)");
     private static final Pattern BRIDGE = Pattern.compile("Kernel thunk bridge: (\\d+/\\d+) resolved");
-    private static final Pattern FRAME = Pattern.compile("framebuffer submission (\\d+)");
+    private static final Pattern FRAME = Pattern.compile("framebuffer submission (\\d{1,15})(?!\\d)");
+    private static final Pattern INDIRECT_CALL = Pattern.compile("\\[Fight Night\\] (?:invalid|missing) indirect target 0x([0-9A-Fa-f]{8}), ESP 0x[0-9A-Fa-f]{8}");
+    private static final Pattern GUEST_STACK = Pattern.compile("\\[Fight Night\\] guest stack ([0-9A-Fa-f]{8})(?: [0-9A-Fa-f]{8}){7}");
     private final ArrayDeque<String> events = new ArrayDeque<>();
     private final String[] command;
     private final File directory;
@@ -98,6 +100,7 @@ public final class CornerSession {
         if(motors!=null)motors.callout();
     }
     volatile boolean cabinetOpen;
+    volatile boolean retailMusicRoute,browsingTrax,leaveTrax;
     private boolean cabinetRequested,musicRequested;
     synchronized boolean takeMusicRequest(){boolean pending=musicRequested;musicRequested=false;return pending;}
     private Runnable cabinetListener;
@@ -127,7 +130,7 @@ public final class CornerSession {
     private int introMovie;
     private boolean starting=true;
     synchronized boolean openingSlate(){return starting || introMovie!=0;}
-    synchronized void reachedMenu(){starting=false;introMovie=0;if(!inLiveBout())lastEvent="MENU";}
+    synchronized void reachedMenu(){advance(Milestone.MENU);starting=false;introMovie=0;if(!inLiveBout())lastEvent="MENU";}
     private long lastSongEvent;
     private RoundMusic musicPlayer;
     private boolean fightMusic,expandedMusic,bankReady,musicMenu=true;
@@ -275,9 +278,52 @@ public final class CornerSession {
         default void count(int value){}
         default void callout(){}
     }
-    interface CrashListener {void stopped(int exit,String pc,String lastEvent,int round,int height,boolean software);}
+    private enum Milestone { LAUNCH, LINKED, KERNEL, GUEST, FRAME, INTRO, MENU, BOUT }
+    private Milestone milestone=Milestone.LAUNCH;
+    private long runStarted;
+    private Long lastFrame;
+    private final EnumMap<Milestone,Long> firstSeen=new EnumMap<>(Milestone.class);
+    private void advance(Milestone seen){
+        if(!firstSeen.containsKey(seen))firstSeen.put(seen,Math.max(0,uptime.getAsLong()-runStarted));
+        if(seen.ordinal()>milestone.ordinal())milestone=seen;
+    }
+    static final class CrashState {
+        final String milestone,target;
+        final long elapsedMs;
+        final Long lastFrame;
+        final int samples,anisotropy;
+        final Map<String,Object> details=new LinkedHashMap<>();
+        String pc="unknown";
+        CrashState(CornerSession s,int exit){
+            milestone=s.milestone.name().toLowerCase(Locale.ROOT);
+            target=exit==40 || exit==41?s.callTarget:null;
+            elapsedMs=Math.max(0,s.uptime.getAsLong()-s.runStarted);
+            lastFrame=s.lastFrame;samples=s.samples;anisotropy=s.anisotropy;
+            String kind="unknown";
+            if(exit==41 && !"unknown".equals(s.guestReturn)){pc=s.guestReturn;kind="guest_stack_word";}
+            else if(exit==42 && s.unsupportedPc!=null){pc=s.unsupportedPc;kind="guest_instruction";}
+            else if(!"unknown".equals(s.faultPc)){pc=s.faultPc;kind="native_module_offset";}
+            details.put("address_kind",kind);
+            if(s.renderer.equals("Vulkan"))details.put("active_renderer","vulkan");
+            if(s.renderer.equals("software (Vulkan unavailable)"))details.put("active_renderer","software");
+            if(exit>128 && exit<=192)details.put("signal_from_exit",exit-128);
+            if(s.bridge.matches("[0-9]{1,6}/[0-9]{1,6}"))details.put("kernel_imports",s.bridge);
+            if(s.bout!=null && s.bout.seconds>=0)details.put("round_seconds",s.bout.seconds);
+            Matcher a=Pattern.compile("gaps (\\d{1,15}) drops (\\d{1,15}) xruns (-?\\d{1,15})").matcher(s.audio);
+            if(a.matches()){
+                details.put("audio_gaps",Long.parseLong(a.group(1)));details.put("audio_drops",Long.parseLong(a.group(2)));
+                if(!a.group(3).startsWith("-"))details.put("audio_xruns",Long.parseLong(a.group(3)));
+            }
+            for(Map.Entry<Milestone,Long> entry:s.firstSeen.entrySet())
+                details.put(entry.getKey().name().toLowerCase(Locale.ROOT)+"_ms",entry.getValue());
+        }
+    }
+    interface CrashListener {void stopped(int exit,String pc,String lastEvent,int round,int height,boolean software,CrashState state);}
     private CrashListener crashListener;
     private String lastEvent="STARTUP",faultPc="unknown";
+    private String callTarget;
+    private String guestReturn="unknown";
+    private String unsupportedPc;
     synchronized void onCrash(CrashListener listener){crashListener=listener;}
     private boolean retailRumble;
     private Motors motors;
@@ -299,8 +345,22 @@ public final class CornerSession {
         if(line.startsWith("FNR3/1 FAULT ") && line.substring(13).matches("[0-9a-f]{8}")){
             faultPc=line.substring(13);return;
         }
+        if(line.startsWith("[Fight Night] invalid indirect target ") || line.startsWith("[Fight Night] missing indirect target ")){
+            Matcher call=INDIRECT_CALL.matcher(line);
+            if(call.matches())callTarget=call.group(1).toLowerCase(Locale.ROOT);
+            return;
+        }
+        if(line.startsWith("[Fight Night] unsupported ")){
+            Matcher unsupported=Pattern.compile("\\[Fight Night\\] unsupported .{1,160} at 0x([0-9a-fA-F]{8})").matcher(line);
+            if(unsupported.matches())unsupportedPc=unsupported.group(1).toLowerCase(Locale.ROOT);
+        }
+        if(callTarget!=null && line.startsWith("[Fight Night] guest stack ")){
+            Matcher stack=GUEST_STACK.matcher(line);
+            if(stack.matches())guestReturn=stack.group(1).toLowerCase(Locale.ROOT);
+            return;
+        }
         if(line.equals("FNR3/1 INTRO 1") || line.equals("FNR3/1 INTRO 2") || line.equals("FNR3/1 INTRO 0")){
-            introMovie=line.charAt(line.length()-1)-'0';starting=false;syncTrack();return;
+            introMovie=line.charAt(line.length()-1)-'0';if(introMovie!=0)advance(Milestone.INTRO);starting=false;syncTrack();return;
         }
         if(line.equals("FNR3/1 ASLEEP") || line.equals("FNR3/1 AWAKE")){
             if(timingLog!=null)timingLog.accept(line.substring(7));
@@ -313,7 +373,7 @@ public final class CornerSession {
         if(line.equals("FNR3/1 BOUTBEGIN")){
             cameraShot=0;
             boutNumber++;musicMenu=false;roundStarted=false;bout=null;syncTrack();
-            reachedMenu();lastEvent="BOUT";
+            reachedMenu();advance(Milestone.BOUT);lastEvent="BOUT";
             result=finish="";resultsDismissed=false;lastScored=null;lastTotals=null;lastNames=fighters;
             announcements.reset();lastPulse=null;achievementRound=0;
             if(achievements!=null)achievements.beginBout();
@@ -485,7 +545,7 @@ public final class CornerSession {
         }
         if(line.equals("FNR3/1 FRAMEFD")){receiveVideo();return;}
         if (line.equals("FNR3/1 HELLO") && !hello) {
-            hello = true; received = System.nanoTime(); phase = "Link check"; ping(); return;
+            advance(Milestone.LINKED);hello = true; received = System.nanoTime(); phase = "Link check"; ping(); return;
         }
         if (hello && sequence > replies && line.equals("FNR3/1 PONG " + sequence)) {
             received = System.nanoTime(); latency = (received - sent) / 1_000_000;
@@ -517,12 +577,13 @@ public final class CornerSession {
             }
             return;
         }
+        if(line.startsWith("[Fight Night] entering XBE at "))advance(Milestone.GUEST);
         Matcher m = BRIDGE.matcher(line);
-        if (m.find()) { bridge = m.group(1); record("Xbox imports  " + bridge); return; }
+        if (m.find()) { advance(Milestone.KERNEL);bridge = m.group(1); record("Xbox imports  " + bridge); return; }
         m = THREAD.matcher(line);
         if (m.find()) { thread = m.group(2); phase = "Xbox startup"; record("Thread " + m.group(1) + "  " + thread); return; }
         m = FRAME.matcher(line);
-        if (m.find()) { frames = m.group(1); phase = "Video submission"; return; }
+        if (m.find()) { advance(Milestone.FRAME);frames = m.group(1);lastFrame=Long.valueOf(frames); phase = "Video submission"; return; }
         if (line.startsWith("[Fight Night]") && (line.contains("target ") || line.contains("unsupported "))) {
             reason = line.substring(14).split(", ESP")[0]; record(reason);
         } else if (line.contains("CACHE\\LocalCache") && phase.equals("Xbox startup")) {
@@ -541,11 +602,11 @@ public final class CornerSession {
     public void run() {
         synchronized (this) {
             if (started) throw new IllegalStateException("Session already started");
-            started = true; phase = "Launching";
+            runStarted=uptime.getAsLong();firstSeen.put(Milestone.LAUNCH,0L);started = true; phase = "Launching";
         }
         int exit = -1;
         try {
-            if(menuDisc!=null)try{RetailMenu.install(menuDisc.toPath(),DiscFonts.ogxStencil(menuDisc));}
+            if(menuDisc!=null)try{RetailMenu.install(menuDisc.toPath(),DiscFonts.ogxStencil(menuDisc));retailMusicRoute=true;}
             catch(IOException e){synchronized(this){record("Main menu extensions unavailable: "+e.getMessage());}}
             if(menuDisc!=null)try{AndroidDeviceText.install(menuDisc.toPath());}
         catch(IOException e){synchronized(this){record("Device text unavailable: "+e.getMessage());}}
@@ -611,7 +672,8 @@ public final class CornerSession {
                     exit < -1 ? String.format(Locale.ROOT,"Host exit 0x%08X",exit) : "Host exit " + exit;
                 if(!cancelled && crashListener!=null && (exit>0 || exit< -1)){
                     int round=bout!=null?bout.round:judging!=null?judging.round:0;
-                    crashListener.stopped(exit,faultPc,lastEvent,round,renderHeight,software);
+                    CrashState state=new CrashState(this,exit);
+                    crashListener.stopped(exit,state.pc,lastEvent,round,renderHeight,software,state);
                 }
                 crashListener=null;
                 record(phase);

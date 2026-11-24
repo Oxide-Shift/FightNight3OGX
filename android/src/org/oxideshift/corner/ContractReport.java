@@ -49,10 +49,10 @@ final class ContractReport extends LinearLayout {
         top.setGravity(Gravity.CENTER_VERTICAL);
         mast.addView(top);
         top.addView(label,new LayoutParams(0,-2,1));
-        gesture=type("Swipe for offers\nTap for full report",fonts.body,13,0xffffe2b1);
+        gesture=type("Swipe for offers\nTap for full report",fonts.stencil,13,0xffffe2b1);
         gesture.setGravity(Gravity.END);gesture.setPadding(dp(8),0,0,0);
         top.addView(gesture);
-        opponent=type("",fonts.title,33,GameInk.NAME_RED);
+        opponent=type("",fonts.stencil,33,GameInk.NAME_RED);
         opponent.setPadding(dp(12),dp(5),dp(12),0);addView(opponent);
         record=type("",fonts.stencil,16,INK);
         record.setPadding(dp(12),0,dp(12),dp(4));addView(record);
@@ -62,11 +62,11 @@ final class ContractReport extends LinearLayout {
         figures.setOrientation(VERTICAL);
         figures.setPadding(dp(12),dp(6),dp(12),dp(6));
         addView(figures);
-        purse=type("",fonts.body,14,INK);
+        purse=type("",fonts.stencil,14,INK);
         figures.addView(purse);
         tape=new Tape(context,fonts);
         figures.addView(tape,new LayoutParams(-1,-2));
-        plan=type("",fonts.body,15,INK);
+        plan=type("",fonts.stencil,15,INK);
         plan.setPadding(0,dp(3),0,dp(3));
         figures.addView(plan);
         setVisibility(GONE);

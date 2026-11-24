@@ -3,21 +3,47 @@ public class FightEventsSmoke {
     static void check(boolean b){if(!b)throw new AssertionError();}
     public static void main(String[] args)throws Exception{
         if(args.length>0){
+            if(args[0].equals("41")){
+                System.err.println("[Fight Night] entering XBE at 0x002D8865");
+                System.err.println("[Fight Night] framebuffer submission 120");
+                System.err.println("Kernel thunk bridge: 150/150 resolved");
+                System.err.println("[Fight Night] renderer software (Vulkan unavailable)");
+                System.err.println("[Fight Night] audio gaps 3 drops 4 xruns 5");
+                System.err.println("[Fight Night] invalid indirect target 0x00000000, ESP 0x03FFFE80");
+                System.err.println("[Fight Night] guest stack 002DABCD 00000001 00000002 00000003 00000004 00000005 00000006 00000007");
+                System.exit(41);
+            }
+            if(args[0].equals("42")){
+                System.err.println("[Fight Night] unsupported test at 0x0034ABCD");
+                System.exit(42);
+            }
+            if(args[0].equals("40")){
+                System.err.println("[Fight Night] missing indirect target 0x0040CAFE, ESP 0x03FFFE80");
+                System.exit(40);
+            }
             System.out.println("FNR3/1 BOUTBEGIN");
             System.out.println("FNR3/1 BOUT 2 0 87 60 70 45 23 44 15 35");
             System.out.println("FNR3/1 COUNT 1");
             System.err.println("FNR3/1 FAULT 020493cc");
             System.exit(Integer.parseInt(args[0]));
         }
-        for(int code:new int[]{0,139}){
+        for(int code:new int[]{0,40,41,42,139}){
             java.io.File java=new java.io.File(System.getProperty("java.home"),"bin/java");
             CornerSession child=new CornerSession(()->0L,new java.io.File("."),java.getPath(),
                     "-cp",System.getProperty("java.class.path"),FightEventsSmoke.class.getName(),String.valueOf(code));
             int[] reports={0};
             child.setVideo(900,1,false);
-            child.onCrash((exit,pc,event,round,height,software)->{
-                check(exit==139 && pc.equals("020493cc") && event.equals("COUNT"));
-                check(round==2 && height==900 && !software);
+            child.onCrash((exit,pc,event,round,height,software,state)->{
+                check(exit==code && height==900 && !software);
+                check(state.elapsedMs>=0 && state.samples==1 && state.anisotropy==2);
+                if(code==42)check(pc.equals("0034abcd") && "guest_instruction".equals(state.details.get("address_kind")));
+                else if(code==41)check(pc.equals("002dabcd") && "00000000".equals(state.target) && event.equals("STARTUP")
+                        && "guest_stack_word".equals(state.details.get("address_kind")) && "150/150".equals(state.details.get("kernel_imports"))
+                        && "software".equals(state.details.get("active_renderer")) && Long.valueOf(5).equals(state.details.get("audio_xruns"))
+                        && round==0 && state.milestone.equals("frame") && Long.valueOf(120).equals(state.lastFrame));
+                else if(code==40)check(pc.equals("unknown") && state.target.equals("0040cafe") && state.milestone.equals("launch") && state.lastFrame==null);
+                else check(pc.equals("020493cc") && state.target==null && event.equals("COUNT") && round==2 && state.milestone.equals("bout")
+                        && "native_module_offset".equals(state.details.get("address_kind")) && Integer.valueOf(11).equals(state.details.get("signal_from_exit")));
                 reports[0]++;
             });
             child.run();

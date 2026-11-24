@@ -19,19 +19,19 @@ final class StoreTicket extends LinearLayout {
         mast.setGravity(Gravity.CENTER_VERTICAL);mast.setPadding(dp(14),dp(8),dp(14),dp(8));
         mast.setMinimumHeight(dp(74));addView(mast,new LayoutParams(-1,-2));
         department=type(fonts.stencil,14,GameInk.GOLD);department.setLetterSpacing(.08f);mast.addView(department);
-        TextView title=type(fonts.title,32,0xffffdfa1);title.setText("FIGHT STORE");
+        TextView title=type(fonts.stencil,32,0xffffdfa1);title.setText("FIGHT STORE");
         title.setShadowLayer(dp(2),1,2,0xff230c07);mast.addView(title);
         View rule=new View(ctx);rule.setBackgroundColor(GameInk.ORANGE);addView(rule,new LayoutParams(-1,dp(2)));
         LinearLayout tag=new LinearLayout(ctx);tag.setGravity(Gravity.CENTER_VERTICAL);
         tag.setBackground(new CornerInk(0xff48200f,GameInk.ORANGE));
         tag.setPadding(dp(14),dp(7),dp(14),dp(7));addView(tag,new LayoutParams(-1,-2));
         TextView label=type(fonts.stencil,17,0xffffd9a6);label.setText("ITEM PRICE");
-        tag.addView(label,new LayoutParams(0,-2,1));price=type(fonts.title,28,GameInk.GOLD);tag.addView(price);
+        tag.addView(label,new LayoutParams(0,-2,1));price=type(fonts.stencil,28,GameInk.GOLD);tag.addView(price);
         totals=new LinearLayout(ctx);totals.setOrientation(VERTICAL);
         totals.setBackgroundColor(0xffdcc592);totals.setPadding(dp(14),dp(6),dp(14),dp(8));addView(totals);
-        wallet=type(fonts.body,17,GameInk.DARK);totals.addView(wallet);
+        wallet=type(fonts.stencil,17,GameInk.DARK);totals.addView(wallet);
         remainder=type(fonts.stencil,19,GameInk.NAME_RED);totals.addView(remainder);
-        notes=type(fonts.body,16,0xffffdaa6);notes.setPadding(dp(14),dp(8),dp(14),dp(8));addView(notes);
+        notes=type(fonts.stencil,16,0xffffdaa6);notes.setPadding(dp(14),dp(8),dp(14),dp(8));addView(notes);
     }
     void setArt(CareerArt art){header.setArt(art==null?null:art.store);}
     void show(CareerDesk.Page page,CareerDesk.Budget quote){

@@ -22,6 +22,7 @@ final class AchievementDisplay {
     private final CornerSession session;
     private final Runnable neutralPad;
     private boolean closing,changing;
+    private boolean musicHome;
     private volatile MenuTransition transition;
     private FrameLayout cabinetLayers,lowerDisplay;
     private final boolean wide;
@@ -87,13 +88,25 @@ final class AchievementDisplay {
         }else sounds.play(id,.45f,.45f,1,0,1f);
     }
     private void open(boolean music){
+        open(music,false);
+    }
+    private void open(boolean music,boolean returning){
         if(gallery!=null)return;
-        neutralPad.run();
+        neutralPad.run();musicHome=music;
         Dialog dialog=new Dialog(activity,android.R.style.Theme_Material_NoActionBar_Fullscreen);
         android.content.SharedPreferences prefs=activity.getSharedPreferences("fight-setup",Activity.MODE_PRIVATE);
         AchievementGallery.MusicSettings options=music?new AchievementGallery.MusicSettings(){
             private String key(int row){return row==0?"fightMusic":"expandedMusic";}
             public boolean enabled(int row){return prefs.getBoolean(key(row),false);}
+            public boolean hasPlaylist(){return session.retailMusicRoute;}
+            public void openTrax(){
+                Dialog current=gallery;
+                if(current==null || closing || changing || !session.retailMusicRoute)return;
+                closing=true;play(DiscMenuSounds.Cue.FORWARD);
+                swap(()->{galleryPage.setVisibility(View.INVISIBLE);routePrompts(null);},()->{
+                    session.browsingTrax=true;current.dismiss();
+                });
+            }
             public void toggle(int row){
                 prefs.edit().putBoolean(key(row),!enabled(row)).apply();
                 session.musicOptions(enabled(0),enabled(1));
@@ -112,7 +125,9 @@ final class AchievementDisplay {
         w.setVolumeControlStream(AudioManager.STREAM_MUSIC);
         w.setWindowAnimations(0);
         w.getDecorView().setSystemUiVisibility(activity.getWindow().getDecorView().getSystemUiVisibility());
-        dialog.show();w.setLayout(-1,-1);play(DiscMenuSounds.Cue.FORWARD);
+        if(returning)page.selectPlaylist();
+        dialog.show();w.setLayout(-1,-1);
+        if(returning)session.menuCancelSound();else play(DiscMenuSounds.Cue.FORWARD);
         page.setVisibility(View.INVISIBLE);
         swap(()->{page.setVisibility(View.VISIBLE);routePrompts(lowerDisplay);},()->{});
     }
@@ -145,8 +160,15 @@ final class AchievementDisplay {
     }
     private void leave(){
         Dialog dialog=gallery;if(dialog==null || closing || changing)return;
-        closing=true;session.menuCancelSound();
-        swap(()->{if(galleryPage!=null)galleryPage.setVisibility(View.INVISIBLE);routePrompts(null);},dialog::dismiss);
+        boolean leavePlaylist=musicHome && session.retailMusicRoute;
+        closing=true;if(!leavePlaylist)session.menuCancelSound();
+        swap(()->{if(galleryPage!=null)galleryPage.setVisibility(View.INVISIBLE);routePrompts(null);},()->{
+            session.leaveTrax=leavePlaylist;dialog.dismiss();
+        });
+    }
+    boolean backFromTrax(){
+        if(!session.browsingTrax || gallery!=null)return false;
+        session.browsingTrax=false;open(true,true);return true;
     }
     private void routePrompts(FrameLayout host){
         if(promptHost==host)return;

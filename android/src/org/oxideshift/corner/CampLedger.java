@@ -29,7 +29,7 @@ final class CampLedger extends LinearLayout {
         amount=line(fonts.stencil,25,INK);
         rack=new CaseRack(context);
         trophyPanel.addView(rack,new LayoutParams(-1,dp(17)));
-        caption=line(fonts.body,15,INK);
+        caption=line(fonts.stencil,15,INK);
         balance=line(fonts.stencil,15,RED);
         setVisibility(GONE);
     }

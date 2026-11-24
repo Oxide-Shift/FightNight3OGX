@@ -66,7 +66,7 @@ final class FightMenu extends LinearLayout {
           progressDetail=label("",13,MUTED);progressDetail.setPadding(0,dp(4),0,dp(8));
           progressDetail.setVisibility(GONE);panel.addView(progressDetail);
         play=button("Enter the ring",launch,true);panel.addView(play);
-        disc=button("Choose Xbox ISO",pick,true);panel.addView(disc);
+        disc=button("Choose Xbox ISO or ZIP",pick,true);panel.addView(disc);
         updates=button("Check for updates",checkUpdates,false);panel.addView(updates);
 
         LinearLayout rateHeader=row();rateHeader.setGravity(Gravity.CENTER_VERTICAL);
@@ -288,7 +288,7 @@ final class FightMenu extends LinearLayout {
         play.setVisibility(ready||active?VISIBLE:GONE);play.setEnabled(active||(ready&&!busy&&canPlay));
         String action=active?"Resume bout":needsBuild?"Prepare game":"Enter the ring";if(!action.contentEquals(play.getText()))play.setText(action);
         disc.setVisibility(active||!ready?VISIBLE:GONE);disc.setEnabled(active||!busy);
-        String pick=active?"End session":"Choose Xbox ISO";
+        String pick=active?"End session":"Choose Xbox ISO or ZIP";
         if(!pick.contentEquals(disc.getText()))disc.setText(pick);
         if(active!=disc.isSelected()){
             disc.setSelected(active);disc.setBackground(new RippleDrawable(ColorStateList.valueOf(0x44f8d58a),

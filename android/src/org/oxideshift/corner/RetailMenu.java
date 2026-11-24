@@ -11,6 +11,7 @@ import java.util.Arrays;
 final class RetailMenu {
     private static final String GROUP="screengroups/mainmenu/mainmenu.big";
     private static final byte[] LEGACY=ascii("FNR3-ACHIEVEMENTS-1"), PRE_BRAND=ascii("FNR3-ACHIEVEMENTS-2"), FIRST_BRAND=ascii("FNR3-ACHIEVEMENTS-3"), SLOPED_BRAND=ascii("FNR3-ACHIEVEMENTS-4"), PRE_PAUSE=ascii("FNR3-ACHIEVEMENTS-5"), VERSION=ascii("FNR3-ACHIEVEMENTS-6");
+    private static final byte[] MUSIC_ROUTE=ascii("FNR3-ACHIEVEMENTS-7");
     private static final int ALIGN=128;
 
     private static byte[] ascii(String s){return s.getBytes(StandardCharsets.US_ASCII);}
@@ -45,7 +46,8 @@ final class RetailMenu {
         byte[] out=Arrays.copyOf(data,data.length+growth);
         System.arraycopy(data,offset+oldSize,out,offset+oldSize+growth,data.length-offset-oldSize);
         System.arraycopy(replacement,0,out,offset,replacement.length);
-        ByteBuffer b=ByteBuffer.wrap(out);little(out).putInt(4,out.length);
+        ByteBuffer b=ByteBuffer.wrap(out);
+        if(out.length!=data.length)little(out).putInt(4,out.length);
         b.putInt(e+4,replacement.length);
         for(int i=0,p=16;i<src.getInt(8);i++){
             if(src.getInt(p)>offset)b.putInt(p,src.getInt(p)+growth);
@@ -124,7 +126,8 @@ final class RetailMenu {
             priorGuide=v3 || Arrays.equals(tail,ascii("FNR3-THOR-CONTROLS-1")) || Arrays.equals(tail,ascii("FNR3-THOR-CONTROLS-2"));
         }
         byte[] outer=Files.readAllBytes(archive);
-        if(!Arrays.equals(Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length),VERSION))
+        byte[] menuStamp=Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length);
+        if(!Arrays.equals(menuStamp,VERSION) && !Arrays.equals(menuStamp,MUSIC_ROUTE))
             throw new IOException("Install the retail menu first");
         for(String variant:new String[]{"CM","CR","HH","PN","Training","Tutorial"}){
             String stem="lp-"+variant+"-ContConfig",group="screengroups/load/"+stem+".big",bankName=stem+".xsh";
@@ -149,7 +152,7 @@ final class RetailMenu {
         }
         byte[] result=Arrays.copyOf(outer,outer.length+(priorGuide?0:stamp.length));
         System.arraycopy(stamp,0,result,result.length-VERSION.length-stamp.length,stamp.length);
-        System.arraycopy(VERSION,0,result,result.length-VERSION.length,VERSION.length);
+        System.arraycopy(menuStamp,0,result,result.length-VERSION.length,VERSION.length);
         little(result).putInt(4,result.length);
         writeArchive(archive,result);
     }
@@ -195,9 +198,12 @@ final class RetailMenu {
         try(RandomAccessFile f=new RandomAccessFile(archive.toFile(),"r")){
             if(f.length()<VERSION.length || f.length()>48L*1024*1024)throw new IOException("Unrecognized overlay archive");
             byte[] tail=new byte[VERSION.length];f.seek(f.length()-tail.length);f.readFully(tail);
-            if(Arrays.equals(tail,VERSION))return;
+            if(Arrays.equals(tail,MUSIC_ROUTE))return;
         }
         byte[] outer=Files.readAllBytes(archive);
+        if(Arrays.equals(Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length),VERSION)){
+            writeArchive(archive,musicRoute(outer));return;
+        }
         boolean legacy=Arrays.equals(Arrays.copyOfRange(outer,outer.length-LEGACY.length,outer.length),LEGACY);
         byte[] stage=Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length);
         boolean current=Arrays.equals(stage,PRE_BRAND) || Arrays.equals(stage,FIRST_BRAND) || Arrays.equals(stage,SLOPED_BRAND) || Arrays.equals(stage,PRE_PAUSE);
@@ -237,13 +243,84 @@ final class RetailMenu {
         }
         if(found!=1)throw new IOException("Missing pause title");
         result=replace(result,pauseGroup,replace(pause,"pausemenu.xsh",textures));
-        little(result).putInt(4,result.length+VERSION.length);
-        Path temp=Files.createTempFile(archive.getParent(),"menu-",".tmp");
-        try{
-            try(FileOutputStream stream=new FileOutputStream(temp.toFile())){
-                stream.write(result);stream.write(VERSION);stream.getFD().sync();
+        writeArchive(archive,musicRoute(Arrays.copyOf(result,result.length+VERSION.length)));
+    }
+
+    private static byte[] musicRoute(byte[] outer)throws IOException{
+        byte[] group=TraxArt.inflate(member(outer,GROUP),2*1024*1024);
+        byte[] pool=member(group,"mainmenu.const"),apt=member(group,"mainmenu.apt");
+        ByteBuffer table=little(pool);
+        int start=table.getInt(table.getInt(28)+8*84+4);
+        byte[] old=ascii("startscreen called: ");
+        if(start<0 || start+old.length>=pool.length || !Arrays.equals(old,Arrays.copyOfRange(pool,start,start+old.length)))
+            throw new IOException("Unexpected main menu constants");
+        // Reuse a trace string so every retail pointer and member extent stays in place.
+        Arrays.fill(pool,start,start+old.length,(byte)0);
+        byte[] name=ascii("OPTIONSEXTRAX");System.arraycopy(name,0,pool,start,name.length);
+        byte[] signal={(byte)0xa3,49,1,0x4f,0x76,0x3e}; // dictionary entry 305 = fnr3/music
+        int end=-1;
+        for(int pos=0xd060;pos+signal.length<=0xd082;pos++)
+            if(Arrays.equals(Arrays.copyOfRange(apt,pos,pos+signal.length),signal)){end=pos+4;break;}
+        if(end<0)throw new IOException("Missing Music selection handler");
+        // The same SCREEN lookup and gSM.changeMainScreen call used by Options.
+        byte[] open={(byte)0xae,(byte)229,(byte)0xaf,77,0x5a,(byte)0xae,(byte)231,(byte)0xb2,(byte)232,0x76,0x3e};
+        System.arraycopy(open,0,apt,end,open.length);
+        outer=replace(outer,GROUP,replace(replace(group,"mainmenu.apt",apt),"mainmenu.const",pool));
+        String optionsName="screengroups/options/options.big";
+        byte[] packed=member(outer,optionsName);
+        byte[] options=TraxArt.inflate(packed,2*1024*1024);
+        byte[] menu=member(options,"options.apt");
+        verify(menu,"51ffd421a73c65925e23348c4a2de0d5879d1be28934b6d58f2276158e1abfc7");
+        // Skip the third addElement call and shift every following selection to its original handler.
+        Arrays.fill(menu,0xe7c2,0xe7cf,(byte)0x04);
+        Arrays.fill(menu,0xea94,0xeaa8,(byte)0x04);
+        ByteBuffer code=little(menu);code.position(0xe7c2);jump(code,0x99,0xe7cf);
+        code.position(0xea94);jump(code,0x99,0xeaa8);
+        for(int operand:new int[]{0xeab5,0xeac9,0xeadd,0xeaf1,0xeb05})menu[operand]--;
+        byte[] updated=replace(options,"options.apt",menu);
+        byte[] result=replace(outer,optionsName,options==packed?updated:repack(packed,updated));
+        System.arraycopy(MUSIC_ROUTE,0,result,result.length-MUSIC_ROUTE.length,MUSIC_ROUTE.length);
+        little(result).putInt(4,result.length);return result;
+    }
+
+    // Preserve the retail RefPack matches wherever the changed script still permits them.
+    // A match crossing an edit becomes literals until the next reusable match.
+    private static byte[] repack(byte[] packed,byte[] updated)throws IOException{
+        ByteArrayOutputStream out=new ByteArrayOutputStream(packed.length);
+        out.write(packed,0,5);
+        int pos=0,literals=0;
+        for(int i=5;i<packed.length;){
+            int a=packed[i++]&255,b=0,c=0,d=0,prefix,length=0,distance=0;
+            if(a<128){
+                b=packed[i++]&255;prefix=a&3;length=((a>>2)&7)+3;distance=((a&96)<<3)+b+1;
+            }else if(a<192){
+                b=packed[i++]&255;c=packed[i++]&255;prefix=b>>6;length=(a&63)+4;distance=((b&63)<<8)+c+1;
+            }else if(a<224){
+                b=packed[i++]&255;c=packed[i++]&255;d=packed[i++]&255;prefix=a&3;
+                length=((a&12)<<6)+d+5;distance=((a&16)<<12)+(b<<8)+c+1;
+            }else prefix=a<252?((a&31)<<2)+4:a&3;
+            i+=prefix;pos+=prefix;
+            if(a>=224 && a<252)continue;
+            int k=0;
+            while(k<length && updated[pos+k]==updated[pos+k-distance])k++;
+            if(k!=length){pos+=length;continue;}
+            while(pos-literals>=4){
+                int n=Math.min(112,(pos-literals)&~3);
+                out.write(0xe0+n/4-1);out.write(updated,literals,n);literals+=n;
             }
-            Files.move(temp,archive,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
-        }finally{Files.deleteIfExists(temp);}
+            int tail=pos-literals;
+            if(a>=252){
+                out.write(0xfc|tail);out.write(updated,literals,tail);
+                byte[] result=out.toByteArray();
+                if(pos!=updated.length || !Arrays.equals(updated,TraxArt.inflate(result,updated.length)))
+                    throw new IOException("Options archive failed verification");
+                return result;
+            }
+            if(a<128){out.write((a&~3)|tail);out.write(b);}
+            else if(a<192){out.write(a);out.write((b&63)|(tail<<6));out.write(c);}
+            else{out.write((a&~3)|tail);out.write(b);out.write(c);out.write(d);}
+            out.write(updated,literals,tail);pos+=length;literals=pos;
+        }
+        throw new IOException("Incomplete Options archive");
     }
 }

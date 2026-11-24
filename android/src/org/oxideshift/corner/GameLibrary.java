@@ -1,6 +1,7 @@
 package org.oxideshift.corner;
 
 import java.io.*;
+import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.file.*;
 import java.util.*;
@@ -8,7 +9,12 @@ import java.util.zip.*;
 
 /** App-owned copies. The document picker supplies read-only streams. */
 public final class GameLibrary {
-    public interface Status { void update(String message); }
+    public interface Status {
+        void update(String message);
+        default void stage(String value){}
+        default void format(String value){}
+        default void discFacts(DiscFacts facts){}
+    }
     private static final long MIB = 1024L * 1024;
     private static final long MAX_DISC = 10L * 1024 * MIB;
     private GameLibrary() {}
@@ -21,48 +27,130 @@ public final class GameLibrary {
 
     static synchronized String importDisc(InputStream original,long length,Path root,Status status,Prepare prepare)throws Exception{
         Path target = root.resolve("retail"), stage = root.resolve("disc-copy.tmp");
-        if (Files.exists(target)) throw new IOException("Disc already installed");
+        checkInstallTarget(root,target);
         clearStage(stage);
         Files.createDirectory(stage);
         try {
-            if (length > MAX_DISC || (length > 0 && stage.toFile().getUsableSpace() < length + 2403279877L + 32*MIB))
-                throw new IOException("This disc needs about 10.3 GB of free space");
-            byte[] buffer = new byte[1024 * 1024];
-            Path image = stage.resolve("source.iso");
-            long copied = 0, last = -32*MIB;
-            try (OutputStream output = Files.newOutputStream(image, StandardOpenOption.CREATE_NEW)) {
-                for (int n; (n = original.read(buffer)) != -1;) {
-                    copied += n;
-                    if (copied > MAX_DISC) throw new IOException("Disc is larger than a supported Xbox image");
-                    output.write(buffer,0,n);
-                    if (copied-last >= 32*MIB) {
-                        status.update("Copying disc · " + copied/MIB + (length>0?" / "+((length+MIB-1)/MIB):"") + " MiB"); last = copied;
-                    }
-                }
-            }
-            if (length > 0 && copied != length) throw new EOFException("The selected disc could not be copied in full");
-            status.update("Verifying copied disc");
-            java.util.concurrent.FutureTask<String> build;
-            try (FileChannel channel = FileChannel.open(image, StandardOpenOption.READ)) {
-                build=extract(new DiscImage(channel),stage,status,prepare);
-            }
-            return publish(stage,target,build);
+            BufferedInputStream input = new BufferedInputStream(original);
+            input.mark(6);
+            byte[] signature = new byte[6];
+            try { new DataInputStream(input).readFully(signature); }
+            catch (EOFException shortInput) { throw new EOFException("The selected Xbox disc image is truncated."); }
+            DiscImage.checkContainer(signature);
+            input.reset();
+            return importStream(input,length==0?-1:length,stage,target,isZip(signature),status,prepare);
         } finally { clearStage(stage); }
     }
 
     static synchronized String importDisc(FileChannel source,long offset,long length,Path root,Status status,Prepare prepare)throws Exception{
         Path target=root.resolve("retail");
-        if(Files.exists(target))throw new IOException("Disc already installed");
+        checkInstallTarget(root,target);
         status.update("Verifying Xbox disc");
-        DiscImage disc=new DiscImage(source,offset,length);
+        if(offset<0 || length<0 || offset>source.size()-length)throw new DiscImport.Failure(DiscImport.Reason.TRUNCATED,"Invalid disc range");
         Path stage=root.resolve("disc-copy.tmp");
         clearStage(stage);
         Files.createDirectory(stage);
-        try{return publish(stage,target,extract(disc,stage,status,prepare));}
+        try{
+            long previous=source.position();
+            try{
+                source.position(offset);
+                DataInputStream input=new DataInputStream(Channels.newInputStream(source));
+                byte[] signature=new byte[4];
+                if(length>=signature.length)input.readFully(signature);
+                if(isZip(signature)){
+                    source.position(offset);
+                    // Android document providers can return a slice of a larger file.
+                    return importStream(input,length,stage,target,true,status,prepare);
+                }
+            }finally{source.position(previous);}
+            status.stage("verify");
+            return publish(stage,target,extract(new DiscImage(source,offset,length,status,new DiscFacts(),"raw",length),stage,status,prepare));
+        }
         finally{clearStage(stage);}
     }
 
+    private static boolean isZip(byte[] signature){
+        return signature[0]=='P' && signature[1]=='K' &&
+                ((signature[2]==3 && signature[3]==4) || (signature[2]==5 && signature[3]==6));
+    }
+
+    private static String importStream(InputStream input,long length,Path stage,Path target,boolean zipped,
+                                       Status status,Prepare prepare)throws Exception{
+        Path image=stage.resolve("source.iso");
+        DiscFacts facts=new DiscFacts();
+        facts.put("origin","import");status.discFacts(facts);
+        java.security.MessageDigest sha1=java.security.MessageDigest.getInstance("SHA-1");
+        if(zipped){
+            facts.put("container","zip");
+            status.format("zip");
+            status.stage("unpack");
+            Path archive=stage.resolve("source.zip");
+            copyImage(input,length,archive,"Reading disc ZIP",status,null,sha1);
+            length=Files.size(archive);
+            facts.put("selected_bytes",length);facts.put("selected_sha1",DiscFacts.hex(sha1.digest()));
+            try(ZipFile zip=new ZipFile(archive.toFile())){
+                ZipEntry disc=null;
+                Enumeration<? extends ZipEntry> entries=zip.entries();
+                while(entries.hasMoreElements()){
+                    ZipEntry entry=entries.nextElement();
+                    String name=entry.getName().toLowerCase(Locale.ROOT);
+                    if(entry.isDirectory() || !(name.endsWith(".iso") || name.endsWith(".xiso")))continue;
+                    if(disc!=null)throw new DiscImport.Failure(DiscImport.Reason.ZIP_CONTENTS,"This ZIP contains multiple disc images. Extract it and select one complete Xbox ISO.");
+                    disc=entry;
+                }
+                if(disc==null)throw new DiscImport.Failure(DiscImport.Reason.ZIP_CONTENTS,"This ZIP contains no Xbox ISO. Choose an archive containing one .iso or .xiso file.");
+                CRC32 checksum=new CRC32();
+                try(InputStream member=zip.getInputStream(disc)){
+                    copyImage(member,disc.getSize(),image,"Unpacking Xbox ISO",status,checksum,sha1);
+                    if(member.read()!=-1 || checksum.getValue()!=disc.getCrc())throw new DiscImport.Failure(DiscImport.Reason.ZIP_INTEGRITY,"The Xbox ISO failed its ZIP integrity check.");
+                }
+            }
+            Files.delete(archive);
+        }else{
+            status.stage("copy");
+            copyImage(input,length,image,"Copying disc",status,null,sha1);
+            if(length>=0 && input.read()!=-1)throw new DiscImport.Failure(DiscImport.Reason.TRUNCATED,"The provider returned more data than the selected disc size.");
+        }
+        status.update("Verifying copied disc");
+        status.stage("verify");
+        String imageHash=DiscFacts.hex(sha1.digest());
+        facts.put("image_sha1",imageHash);
+        if(!zipped)facts.put("selected_sha1",imageHash);
+        java.util.concurrent.FutureTask<String> build;
+        try(FileChannel channel=FileChannel.open(image,StandardOpenOption.READ)){
+            build=extract(new DiscImage(channel,0,channel.size(),status,facts,zipped?"zip":"raw",zipped?length:channel.size()),stage,status,prepare);
+        }
+        if(zipped)Files.delete(image);
+        return publish(stage,target,build);
+    }
+
+    private static void copyImage(InputStream input,long length,Path path,String action,Status status,CRC32 checksum,java.security.MessageDigest digest)throws IOException{
+        if(length>MAX_DISC)throw new DiscImport.Failure(DiscImport.Reason.SIZE,"Disc is larger than a supported Xbox image");
+        if(length>=0 && path.getParent().toFile().getUsableSpace()<length+16*MIB)
+            throw new DiscImport.Failure(DiscImport.Reason.SPACE,"Insufficient space for "+action.toLowerCase(Locale.ROOT));
+        byte[] buffer=new byte[1024*1024];
+        long copied=0,nextUpdate=0;
+        try(OutputStream out=Files.newOutputStream(path,StandardOpenOption.CREATE_NEW)){
+            while(length<0 || copied<length){
+                int wanted=length<0?buffer.length:(int)Math.min(buffer.length,length-copied);
+                int n=input.read(buffer,0,wanted);
+                if(n<0)break;
+                if(copied+n>MAX_DISC)throw new DiscImport.Failure(DiscImport.Reason.SIZE,"Disc is larger than a supported Xbox image");
+                out.write(buffer,0,n);
+                if(checksum!=null)checksum.update(buffer,0,n);
+                digest.update(buffer,0,n);
+                copied+=n;
+                if(copied>=nextUpdate){
+                    status.update(action+" · "+copied/MIB+(length>0?" / "+((length+MIB-1)/MIB):"")+" MiB");
+                    nextUpdate=copied+32*MIB;
+                }
+            }
+        }
+        if(length>=0 && copied!=length)throw new EOFException("The selected disc could not be copied in full");
+    }
+
     private static java.util.concurrent.FutureTask<String> extract(DiscImage disc,Path stage,Status status,Prepare prepare)throws Exception{
+        status.stage("extract");
         Path game=Files.createDirectory(stage.resolve("game"));
         java.util.concurrent.FutureTask<String> job=new java.util.concurrent.FutureTask<>(()->
                 prepare==null?"Xbox disc installed":prepare.build(game.resolve("default.xbe"),status));
@@ -77,11 +165,36 @@ public final class GameLibrary {
             while(worker.isAlive())try{worker.join();}catch(InterruptedException e){interrupted=true;}
             if(interrupted)Thread.currentThread().interrupt();
         }
+        disc.facts.write(stage);
         return job;
     }
 
+    static void recoverDisc(Path root)throws IOException{
+        Path old=root.resolve("disc-repair.previous"),target=root.resolve("retail");
+        if(!Files.exists(old))return;
+        synchronized(GameLibrary.class){
+            if(!Files.exists(old))return;
+            if(!Files.exists(target))Files.move(old,target,StandardCopyOption.ATOMIC_MOVE);
+            else clearStage(old);
+        }
+    }
+    private static void checkInstallTarget(Path root,Path target)throws IOException{
+        recoverDisc(root);
+        if(!Files.exists(target))return;
+        if(!Files.isRegularFile(target.resolve("game/default.xbe"),LinkOption.NOFOLLOW_LINKS))return;
+        try{DiscImage.checkInstalledMenu(target.resolve("game"));}
+        catch(DiscImport.Failure failure){if(failure.reason==DiscImport.Reason.MENU_ASSET)return;throw failure;}
+        throw new DiscImport.Failure(DiscImport.Reason.INSTALLED,"Disc already installed");
+    }
     private static String publish(Path stage,Path target,java.util.concurrent.FutureTask<String> job)throws Exception{
-        Files.move(stage,target,StandardCopyOption.ATOMIC_MOVE);
+        if(Files.exists(target)){
+            Path old=target.resolveSibling("disc-repair.previous");
+            clearStage(old);
+            Files.move(target,old,StandardCopyOption.ATOMIC_MOVE);
+            try{Files.move(stage,target,StandardCopyOption.ATOMIC_MOVE);}
+            catch(IOException e){Files.move(old,target,StandardCopyOption.ATOMIC_MOVE);throw e;}
+            try{clearStage(old);}catch(IOException ignored){/* The complete repair is live. Recover leftovers on the next launch. */}
+        }else Files.move(stage,target,StandardCopyOption.ATOMIC_MOVE);
         try{return job.get();}
         catch(java.util.concurrent.ExecutionException e){
             if(e.getCause() instanceof Exception)throw (Exception)e.getCause();

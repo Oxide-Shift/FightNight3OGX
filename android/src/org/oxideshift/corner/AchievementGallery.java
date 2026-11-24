@@ -12,11 +12,13 @@ final class AchievementGallery extends LinearLayout {
     interface MusicSettings {
         boolean enabled(int row);
         void toggle(int row);
+        void openTrax();
+        default boolean hasPlaylist(){return true;}
     }
     private final MusicSettings music;
-    private static final String[] OPTIONS={"Music during fights","FN3 Expanded Music"};
+    private static final String[] OPTIONS={"Music during fights","FN3 Expanded Music","EA Trax"};
     private static final String[] DESCRIPTIONS={"Carry the current song through loading, walkouts and every round.",
-            "Add seven songs by FN3OGX to the EA Trax rotation."};
+            "Add seven songs by FN3OGX to the EA Trax rotation.","Choose the original soundtrack tracks in your rotation."};
     private final ScrollView scroll;
     private final LinearLayout footer;
     private final Runnable close;
@@ -71,7 +73,7 @@ final class AchievementGallery extends LinearLayout {
         title.setShadowLayer(dp(c,3),dp(c,2),dp(c,3),0xff150502);heading.addView(title);
         tally=text(c,"",13,PAPER,f.stencil);tally.setShadowLayer(2,1,1,0xff130501);heading.addView(tally);
         if(music!=null){
-            tally.setText("EA TRAX");
+            tally.setText("SOUNDTRACK");
             // Only a music row owns controller focus. Keep the scrollable area tight to the rows
             // even with the footer on a second display, and allow large text to scroll on small screens.
             FrameLayout body=new FrameLayout(c);
@@ -84,7 +86,7 @@ final class AchievementGallery extends LinearLayout {
             body.addView(scroll,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
             cards=stack(c);pad(cards,wide?22:10,8);scroll.addView(cards);
             selected=0;
-            for(int i=0;i<OPTIONS.length;i++){
+            for(int i=0;i<(music.hasPlaylist()?OPTIONS.length:2);i++){
                 LayoutParams size=new LayoutParams(-1,-2);size.bottomMargin=dp(c,4);
                 cards.addView(new MusicRow(c,i),size);
             }
@@ -116,9 +118,9 @@ final class AchievementGallery extends LinearLayout {
         LinearLayout bar=new LinearLayout(c);bar.setGravity(Gravity.CENTER_VERTICAL);
         pad(bar,10,2);bar.setBackgroundColor(0xff310e07);
         if(music!=null){
-            bar.addView(new MenuPrompt(c,PadIcon.Cap.LB,"Previous",fonts.stencil,()->selectMusic(1-selected)),new LayoutParams(0,-2,1));
-            bar.addView(new MenuPrompt(c,PadIcon.Cap.RB,"Next",fonts.stencil,()->selectMusic(1-selected)),new LayoutParams(0,-2,1));
-            bar.addView(new MenuPrompt(c,PadIcon.Cap.A,"Toggle",fonts.stencil,()->toggleMusic(selected)),new LayoutParams(0,-2,1));
+            bar.addView(new MenuPrompt(c,PadIcon.Cap.LB,"Previous",fonts.stencil,()->moveMusic(-1)),new LayoutParams(0,-2,1));
+            bar.addView(new MenuPrompt(c,PadIcon.Cap.RB,"Next",fonts.stencil,()->moveMusic(1)),new LayoutParams(0,-2,1));
+            bar.addView(new MenuPrompt(c,PadIcon.Cap.A,"Select",fonts.stencil,()->toggleMusic(selected)),new LayoutParams(0,-2,1));
             bar.addView(new MenuPrompt(c,1,fonts.stencil,close),new LayoutParams(0,-2,1));return bar;
         }
         for(int step:new int[]{-1,1}){
@@ -155,23 +157,29 @@ final class AchievementGallery extends LinearLayout {
             setOnClickListener(v->toggleMusic(index));
         }
         void update(){
-            boolean active=selected==index,enabled=music.enabled(index);
+            boolean active=selected==index,playlist=index==2,enabled=!playlist && music.enabled(index);
             setSelected(active);title.setTextColor(active?GOLD:PAPER);
-            state.setText(enabled?"ON":"OFF");state.setTextColor(enabled?GOLD:SILVER);
-            setContentDescription(OPTIONS[index]+", "+(enabled?"on":"off"));
+            state.setText(playlist?"OPEN":enabled?"ON":"OFF");state.setTextColor(active || enabled?GOLD:SILVER);
+            setContentDescription(OPTIONS[index]+", "+(playlist?"open playlist":enabled?"on":"off"));
         }
     }
     private void showMusicRows(){
         for(int i=0;i<cards.getChildCount();i++)((MusicRow)cards.getChildAt(i)).update();
     }
     private void selectMusic(int index){
+        selectMusic(index,true);
+    }
+    private void selectMusic(int index,boolean audible){
         if(selected==index)return;
-        selected=index;sound.accept(DiscMenuSounds.Cue.VERTICAL);showMusicRows();
+        selected=index;if(audible)sound.accept(DiscMenuSounds.Cue.VERTICAL);showMusicRows();
         View row=cards.getChildAt(index);
         if(!isInTouchMode())row.requestFocus();
         row.requestRectangleOnScreen(new Rect(0,0,row.getWidth(),row.getHeight()),false);
     }
+    private void moveMusic(int step){int count=cards.getChildCount();selectMusic((selected+step+count)%count);}
+    void selectPlaylist(){if(music!=null && music.hasPlaylist())selectMusic(2,false);}
     private void toggleMusic(int index){
+        if(index==2){music.openTrax();return;}
         selected=index;music.toggle(index);sound.accept(DiscMenuSounds.Cue.FORWARD);showMusicRows();
         announceForAccessibility(cards.getChildAt(index).getContentDescription());
     }
@@ -235,8 +243,8 @@ final class AchievementGallery extends LinearLayout {
             boolean toggle=code==KeyEvent.KEYCODE_BUTTON_A || code==KeyEvent.KEYCODE_DPAD_CENTER ||
                     code==KeyEvent.KEYCODE_ENTER || code==KeyEvent.KEYCODE_DPAD_LEFT || code==KeyEvent.KEYCODE_DPAD_RIGHT;
             if(event.getAction()==KeyEvent.ACTION_DOWN && event.getRepeatCount()==0){
-                if(step)selectMusic(1-selected);
-                else if(toggle)toggleMusic(selected);
+                if(step)moveMusic(code==KeyEvent.KEYCODE_DPAD_UP || code==KeyEvent.KEYCODE_BUTTON_L1?-1:1);
+                else if(toggle && (selected!=2 || code!=KeyEvent.KEYCODE_DPAD_LEFT && code!=KeyEvent.KEYCODE_DPAD_RIGHT))toggleMusic(selected);
             }
             return step || toggle;
         }
