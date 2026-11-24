@@ -65,6 +65,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     private FrameLayout lowerPanel;
     private AchievementDisplay achievementDisplay;
     private RingsideView ringside;
+    private final java.util.HashSet<Long> editorKeys=new java.util.HashSet<>();
     private CornerControls.Key touchKey;
     private boolean treating;
     private int treatX,treatY;
@@ -388,8 +389,8 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
             if(model.toLowerCase(java.util.Locale.ROOT).contains("thor")){
                 android.content.res.AssetManager assets=getAssets();
                 next.thorGuide=()->{
-                    byte[] bytes=new byte[65536];
-                    try(java.io.DataInputStream in=new java.io.DataInputStream(assets.open("thor-controls.dxt3"))){in.readFully(bytes);}
+                    byte[] bytes=new byte[ThorLoadingGuide.ART_BYTES];
+                    try(java.io.DataInputStream in=new java.io.DataInputStream(assets.open("thor-guide.dxt3"))){in.readFully(bytes);}
                     return bytes;
                 };
             }
@@ -529,6 +530,18 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     }
     private void neutralPad(){pad.clear();releaseTouch();}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
+        int code=event.getKeyCode();
+        if(code==KeyEvent.KEYCODE_BUTTON_Y || code==KeyEvent.KEYCODE_BUTTON_B){
+            long key=((long)event.getDeviceId()<<32)|code;
+            if(event.getAction()==KeyEvent.ACTION_UP && editorKeys.remove(key))return true;
+            if(event.getAction()==KeyEvent.ACTION_DOWN){
+                if(event.getRepeatCount()>0 && editorKeys.contains(key))return true;
+                if(event.getRepeatCount()==0){
+                    editorKeys.remove(key);
+                    if(acceptsPad() && ringside!=null && ringside.editorHelpKey(code)){editorKeys.add(key);return true;}
+                }
+            }
+        }
         if(acceptsPad() && (event.getAction()==KeyEvent.ACTION_DOWN||event.getAction()==KeyEvent.ACTION_UP)
                 && pad.key(event,event.getAction()==KeyEvent.ACTION_DOWN)){
             if(event.getDeviceId()>=0)rumble.use(event.getDeviceId());

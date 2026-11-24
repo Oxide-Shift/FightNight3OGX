@@ -111,16 +111,16 @@ final class RetailMenu {
         return data;
     }
     static synchronized void installThorGuide(Path game,byte[] artwork)throws IOException{
-        if(artwork.length!=256*256)throw new IOException("Invalid Thor controls artwork");
+        if(artwork.length!=ThorLoadingGuide.ART_BYTES)throw new IOException("Invalid Thor guide backdrop");
         Path archive=game.resolve("GUI/overlay.viv");
         if(!Files.isRegularFile(archive))archive=game.resolve("gui/overlay.viv");
-        byte[] stamp=ascii("FNR3-THOR-CONTROLS-2");
+        byte[] stamp=ascii("FNR3-THOR-CONTROLS-3");
         boolean priorGuide;
         try(RandomAccessFile file=new RandomAccessFile(archive.toFile(),"r")){
             if(file.length()>48L*1024*1024 || file.length()<1024)throw new IOException("Unrecognized controller archive");
             byte[] tail=new byte[stamp.length];file.seek(file.length()-VERSION.length-stamp.length);file.readFully(tail);
             if(Arrays.equals(tail,stamp))return;
-            priorGuide=Arrays.equals(tail,ascii("FNR3-THOR-CONTROLS-1"));
+            priorGuide=Arrays.equals(tail,ascii("FNR3-THOR-CONTROLS-1")) || Arrays.equals(tail,ascii("FNR3-THOR-CONTROLS-2"));
         }
         byte[] outer=Files.readAllBytes(archive);
         if(!Arrays.equals(Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length),VERSION))
@@ -132,18 +132,18 @@ final class RetailMenu {
             ByteBuffer header=little(bank);
             int count=header.getInt(8),matches=0;
             if(header.getInt(0)!=0x58504853 || count!=5)throw new IOException("Unrecognized controller artwork");
-            String xbox=variant.equals("Training")?"32":"28";
             for(int i=0;i<count;i++){
                 String id=new String(bank,16+8*i,4,StandardCharsets.US_ASCII).trim();
-                if(!xbox.equals(id))continue;
+                if(!"1".equals(id))continue;
                 int at=header.getInt(20+i*8);
                 if(at<56 || at>bank.length-artwork.length-16 || bank[at]!=0x61 ||
-                   header.getShort(at+4)!=256 || header.getShort(at+6)!=256)throw new IOException("Invalid controller texture");
-                verify(Arrays.copyOfRange(bank,at+16,at+16+artwork.length),priorGuide?"0923575f09ce5becc3a7e1109d9a81f914193f4d2b014056cbcfc724a554b036":"4323af5236c457ac783af92a359166d544cab6549e4c4ee940a55ebaad2d561d");
+                   header.getShort(at+4)!=512 || header.getShort(at+6)!=256)throw new IOException("Invalid loading backdrop");
                 System.arraycopy(artwork,0,bank,at+16,artwork.length);matches++;
             }
-            if(matches!=1)throw new IOException("Missing Xbox controller artwork");
-            outer=replace(outer,group,replace(screen,bankName,bank));
+            if(matches!=1)throw new IOException("Missing loading backdrop");
+            String layoutName=stem+".apt";
+            byte[] layout=ThorLoadingGuide.compose(TraxArt.inflate(member(screen,layoutName),2*1024*1024),variant);
+            outer=replace(outer,group,replace(replace(screen,layoutName,layout),bankName,bank));
         }
         byte[] result=Arrays.copyOf(outer,outer.length+(priorGuide?0:stamp.length));
         System.arraycopy(stamp,0,result,result.length-VERSION.length-stamp.length,stamp.length);

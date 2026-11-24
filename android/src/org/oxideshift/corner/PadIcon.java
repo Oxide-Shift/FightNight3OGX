@@ -9,7 +9,7 @@ final class PadIcon extends View {
     enum Cap {
         A(0xffbfd674,0xff36531a), B(0xffee7960,0xff7a2018), X(0xff83badf,0xff184f73),
         Y(0xfff7d56c,0xff946b16), LEFT(0xffaa9781,0xff44382c), RIGHT(0xffaa9781,0xff44382c),
-        LB(0xffaeaaa0,0xff534e48), RB(0xffaeaaa0,0xff534e48);
+        LB(0xffaeaaa0,0xff534e48), RB(0xffaeaaa0,0xff534e48), START(0xffb9b4aa,0xff534e48);
         final int light, dark;
         Cap(int light,int dark){this.light=light;this.dark=dark;}
     }
@@ -53,6 +53,11 @@ final class PadIcon extends View {
             ink.setColor(0xffffedcf);ink.setStrokeWidth(2.4f);ink.setStrokeCap(Paint.Cap.ROUND);
             canvas.drawLine(12,18,25,18,ink);canvas.drawLine(12,18,17,13,ink);
             canvas.drawLine(12,18,17,23,ink);canvas.restore();canvas.restore();return;
+        }
+        if(cap==Cap.START){
+            ink.setColor(0xffffedcf);Path play=new Path();
+            play.moveTo(16,11);play.lineTo(25,18);play.lineTo(16,25);play.close();canvas.drawPath(play,ink);
+            canvas.restore();return;
         }
         ink.setTextSize(shoulder?14:21);
         float baseline=18.5f-(ink.ascent()+ink.descent())/2;

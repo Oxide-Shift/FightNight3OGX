@@ -30,7 +30,7 @@ def main():
         paths=[TESTS/(name+".java") for name in java_suites+["LinkSmoke","DiscInstallSmoke"]]
         run([javac,"--release","8","-encoding","UTF-8","-cp",args.android_jar,"-d",out,*JAVA.glob("*.java"),*paths])
         cp=os.pathsep.join(map(str,(out,args.android_jar)))
-        frames=[f for d in args.frames for f in sorted(d.glob("*.raw")) if f.name.startswith(("boxer","main","round","career-central","contract-"))]
+        frames=[f for d in args.frames for f in sorted(d.glob("*.raw")) if f.name.startswith(("boxer","main","round","career-central","contract-","editor-"))]
         for name in java_suites:
             run([java,"-cp",cp,"org.oxideshift.corner."+name,*(frames if name=="RingsidePromptSmoke" else [])])
         run([java,"-cp",cp,"org.oxideshift.corner.DiscInstallSmoke",args.build/"default.xbe"])

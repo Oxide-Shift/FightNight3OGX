@@ -56,6 +56,24 @@ final class RingsidePromptSmoke {
             ByteBuffer pixels=ByteBuffer.wrap(Files.readAllBytes(Paths.get(path))).order(ByteOrder.LITTLE_ENDIAN);
             LiveFrame frame=new LiveFrame(pixels,pixels.getInt(0),pixels.getInt(4),1,true);
             String capture=Paths.get(path).getFileName().toString();
+            if(capture.startsWith("editor-")){
+                int page=capture.contains("chooser")?1:capture.contains("info")?2:4;
+                BroadcastCues cues=new BroadcastCues();cues.read(frame);
+                boolean showing=BoxerEditor.showing(CareerDesk.find("cac",page),frame,cues);
+                check(showing!=capture.contains("dialog"),"Editor or dimmed dialog: "+capture);
+                BoxerEditor field=new BoxerEditor();
+                check(field.dialog(frame)==capture.contains("dialog"),"Confirmation control on "+capture);
+                if(!showing)check(field.left>210 && field.right<260 && field.top>225 && field.bottom<271,
+                        "Confirmation prompt must stay clear of the question and answer text");
+                check(!BoxerEditor.showing(CareerDesk.find("cac",9),frame,cues),"Career setup owns its prompts");
+                if(showing){
+                    check(field.field(frame,page),"Missing field control on "+capture);
+                    check(field.select==(page==1 || capture.contains("info-name")),"Wrong field action on "+capture);
+                    check(page==1?field.closingArrow>=215 && field.closingArrow<=226:BoxerEditor.shoulders(frame),"Editor tab or chooser legends: "+capture);
+                    if(capture.contains("nickname"))check(field.top>=276 && field.bottom<=302,"Field mask touched the label above the nickname");
+                }
+                continue;
+            }
             boolean gallery=frame.scene(false)==LiveFrame.Scene.MENU && new MenuContext().mainMenu(frame);
             check(gallery==capture.startsWith("main"),"Achievements availability on "+capture);
             boolean scout=capture.startsWith("contract-offer");

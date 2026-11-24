@@ -41,13 +41,13 @@ final class AchievementDisplay {
 
     AchievementDisplay(Activity activity,FrameLayout top,DiscFonts fonts,java.util.function.Supplier<android.graphics.Bitmap[]> artwork,CornerSession session,File game,boolean wide,Runnable neutralPad){
         this.wide=wide;
-        this.activity=activity;this.top=top;this.artwork=artwork;this.fonts=fonts;this.session=session;this.awards=session.achievements;this.neutralPad=neutralPad;
+        this.activity=activity;this.top=top;this.artwork=artwork;this.fonts=fonts==DiscFonts.FALLBACK?DiscFonts.load(game):fonts;this.session=session;this.awards=session.achievements;this.neutralPad=neutralPad;
         sounds=new SoundPool.Builder().setMaxStreams(3).setAudioAttributes(new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_GAME).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()).build();
         sounds.setOnLoadCompleteListener((pool,id,status)->loaded(id,status));
         chime=load("corner_unlock");soundLoading=chime!=0;
         new Thread(()->{
-            try{transition=new MenuTransition(game,DiscFonts.load(game).stencil);}
+            try{transition=new MenuTransition(game,this.fonts.stencil);}
             catch(IOException | RuntimeException e){android.util.Log.w("FightNight","Disc menu transition unavailable",e);}
             loadMenu(game);
         },"Fight Night front end").start();

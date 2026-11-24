@@ -2,7 +2,7 @@ package org.oxideshift.corner;
 
 /** Finds the retail menu's controller ribbon and EA Trax card in guest scanout coordinates. */
 final class BroadcastCues {
-    static final int NONE=0, FOOTER=1, TRACK=2, CUTMAN=3, MANUAL=4;
+    static final int NONE=0, FOOTER=1, TRACK=2, CUTMAN=3, MANUAL=4, EDITOR=5, EDITOR_DIALOG=6;
     static final int RETIRE=4, ALL_PROMPTS=31;
     static final int SCOUT_CARD=1<<16;
     static final CornerControls.Key[] KEYS={CornerControls.Key.A,CornerControls.Key.B,CornerControls.Key.X,CornerControls.Key.Y,CornerControls.Key.X};

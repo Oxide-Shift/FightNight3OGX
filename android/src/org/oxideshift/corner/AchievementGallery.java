@@ -67,9 +67,9 @@ final class AchievementGallery extends LinearLayout {
             LayoutParams size=new LayoutParams(dp(c,wide?108:79),dp(c,wide?75:56));size.rightMargin=dp(c,10);mast.addView(logo,size);
         }
         LinearLayout heading=stack(c);mast.addView(heading,new LayoutParams(0,-2,1));
-        TextView title=text(c,music==null?"ACHIEVEMENTS":"MUSIC",wide?42:30,GOLD,f.title);
-        title.setTextScaleX(.91f);title.setShadowLayer(dp(c,3),dp(c,2),dp(c,3),0xff150502);heading.addView(title);
-        tally=text(c,"",13,PAPER,f.body);tally.setShadowLayer(2,1,1,0xff130501);heading.addView(tally);
+        TextView title=text(c,music==null?"ACHIEVEMENTS":"MUSIC",wide?42:30,GOLD,f.stencil);
+        title.setShadowLayer(dp(c,3),dp(c,2),dp(c,3),0xff150502);heading.addView(title);
+        tally=text(c,"",13,PAPER,f.stencil);tally.setShadowLayer(2,1,1,0xff130501);heading.addView(tally);
         if(music!=null){
             tally.setText("EA TRAX");
             // Only a music row owns controller focus. Keep the scrollable area tight to the rows
@@ -99,7 +99,7 @@ final class AchievementGallery extends LinearLayout {
             if(index%perRow==0){line=new LinearLayout(c);nav.addView(line);}
             int have=0,total=0;
             for(Achievements.Award a:Achievements.Award.values())if(a.category==category){total++;if(awards.earned(a))have++;}
-            TextView tab=text(c,category.title.toUpperCase(java.util.Locale.ROOT)+"\n"+have+"/"+total,wide?15:13,PAPER,f.title);
+            TextView tab=text(c,category.title.toUpperCase(java.util.Locale.ROOT)+"\n"+have+"/"+total,wide?15:13,PAPER,f.stencil);
             tab.setGravity(Gravity.CENTER);tab.setMinHeight(dp(c,wide?42:36));
             tab.setSoundEffectsEnabled(false);tab.setOnClickListener(v->showCategory(index));
             tab.setContentDescription(category.title+", "+have+" of "+total+" earned");
@@ -148,8 +148,8 @@ final class AchievementGallery extends LinearLayout {
                     new int[]{0xff2d1008,0xff220c05,0xff1b0804}));
             setBackground(background);
             LinearLayout label=stack(c);addView(label,new LayoutParams(0,-2,1));
-            title=text(c,OPTIONS[index].toUpperCase(java.util.Locale.ROOT),wide?25:21,PAPER,fonts.title);
-            label.addView(title);label.addView(text(c,DESCRIPTIONS[index],wide?16:14,SILVER,fonts.body));
+            title=text(c,OPTIONS[index].toUpperCase(java.util.Locale.ROOT),wide?25:21,PAPER,fonts.stencil);
+            label.addView(title);label.addView(text(c,DESCRIPTIONS[index],wide?16:14,SILVER,fonts.stencil));
             state=text(c,"",21,SILVER,fonts.stencil);pad(state,8,2);addView(state);
             setOnFocusChangeListener((v,focused)->{if(focused)selectMusic(index);});
             setOnClickListener(v->toggleMusic(index));
@@ -206,10 +206,10 @@ final class AchievementGallery extends LinearLayout {
             line.addView(row,slot);
             row.addView(new Medal(c,earned,a),new LayoutParams(dp(c,34),dp(c,40)));
             LinearLayout copy=stack(c);copy.setPadding(dp(c,8),0,0,0);row.addView(copy,new LayoutParams(0,-2,1));
-            TextView name=text(c,a.title.toUpperCase(java.util.Locale.ROOT),19,earned?GOLD:0xffffe8c1,fonts.title);
+            TextView name=text(c,a.title.toUpperCase(java.util.Locale.ROOT),19,earned?GOLD:0xffffe8c1,fonts.stencil);
             name.setShadowLayer(1,0,1,0xff24160c);copy.addView(name);
-            copy.addView(text(c,a.goal,15,SILVER,fonts.body));
-            if(a.points>0)row.addView(text(c,"\u25c6 "+a.points,15,GOLD,fonts.body));
+            copy.addView(text(c,a.goal,15,SILVER,fonts.stencil));
+            if(a.points>0)row.addView(text(c,"\u25c6 "+a.points,15,GOLD,fonts.stencil));
             row.setContentDescription(a.title+". "+(a.points>0?a.points+" Fight Score. ":"")+(earned?"Earned. ":"Locked. ")+a.goal);
             row.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         }
@@ -300,9 +300,9 @@ final class AchievementGallery extends LinearLayout {
         LinearLayout words=stack(c);words.setPadding(dp(c,9),0,0,0);
         int labelWidth=Math.max(1,Math.min(dp(c,300),hostWidth-dp(c,72)));
         banner.addView(words,new LayoutParams(labelWidth,LayoutParams.WRAP_CONTENT));
-        TextView kicker=text(c,"ACHIEVEMENT UNLOCKED   \u25c6 "+a.points,12,GOLD,f.body);kicker.setLetterSpacing(.08f);words.addView(kicker);
+        TextView kicker=text(c,"ACHIEVEMENT UNLOCKED   \u25c6 "+a.points,12,GOLD,f.stencil);kicker.setLetterSpacing(.08f);words.addView(kicker);
         words.addView(text(c,a.title,22,PAPER,f.stencil));
-        TextView deed=text(c,a.deed,15,SILVER,f.body);
+        TextView deed=text(c,a.deed,15,SILVER,f.stencil);
         words.addView(deed);
         banner.setContentDescription("Achievement unlocked. "+a.title+". "+a.deed+" "+a.points+" Fight Score.");return banner;
     }

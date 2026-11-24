@@ -43,7 +43,10 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
     private final float[] starts=new float[4],ends=new float[4];
     private volatile int lowerRoute;
     private int renderedRoute;
+    private int evaluatedRoute;
     private final BroadcastCues cues=new BroadcastCues();
+    private final BoxerEditor editor=new BoxerEditor();
+    private int tabBounds,fieldBounds,footerTop;
     final SceneFrameTimes timing=new SceneFrameTimes();
     private boolean routeRedraw;
     void lowerShows(int route){
@@ -117,8 +120,10 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
     }
     @Override public void onSurfaceCreated(GL10 gl,EGLConfig config){
         String vertex="attribute vec2 pos;uniform float crop,center;uniform vec3 steady;varying vec2 uv;void main(){gl_Position=vec4(pos,0.,1.);uv=vec2(.5+.5*pos.x,center-.5*pos.y*crop);uv=.5+(uv-.5)*(1.-steady.z)+steady.xy;}";
-        String fragment="precision highp float;varying vec2 uv;uniform sampler2D tex;uniform vec2 stepUV;uniform vec4 patchUV;uniform vec4 starts,ends;void main(){vec2 at=uv;"
-            +"if(uv.y>.8645 && uv.y<.9167){vec4 x=vec4(uv.x);if(any(bvec4((x.x>starts.x&&x.x<ends.x),(x.y>starts.y&&x.y<ends.y),(x.z>starts.z&&x.z<ends.z),(x.w>starts.w&&x.w<ends.w))))at.y=1.8334-uv.y;}"
+        String fragment="precision highp float;varying vec2 uv;uniform sampler2D tex;uniform vec2 stepUV;uniform vec4 patchUV,tabUV,fieldUV;uniform vec4 starts,ends;uniform float footerTop;void main(){vec2 at=uv;"
+            +"if(uv.x>tabUV.x && uv.x<tabUV.y && uv.y>tabUV.z && uv.y<tabUV.w)at.x=tabUV.y;"
+            +"if(uv.x>fieldUV.x && uv.x<fieldUV.y && uv.y>fieldUV.z && uv.y<fieldUV.w)at.x=fieldUV.y;"
+            +"if(uv.y>footerTop && uv.y<.9167){vec4 x=vec4(uv.x);if(any(bvec4((x.x>starts.x&&x.x<ends.x),(x.y>starts.y&&x.y<ends.y),(x.z>starts.z&&x.z<ends.z),(x.w>starts.w&&x.w<ends.w))))at.y=1.8334-uv.y;}"
             +"vec3 c=texture2D(tex,at).bgr;";
         if(quality==2 || quality==3) fragment+="vec3 n=texture2D(tex,at+vec2(stepUV.x,0.)).bgr+texture2D(tex,at-vec2(stepUV.x,0.)).bgr+texture2D(tex,at+vec2(0.,stepUV.y)).bgr+texture2D(tex,at-vec2(0.,stepUV.y)).bgr;c=clamp(c*1.32-n*.08,0.,1.);";
         // Reconstruct the paper from both clean edges at the same horizontal position.
@@ -139,6 +144,8 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
         cropUniform=GLES20.glGetUniformLocation(program,"crop");
         centerUniform=GLES20.glGetUniformLocation(program,"center");
         patchBounds=GLES20.glGetUniformLocation(program,"patchUV");
+        tabBounds=GLES20.glGetUniformLocation(program,"tabUV");fieldBounds=GLES20.glGetUniformLocation(program,"fieldUV");
+        footerTop=GLES20.glGetUniformLocation(program,"footerTop");
         ribbonStart=GLES20.glGetUniformLocation(program,"starts");ribbonEnd=GLES20.glGetUniformLocation(program,"ends");
         GLES20.glGenTextures(2,textures,0);
         int target=GLES20.GL_TEXTURE_2D,mode=quality==0?GLES20.GL_NEAREST:GLES20.GL_LINEAR;
@@ -149,7 +156,7 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
             GLES20.glTexParameteri(target,GLES20.GL_TEXTURE_WRAP_T,GLES20.GL_CLAMP_TO_EDGE);
         }
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-        renderedRoute=BroadcastCues.NONE;
+        evaluatedRoute=renderedRoute=BroadcastCues.NONE;
         widths[0]=widths[1]=0;serial=0;hasFrame=false;presented=0;since=SystemClock.elapsedRealtime();
         GLES20.glVertexAttribPointer(0,2,GLES20.GL_FLOAT,false,0,quad);GLES20.glEnableVertexAttribArray(0);
         GLES20.glClearColor(0,0,0,1);
@@ -176,7 +183,16 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
     private void matchLower(LiveFrame frame){
         int request=lowerRoute, want=request&255, visible=0, actual=BroadcastCues.NONE;
         if(want!=BroadcastCues.NONE && frame!=null){
-            if(want==BroadcastCues.FOOTER){
+            if(want==BroadcastCues.EDITOR_DIALOG){
+                CareerDesk.Page page=session.career.page;
+                if(BoxerEditor.handles(page) && page.index==(request>>>8) && editor.dialog(frame))actual=want;
+            }else if(want==BroadcastCues.EDITOR){
+                CareerDesk.Page page=session.career.page;
+                cues.read(frame);
+                if(BoxerEditor.handles(page) && page.index==(request>>>8) && BoxerEditor.showing(page,frame,cues)){
+                    actual=want;visible=page.index==1?cues.mask&11:8;
+                }
+            }else if(want==BroadcastCues.FOOTER){
                 cues.read(frame);visible=cues.knownPrompts(frame,request>>>8);
                 if(visible!=0)actual=want;
             }else{
@@ -193,12 +209,29 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
         // Continue its unprinted portion across only the commands sent below.
         for(int i=0;i<4;i++){
             int legend=i==2 && (visible&(1<<BroadcastCues.RETIRE))!=0?BroadcastCues.RETIRE:i;
-            boolean routed=actual==BroadcastCues.FOOTER && (visible&(1<<legend))!=0;
+            boolean routed=(actual==BroadcastCues.FOOTER || actual==BroadcastCues.EDITOR) && (visible&(1<<legend))!=0;
             starts[i]=routed?frame.sourceX(cues.centers[legend]-12)/640f:0;
             ends[i]=routed?frame.sourceX(Math.min(640,cues.centers[legend]+FooterLegend.RIGHT[legend]))/640f:0;
         }
+        boolean editing=actual==BroadcastCues.EDITOR;
+        GLES20.glUniform1f(footerTop,editing?418/480f:.8645f);
+        boolean tabs=editing && (request>>>8)>1;
+        if(tabs){
+            int start=BoxerEditor.startCenter(cues.centers[3]);
+            starts[0]=frame.sourceX(Math.max(start-13,cues.trackRight))/640f;
+            ends[0]=frame.sourceX(start+91)/640f;
+        }
+        boolean field=editing && editor.field(frame,request>>>8);
+        if(tabs && BoxerEditor.shoulders(frame))
+            GLES20.glUniform4f(tabBounds,frame.sourceX(57)/640f,frame.sourceX(132)/640f,140/480f,158/480f);
+        else if(field && editor.closingArrow>0)
+            GLES20.glUniform4f(tabBounds,frame.sourceX(editor.closingArrow-11)/640f,frame.sourceX(editor.closingArrow+6)/640f,editor.top/480f,editor.bottom/480f);
+        else GLES20.glUniform4f(tabBounds,0,0,0,0);
+        if(field || actual==BroadcastCues.EDITOR_DIALOG)
+            GLES20.glUniform4f(fieldBounds,frame.sourceX(editor.left)/640f,frame.sourceX(editor.right)/640f,editor.top/480f,editor.bottom/480f);
+        else GLES20.glUniform4f(fieldBounds,0,0,0,0);
         GLES20.glUniform4fv(ribbonStart,1,starts,0);GLES20.glUniform4fv(ribbonEnd,1,ends,0);
-        renderedRoute=actual;
+        evaluatedRoute=request;renderedRoute=actual;
     }
     private void mapFile(){
         ByteBuffer memory=session.sharedVideo();
@@ -253,7 +286,10 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
                 }
             }
         }
-        if(lowerRoute==BroadcastCues.NONE && renderedRoute!=BroadcastCues.NONE)matchLower(null);
+        if(hasFrame && lowerRoute!=evaluatedRoute){
+            LiveFrame still=lowerRoute==BroadcastCues.NONE?null:latestFrame();
+            if(still==null || still.sequence==serial)matchLower(still);
+        }
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
         if(hasFrame){
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,textures[front]);

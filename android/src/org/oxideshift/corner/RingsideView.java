@@ -38,6 +38,10 @@ final class RingsideView extends LinearLayout {
     private final LinearLayout careerActions;
     private boolean compactCareer;
     private CareerDesk.Page careerPage;
+    private CareerDesk.Page editorPage;
+    private BoxerEditorDesk editorDesk;
+    private final BoxerEditor editorField=new BoxerEditor();
+    private boolean editorDialog;
     private long careerRevision=-1;
     private boolean careerDetails;
     private final MenuTips tips=new MenuTips();
@@ -365,7 +369,7 @@ final class RingsideView extends LinearLayout {
     void follow(GameScreen next,CornerSession owner){
         if(session==owner && screen==next)return;
         if(session!=null){session.lowerCallouts=false;}
-        session=owner;careerBranch=false;careerFocus=-1;announced=null;announcement.clear();
+        session=owner;editorPage=null;careerBranch=false;careerFocus=-1;announced=null;announcement.clear();
         if(screen!=null){screen.lowerShows(BroadcastCues.NONE);screen.timing.suspend();}
         setFilmRunning(false);deskScene.reset();currentPage=null;missingPageReads=0;tips.leave();displayedCamp=null;lastMenuRead=0;screen=next;sequence=0;lastSeen=0;scene=null;footerMask=0;
         lastCard=null;bout=null;fighters=null;drawNames();java.util.Arrays.fill(levels,-1);
@@ -393,6 +397,8 @@ final class RingsideView extends LinearLayout {
         super.onDetachedFromWindow();
     }
     private void build(){
+        if(editorDesk!=null){desk.removeView(editorDesk);editorDesk=null;}
+        scroll.setVisibility(VISIBLE);
         if(cutman!=null){cutman.release();removeView(cutman);cutman=null;}
         menuDock.removeAllViews();menuDock.setVisibility(scene==Scene.MENU && screen!=null?VISIBLE:GONE);
         content.removeAllViews();scroll.scrollTo(0,0);menuHint=null;scouting=null;contract=null;training=null;ledger=null;judgePanel=null;punchPanel=null;punchTiming=null;finishTiming=null;java.util.Arrays.fill(punchCounts,null);
@@ -404,6 +410,13 @@ final class RingsideView extends LinearLayout {
         desk.setVisibility(showingHome?GONE:VISIBLE);desk.setBackground(null);
         boolean intro=!showingHome && scene==Scene.INTRO;
         openingSlate.setVisibility(intro?VISIBLE:GONE);
+        if(!showingHome && editorPage!=null){
+            hero.setVisibility(GONE);rule.setVisibility(GONE);scroll.setVisibility(GONE);
+            fightPanel.setVisibility(GONE);menuDock.setVisibility(GONE);
+            editorDesk=new BoxerEditorDesk(getContext(),headline,editorPage,this::editorCommand);
+            if(editorDialog)editorDesk.showDialog();
+            desk.addView(editorDesk,new FrameLayout.LayoutParams(-1,-1));return;
+        }
         if(intro){
             hero.setVisibility(GONE);rule.setVisibility(GONE);desk.setVisibility(GONE);
             menuDock.setVisibility(GONE);fightPanel.setVisibility(GONE);
@@ -659,6 +672,24 @@ final class RingsideView extends LinearLayout {
         LiveFrame f=screen.latestFrame();
         return f!=null && f.scene(inBout())==scene && screen.current(f)?f:null;
     }
+    private boolean editorCommand(Key key){
+        if(editorDesk==null || !activeView || !isShown() || session==null || session.cabinetOpen ||
+                session.career.page!=editorDesk.page || screen==null)return false;
+        LiveFrame frame=screen.latestFrame();if(frame==null)return false;
+        if(editorDesk.dialog)return (key==Key.A || key==Key.UP || key==Key.DOWN) &&
+                editorField.dialog(frame) && screen.current(frame) && pad.press(key);
+        BroadcastCues fresh=new BroadcastCues();fresh.read(frame);
+        if(!BoxerEditor.showing(editorDesk.page,frame,fresh) || !screen.current(frame))return false;
+        if(key==Key.Y || (key==Key.B && editorDesk.help)){
+            editorDesk.show(!editorDesk.help);return true;
+        }
+        return pad.press(key);
+    }
+    boolean editorHelpKey(int code){
+        if(editorDesk==null || editorDesk.dialog)return false;
+        if(code==KeyEvent.KEYCODE_BUTTON_Y)return editorCommand(Key.Y);
+        return code==KeyEvent.KEYCODE_BUTTON_B && editorDesk.help && editorCommand(Key.B);
+    }
     private void refreshFrame(){
         if(!activeView||!isAttachedToWindow()||screen==null)return;
         syncReadings();
@@ -666,7 +697,9 @@ final class RingsideView extends LinearLayout {
         if(f==null && scene==null && session!=null && session.openingSlate()){scene=Scene.INTRO;build();}
         // A menu can stop publishing frames before its prompts finish settling.
         boolean checkResult=session!=null && session.showingResult() && SystemClock.uptimeMillis()-lastMenuRead>=400;
-        if(f!=null && (f.sequence!=sequence || forceCapture || deskScene.settling() || checkResult))sample(f);
+        boolean changedPage=session!=null && editorPage!=session.career.page &&
+                (editorPage!=null || BoxerEditor.handles(session.career.page) && careerRevision!=session.career.revision);
+        if(f!=null && (f.sequence!=sequence || forceCapture || deskScene.settling() || checkResult || changedPage))sample(f);
         postDelayed(tick,110);
     }
     private void updateLevel(int i,int v){if(levels[i]!=v){levels[i]=v;drawMeter(i);}}
@@ -715,7 +748,14 @@ final class RingsideView extends LinearLayout {
             if(page!=null && "Career Central".equals(page.title))focus=menuContext.careerRow(f);
         }
         if(!screen.current(f)){setFilmRunning(false);return;}
-        setFilmRunning(showingMenu && !inBout() && session!=null && !session.cabinetOpen);
+        CareerDesk.Page activePage=session==null?null:session.career.page;
+        boolean editing=showingMenu && !inBout() && session!=null && !session.cabinetOpen && BoxerEditor.handles(activePage);
+        boolean form=editing && BoxerEditor.showing(activePage,f,cues);
+        boolean dialog=editing && !form && editorField.dialog(f);
+        CareerDesk.Page editor=form || dialog?activePage:null;
+        boolean editorChanged=editorPage!=editor || editorDialog!=dialog;
+        editorPage=editor;editorDialog=dialog;
+        setFilmRunning(editor==null && showingMenu && !inBout() && session!=null && !session.cabinetOpen);
 
         if(readMenu){
             lastMenuRead=sampled;
@@ -744,10 +784,13 @@ final class RingsideView extends LinearLayout {
             if(session.openingSlate())layout=Scene.INTRO;
         }
         if(session!=null && session.showingResult() && next!=Scene.LOADING)layout=Scene.FINAL;
-        CareerDesk.Page activePage=session==null?null:session.career.page;
         if(activePage!=null && activePage.is("drill") && (next==Scene.LOADING || next==Scene.RINGSIDE || next==Scene.ROUND))
             layout=Scene.TRAINING;
-        if(deskScene.observe(layout,mask,now)){scene=deskScene.shown;footerMask=deskScene.prompts;build();}
+        if(editor!=null){layout=Scene.MENU;mask=8;}
+        boolean sceneChanged=deskScene.observe(layout,mask,now);
+        if(sceneChanged || editorChanged){scene=deskScene.shown;footerMask=deskScene.prompts;build();}
+        if(editorDesk!=null && !editorDesk.dialog && editorDesk.page.index==2)
+            editorDesk.nameField(editorField.field(f,2) && editorField.select);
         screen.timing.observe(next,session==null?0:session.boutNumber(),card==null?0:card.round,
                 card!=null && card.round>0 && card.last()==card.round,layout==Scene.FINAL);
         int route=scene==next?cues.route(next):BroadcastCues.NONE;
@@ -756,6 +799,8 @@ final class RingsideView extends LinearLayout {
         if((route&255)==BroadcastCues.FOOTER && contract!=null && contract.getVisibility()==VISIBLE &&
                 careerPage!=null && careerPage.index==1 && session!=null && careerPage==session.career.page &&
                 session.career.selectedOffer()!=null && f.scoutPrompt())route|=BroadcastCues.SCOUT_CARD;
+        if(BoxerEditor.handles(activePage))route=editorDesk!=null && editorDesk.page==activePage?
+                (editorDesk.dialog?BroadcastCues.EDITOR_DIALOG:BroadcastCues.EDITOR)|(activePage.index<<8):BroadcastCues.NONE;
         screen.lowerShows(route);
     }
 

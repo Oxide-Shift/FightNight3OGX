@@ -6,7 +6,7 @@ Play the original Xbox edition of *Fight Night Round 3* on Android. On an AYN Th
 
 **[Download the Android APK](https://github.com/Oxide-Shift/FightNight3OGX/releases)** · [Getting started](#getting-started) · [Bring your career save](#bring-your-career-save)
 
-<p align="center"><img src="https://github.com/user-attachments/assets/90765b19-7ffa-48f5-ae24-0e335ce2af6a" width="640" alt="Gatti and Ward trade punches on the upper screen. The lower screen shows the round clock, stamina and punches landed and thrown for each boxer."></p>
+<p align="center"><img src="docs/screenshots/fight-hud.jpg" width="640" alt="Gatti and Ward exchange punches with 30 seconds left in round one. Their lower-screen cards show blue and red health bars, gold stamina bars and punch totals."></p>
 
 ## What do you get over emulation?
 
