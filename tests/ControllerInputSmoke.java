@@ -24,11 +24,15 @@ public class ControllerInputSmoke {
             pad.clear();check(pad.report().equals(neutral));
         }
         check(!pad.key(9,InputDevice.SOURCE_KEYBOARD,KeyEvent.KEYCODE_BUTTON_Y,true));
-        for(int[] b:new int[][]{{gamepad,KeyEvent.KEYCODE_BACK},{InputDevice.SOURCE_KEYBOARD,KeyEvent.KEYCODE_BUTTON_B}}){
+        for(int[] b:new int[][]{{gamepad,KeyEvent.KEYCODE_BUTTON_B},{InputDevice.SOURCE_KEYBOARD,KeyEvent.KEYCODE_BUTTON_B}}){
             check(pad.key(9,b[0],b[1],true) && value(pad.report(),3)==255);
             check(pad.key(9,b[0],b[1],false) && pad.report().equals(neutral));
         }
-        check(!pad.key(9,InputDevice.SOURCE_KEYBOARD,KeyEvent.KEYCODE_BACK,true));
+        for(int source:new int[]{gamepad,InputDevice.SOURCE_KEYBOARD,InputDevice.SOURCE_JOYSTICK}){
+            check(!pad.key(9,source,KeyEvent.KEYCODE_BACK,true));
+            check(!pad.key(9,source,KeyEvent.KEYCODE_BACK,false));
+            check(neutral.equals(pad.report()));
+        }
         check(value(pad.report(CornerControls.Key.BACK,false,0,0),0)==32);
         for(int level=0;level<=3;level++){
             check(PadRumble.amplitude(65535,level)==new int[]{0,89,166,255}[level]);

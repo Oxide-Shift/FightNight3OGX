@@ -153,6 +153,12 @@ final class MenuContext {
         }
         return found;
     }
+    static Page root(int index){
+        if(index>=0 && index<=4)return PAGES[index];
+        if(index==5)return ACHIEVEMENTS;
+        if(index==6)return MUSIC;
+        return index==7?PAGES[5]:null;
+    }
     static boolean isMain(Page selection){
         if(selection==ACHIEVEMENTS || selection==MUSIC)return true;
         // The last two carousel captions belong to the Game Modes submenu.

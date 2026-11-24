@@ -226,7 +226,7 @@ final class AchievementGallery extends LinearLayout {
     }
     boolean handleKey(KeyEvent event,boolean transitioning){
         int code=event.getKeyCode();
-        if(code==KeyEvent.KEYCODE_BACK || code==KeyEvent.KEYCODE_BUTTON_B){
+        if(code==KeyEvent.KEYCODE_BUTTON_B){
             if(event.getAction()==KeyEvent.ACTION_UP && !event.isCanceled())close.run();
             return true;
         }

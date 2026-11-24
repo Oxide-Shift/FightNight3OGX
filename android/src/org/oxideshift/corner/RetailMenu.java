@@ -12,6 +12,7 @@ final class RetailMenu {
     private static final String GROUP="screengroups/mainmenu/mainmenu.big";
     private static final byte[] LEGACY=ascii("FNR3-ACHIEVEMENTS-1"), PRE_BRAND=ascii("FNR3-ACHIEVEMENTS-2"), FIRST_BRAND=ascii("FNR3-ACHIEVEMENTS-3"), SLOPED_BRAND=ascii("FNR3-ACHIEVEMENTS-4"), PRE_PAUSE=ascii("FNR3-ACHIEVEMENTS-5"), VERSION=ascii("FNR3-ACHIEVEMENTS-6");
     private static final byte[] MUSIC_ROUTE=ascii("FNR3-ACHIEVEMENTS-7");
+    private static final byte[] NAVIGATION=ascii("FNR3-ACHIEVEMENTS-8");
     private static final int ALIGN=128;
 
     private static byte[] ascii(String s){return s.getBytes(StandardCharsets.US_ASCII);}
@@ -127,7 +128,7 @@ final class RetailMenu {
         }
         byte[] outer=Files.readAllBytes(archive);
         byte[] menuStamp=Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length);
-        if(!Arrays.equals(menuStamp,VERSION) && !Arrays.equals(menuStamp,MUSIC_ROUTE))
+        if(!Arrays.equals(menuStamp,VERSION) && !Arrays.equals(menuStamp,MUSIC_ROUTE) && !Arrays.equals(menuStamp,NAVIGATION))
             throw new IOException("Install the retail menu first");
         for(String variant:new String[]{"CM","CR","HH","PN","Training","Tutorial"}){
             String stem="lp-"+variant+"-ContConfig",group="screengroups/load/"+stem+".big",bankName=stem+".xsh";
@@ -198,11 +199,12 @@ final class RetailMenu {
         try(RandomAccessFile f=new RandomAccessFile(archive.toFile(),"r")){
             if(f.length()<VERSION.length || f.length()>48L*1024*1024)throw new IOException("Unrecognized overlay archive");
             byte[] tail=new byte[VERSION.length];f.seek(f.length()-tail.length);f.readFully(tail);
-            if(Arrays.equals(tail,MUSIC_ROUTE))return;
+            if(Arrays.equals(tail,NAVIGATION))return;
         }
         byte[] outer=Files.readAllBytes(archive);
-        if(Arrays.equals(Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length),VERSION)){
-            writeArchive(archive,musicRoute(outer));return;
+        byte[] installed=Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length);
+        if(Arrays.equals(installed,MUSIC_ROUTE) || Arrays.equals(installed,VERSION)){
+            writeArchive(archive,navigation(Arrays.equals(installed,VERSION)?musicRoute(outer):outer));return;
         }
         boolean legacy=Arrays.equals(Arrays.copyOfRange(outer,outer.length-LEGACY.length,outer.length),LEGACY);
         byte[] stage=Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length);
@@ -243,7 +245,7 @@ final class RetailMenu {
         }
         if(found!=1)throw new IOException("Missing pause title");
         result=replace(result,pauseGroup,replace(pause,"pausemenu.xsh",textures));
-        writeArchive(archive,musicRoute(Arrays.copyOf(result,result.length+VERSION.length)));
+        writeArchive(archive,navigation(musicRoute(Arrays.copyOf(result,result.length+VERSION.length))));
     }
 
     private static byte[] musicRoute(byte[] outer)throws IOException{
@@ -281,6 +283,55 @@ final class RetailMenu {
         byte[] result=replace(outer,optionsName,options==packed?updated:repack(packed,updated));
         System.arraycopy(MUSIC_ROUTE,0,result,result.length-MUSIC_ROUTE.length,MUSIC_ROUTE.length);
         little(result).putInt(4,result.length);return result;
+    }
+
+    private static byte[] navigation(byte[] outer)throws IOException{
+        outer=patchNavigation(outer,"mainmenu","fcbc7ae286895fa8e4ffd58ad9e9bd585dc6fd532e1112428eee7368d78856f4");
+        // B takes the same autosave path as selecting the Options Exit row.
+        outer=patchNavigation(outer,"options","575442f079ed7a8e9d4b51dea6fd4ea8a0a947f2078024378ec46fe5fefda095",0xe9e4,0xedec);
+        // All editor tabs share Start's existing Accept Changes confirmation.
+        outer=patchNavigation(outer,"cac","05d67ac6f5afbee52474cbe004fec1b65930e836e45aa20ce365e862396575e6",0x12668,0x12738);
+        // Leave Select Controller without applying a pending reassignment.
+        outer=patchNavigation(outer,"pausemenu","638e8413f7950b99ce9ded98a14689762670023e7983bebac4089d613a4f3c43",0x9dc8,0x9f7b);
+        outer=patchNavigation(outer,"train","893e69818ce7f3105971530ad5c4c1a0ab0913fef50306a6a19dd0c8c2233066",0x94e0,0x9574);
+        // This screen's Advance handler commits a value before going back. Cancel skips the commit.
+        outer=patchNavigation(outer,"mcon","2edf8ab0d2bedad79c2c6ec53de1e2e28c56ccb3b50e2b925cddbf9decc3f916",0x63d4,0x645c);
+        System.arraycopy(NAVIGATION,0,outer,outer.length-NAVIGATION.length,NAVIGATION.length);
+        return outer;
+    }
+
+    private static byte[] patchNavigation(byte[] outer,String group,String hash,int... branches)throws IOException{
+        String name="screengroups/"+group+"/"+group+".big",script=group+".apt";
+        byte[] packed=member(outer,name), unpacked=TraxArt.inflate(packed,2*1024*1024);
+        byte[] data=member(unpacked,script);
+        verify(data,hash);
+        ByteBuffer code=little(data);
+        for(int i=0;i<branches.length;i+=2)code.putInt(branches[i],branches[i+1]-branches[i]-4);
+        if(group.equals("mainmenu"))publishHover(data,code);
+        byte[] updated=replace(unpacked,script,data);
+        return replace(outer,name,packed==unpacked?updated:repack(packed,updated));
+    }
+
+    private static void publishHover(byte[] data,ByteBuffer code){
+        // Preserve the arguments to menu.setup and report the actual restored row on entry.
+        byte[] selected=Arrays.copyOfRange(data,0xcb58,0xcb60); // .mainSelection.num
+        int rowArguments=code.getInt(0xcb68); // consecutive retail constants for registers 3 and 4
+        code.position(0xcb4f);
+        code.put((byte)0x59).put((byte)0x43).put((byte)0xa3).putShort((short)303);
+        code.put((byte)0x56).put(selected).put((byte)0x4f);
+        code.put((byte)0x56).put(selected);
+        // initGuiMainMenu preloads this in register 1. A stock multi-value PUSH
+        // supplies the original two registers in order as the remaining setup arguments.
+        code.put((byte)0x96);code.position((code.position()+3)&~3);
+        code.putInt(2).putInt(rowArguments).put((byte)0xb5).put((byte)3);
+        jump(code,0x99,0xcb7a);
+        // Both retail scroll handlers now read menu.getSelection() after the move.
+        // On original Xbox the platform test skips this Xenon sign-in diagnostic block.
+        for(int pos:new int[]{0xcd05,0xcd19}){code.position(pos);jump(code,0x99,0xce50);}
+        code.position(0xce50);
+        code.put((byte)0x59).put((byte)0x43).put((byte)0xa3).putShort((short)303);
+        code.put(data,0xcd50,14).put((byte)0x4f);
+        jump(code,0x99,0xd114);
     }
 
     // Preserve the retail RefPack matches wherever the changed script still permits them.

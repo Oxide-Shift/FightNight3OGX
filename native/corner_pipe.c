@@ -22,6 +22,8 @@ extern int pad_message(const char *);
 static int answer_ping(const char *line) {
 #ifdef __ANDROID__
     if (!strncmp(line,"SLEEP ",6) && line[6] && line[7]=='\n') {
+        extern void fight_pad_suspend_menu(void);
+        fight_pad_suspend_menu();
         fight_audio_sleep(1);
         send(STDIN_FILENO,line+6,1,MSG_NOSIGNAL);
         return 1;

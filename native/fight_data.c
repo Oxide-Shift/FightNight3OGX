@@ -237,10 +237,27 @@ void fight_career_property(uint32_t key,uint32_t value) {
     extern void fight_service_menu_cancel(void),fight_bind_menu_thread(void);
     fight_service_menu_cancel();
 #endif
-    const uint8_t *k=guest(key,32),*v=guest(value,12);
-    if(!k || !v)return;
+    const uint8_t *k=guest(key,32);
+    if(!k || (k[8]|32)!='m' || k[9]!='_')return;
+    int screen=same_property(k+8,"m_sCurrentScreenId");
+    int trophy=!screen && same_property(k+8,"m_trophyId");
+    int trainer=!screen && !trophy && same_property(k+8,"m_trainerActualCost");
+    if(!screen && !trophy && !trainer)return;
+    const uint8_t *v=guest(value,12);
+    if(!v)return;
     uint32_t type=word(v+4)>>25;
-    if(same_property(k+8,"m_sCurrentScreenId")){
+    if(screen){
+        // The imported root carousel publishes its selected index on a temporary object.
+        if(type==7 || type==6){
+            unsigned index=word(v+8);
+            if(type==6){
+                float f;memcpy(&f,v+8,sizeof f);
+                if(!(f>=0 && f<8) || (float)(unsigned)f!=f)return;
+                index=(unsigned)f;
+            }
+            if(index<8){printf("FNR3/1 MAINHOVER %u\n",index);fflush(stdout);}
+            return;
+        }
         const uint8_t *s=type==1?guest(word(v+8),72):NULL;
         const char *page=s && memchr(s+8,0,64)?(const char *)s+8:NULL;
 #ifdef __ANDROID__
@@ -248,7 +265,22 @@ void fight_career_property(uint32_t key,uint32_t value) {
 #endif
         if(page && !strcmp(page,"fnr3/achievements")){puts("FNR3/1 CABINET OPEN");fflush(stdout);}
         else if(page && !strcmp(page,"fnr3/music")){puts("FNR3/1 MUSICMENU OPEN");fflush(stdout);}
-        else career_page(page);
+        else {
+            static int previous=-1;
+            if(page && strlen(page)>1 && !strncmp(page+1,"screengroups/",13)){
+                int front=!strcmp(page,"2screengroups/mainmenu/mainmenu")?1:
+                          !strcmp(page,"5screengroups/options/options")?2:0;
+                if(previous!=front){
+                    previous=front;
+#ifdef __ANDROID__
+                    extern void fight_pad_menu(int enabled);
+                    fight_pad_menu(front==1);
+#endif
+                    printf("FNR3/1 FRONT %d\n",front);fflush(stdout);
+                }
+            }
+            career_page(page);
+        }
         return;
     }
     if(!career_mode())return;
@@ -258,9 +290,9 @@ void fight_career_property(uint32_t key,uint32_t value) {
         float f;memcpy(&f,v+8,sizeof f);
         if(f>=0 && f<1000000000.0f)number=(int)f;
     }
-    if(same_property(k+8,"m_trophyId")){
+    if(trophy){
         printf("FNR3/1 TROPHY %d\n",number);fflush(stdout);
-    }else if(same_property(k+8,"m_trainerActualCost")){
+    }else if(trainer){
         printf("FNR3/1 TRAINER %d %d\n",number,(int)career_wallet());fflush(stdout);
     }
 }

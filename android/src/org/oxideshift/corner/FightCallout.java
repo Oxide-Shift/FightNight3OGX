@@ -13,7 +13,7 @@ final class FightCallout {
     private final Path swipe=new Path(), flecks=new Path();
     private String words;
     private long started;
-    private final Random strikes=new Random();
+    private int impactCorner;
     private int direction;
     private boolean count;
 
@@ -31,7 +31,11 @@ final class FightCallout {
     void start(String text,long time){
         words=text;started=time;
         count=text.length()<=2 && Character.isDigit(text.charAt(0));
-        if(!count)direction=(direction+1+strikes.nextInt(3))%4;
+        if(text.startsWith("STAGGER") || text.startsWith("KNOCK") || text.startsWith("DOWN")){
+            // Walk around the four corners. Consecutive strikes have opposite slopes.
+            direction=impactCorner^(impactCorner>>1);
+            impactCorner=(impactCorner+1)&3;
+        }else if(!count)direction^=1;
     }
     void clear(){words=null;}
     boolean draw(Canvas c,int w,int h,Typeface stencil,long now){
@@ -42,7 +46,7 @@ final class FightCallout {
         float fade=Math.min(1f,(DURATION-age)/290f);
         float unit=Math.min(w/122f,h/55f)*(1f+.06f*rush*rush);
         float dx=(direction&1)==0?-1f:1f,dy=(direction&2)==0?-1f:1f;
-        c.save();c.translate(w*.5f+dx*w*.044f*rush*rush,h*.52f+dy*h*.12f*rush*rush);
+        c.save();c.translate(w*.5f+dx*w*.26f*rush*rush,h*.52f+dy*h*.21f*rush*rush);
         c.rotate(count?0f:dx*dy*(4f+3f*rush));c.scale(unit,unit);
         ink.setStyle(Paint.Style.FILL);ink.setColor(0xff201714);ink.setAlpha((int)(246*fade));c.drawPath(swipe,ink);
         ink.setColor(0xffc26d38);ink.setAlpha((int)(235*fade));c.drawPath(flecks,ink);

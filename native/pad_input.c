@@ -28,6 +28,20 @@ enum { APU_BASE=0xfe800000u, APU_SIZE=0x30000, AC97_BASE=0xfec00000u };
 static XBOX_INPUT_STATE latest;
 static atomic_flag lock=ATOMIC_FLAG_INIT;
 static atomic_int connected;
+#include "menu_dpad.h"
+static MenuDpad root_dpad;
+
+void fight_pad_menu(int enabled){
+    while(atomic_flag_test_and_set(&lock)){}
+    menu_dpad_reset(&root_dpad,enabled,latest.Gamepad.wButtons);
+    atomic_flag_clear(&lock);
+}
+
+void fight_pad_suspend_menu(void){
+    while(atomic_flag_test_and_set(&lock)){}
+    menu_dpad_reset(&root_dpad,root_dpad.enabled,latest.Gamepad.wButtons);
+    atomic_flag_clear(&lock);
+}
 static atomic_uint received_packets, sampled_packet, player_one_packet;
 
 /* Both numbers are cumulative for one fight process. No buttons or stick
@@ -48,7 +62,12 @@ static int nibble(char c){
 int pad_message(const char *line){
     if(strncmp(line,"PAD ",4))return 0;
     const char *p=line+4;
-    if(strcspn(p,"\r\n")==3&&!strncmp(p,"off",3)){atomic_store(&connected,0);return 1;}
+    if(strcspn(p,"\r\n")==3&&!strncmp(p,"off",3)){
+        while(atomic_flag_test_and_set(&lock)){}
+        atomic_store(&connected,0);
+        menu_dpad_reset(&root_dpad,root_dpad.enabled,0);
+        atomic_flag_clear(&lock);return 1;
+    }
     if(strcspn(p,"\r\n")!=36)return 0;
     unsigned char bytes[18];
     for(unsigned i=0;i<sizeof(bytes);i++){
@@ -57,6 +76,13 @@ int pad_message(const char *line){
     }
     while(atomic_flag_test_and_set(&lock)){}
     _Static_assert(sizeof(XBOX_GAMEPAD)==18,"XID wire layout");
+    if(root_dpad.enabled){
+        const uint8_t *last=(const uint8_t *)&latest.Gamepad;
+        // Never replay navigation across an accept, back, start or stick input.
+        if(((last[0]^bytes[0])&0xf0) || memcmp(last+1,bytes+1,17))
+            menu_dpad_reset(&root_dpad,1,bytes[0]);
+        else menu_dpad_offer(&root_dpad,bytes[0],latest.dwPacketNumber+1);
+    }
     memcpy(&latest.Gamepad,bytes,18);latest.dwPacketNumber++;
     atomic_store_explicit(&received_packets,latest.dwPacketNumber,memory_order_relaxed);
     atomic_flag_clear(&lock);atomic_store(&connected,1);return 1;
@@ -75,8 +101,13 @@ void fight_pad_read_player_one(uint32_t status,uint32_t handle,uint32_t player_o
     while(atomic_flag_test_and_set(&lock)){}
     if(atomic_load(&connected)){
         // Retail copies four packet bytes plus 18 gamepad bytes, with no tail padding.
-        memcpy(state,&latest.dwPacketNumber,4);
+        uint32_t packet=latest.dwPacketNumber;
         memcpy(state+4,&latest.Gamepad,sizeof(latest.Gamepad));
+        if(root_dpad.count){
+            unsigned direction=menu_dpad_read(&root_dpad,state[4],&packet);
+            state[4]=(state[4]&0xf0)|direction;
+        }
+        memcpy(state,&packet,4);
         atomic_store_explicit(&player_one_packet,latest.dwPacketNumber,memory_order_relaxed);
     }
     atomic_flag_clear(&lock);

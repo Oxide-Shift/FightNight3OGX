@@ -102,6 +102,20 @@ public final class CornerSession {
     volatile boolean cabinetOpen;
     volatile boolean retailMusicRoute,browsingTrax,leaveTrax;
     private boolean cabinetRequested,musicRequested;
+    static final int FRONT_OTHER=-2, FRONT_TRAX=-1;
+    volatile int frontPage=FRONT_OTHER;
+    private int lastRootIndex;
+    private Runnable frontListener;
+    synchronized void onFrontChanged(Runnable listener){frontListener=listener;}
+    private void front(int page){
+        if(page>=0)lastRootIndex=page;
+        if(frontPage==page)return;
+        frontPage=page;
+        if(frontListener!=null)frontListener.run();
+    }
+    synchronized void restoreCabinet(boolean music){
+        if(music)musicRequested=true;else cabinetRequested=true;
+    }
     synchronized boolean takeMusicRequest(){boolean pending=musicRequested;musicRequested=false;return pending;}
     private Runnable cabinetListener;
     synchronized void onCabinet(Runnable listener){cabinetListener=listener;}
@@ -334,6 +348,13 @@ public final class CornerSession {
             if(musicMenu)roundStarted=false;
             syncTrack();return;
         }
+        if(line.startsWith("FNR3/1 MAINHOVER ")){
+            if(line.length()==18 && line.charAt(17)>='0' && line.charAt(17)<='7')front(line.charAt(17)-'0');
+            return;
+        }
+        if(line.equals("FNR3/1 FRONT 0")){front(FRONT_OTHER);return;}
+        if(line.equals("FNR3/1 FRONT 1")){front(lastRootIndex);return;}
+        if(line.equals("FNR3/1 FRONT 2")){front(FRONT_TRAX);return;}
         if(line.equals("FNR3/1 MUSICMENU OPEN")){
             if(!cabinetOpen && !cabinetRequested && !musicRequested){musicRequested=true;if(cabinetListener!=null)cabinetListener.run();}
             return;

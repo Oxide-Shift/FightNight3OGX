@@ -92,7 +92,7 @@ You’ll need **ARM64 Android 11 or newer**. The **AYN Thor** is the only handhe
 3. Tap **Choose Xbox ISO** and select your disc image. Keep Fight Setup open while the app extracts and compiles the game. If **Prepare game** appears, tap it to finish. A local file the app can read directly avoids a second full-size ISO copy. If your file provider streams the ISO, allow about **11 GB free** in addition to the disc image.
 4. Choose your picture settings and tap **Enter the ring**. Later launches reuse the prepared game. Use **Check for updates** in Fight Setup for future releases.
 
-**Updating to Alpha 69?** Install the APK over your existing version. Fight Setup keeps your imported disc and career saves. If it offers **Prepare game**, let it finish before launching.
+**Updating to Alpha 70?** Install the APK over your existing version. Fight Setup keeps your imported disc and career saves. If it offers **Prepare game**, let it finish before launching.
 
 <details>
 <summary>See Fight Setup and picture settings</summary>
@@ -104,6 +104,8 @@ The launcher offers **30, 45 and 60 FPS** targets, VSync, widescreen and origina
 **Why stop at 60 FPS?** The original round timer counts game updates. In an isolated test at normal clock speed, doubling the update rate made a three-minute round run out in 90 seconds. The port keeps the original fight timing. The intro, fighter entrances, highlights, coach’s corner and post-fight sequences use 30 FPS pacing.
 
 </details>
+
+Press **Android Back** during a game to open Fight Setup. Choose **Resume bout** to return or **End session** to close the game. On the Thor, the **B face button** handles in-game navigation. In Options, B uses the Exit row’s save action. In Edit Boxer, it opens the game’s **Accept Changes** prompt.
 
 Highlight a main-menu item to see what it offers on the lower screen. **Play Now** keeps a single exhibition description in place, **ESPN Classic** introduces the rivalries, and **Achievements** and **Music** explain their own menus before you open them.
 

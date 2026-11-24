@@ -86,7 +86,7 @@ def main():
         route_voice_stop(out)
         run([args.cc,*flags,"-I",args.build/"gen",TESTS/"voice_stop.c",stop,ROOT/"native/fight_data.c","-o",out/"voice_stop.exe"])
         run([out/"voice_stop.exe"])
-        names=["flip_pacing","corner_camera","menu_cancel","audio_ring","audio_route","audio_startup","voice_list","voice_rate","fight_texture_layout","frame_publish",
+        names=["menu_dpad","flip_pacing","corner_camera","menu_cancel","audio_ring","audio_route","audio_startup","voice_list","voice_rate","fight_texture_layout","frame_publish",
                "mesh_cache","front_surfaces","pushbuffer_wrap","texture_hash","controller_bus","ring_events","trax_filter"]
         for name in names:
             exe=out/(name+".exe")

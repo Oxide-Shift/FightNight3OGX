@@ -107,6 +107,7 @@ final class RingsideView extends LinearLayout {
     };
     private long lastMenuRead;
     private int lastMenuSequence;
+    private long nextRootFooterRead;
     private long lastRecognizedAt;
     private String resultHeading="";
     private CutmanDesk cutman;
@@ -358,6 +359,14 @@ final class RingsideView extends LinearLayout {
         activeView=value;syncDisplayOwnership();
         if(!value){if(cutman!=null)cutman.release();if(screen!=null){screen.timing.suspend();screen.lowerShows(BroadcastCues.NONE);}}
         else forceCapture=true;schedule();
+    }
+    void frontChanged(){
+        MenuContext.Page selected=session==null?null:MenuContext.root(session.frontPage);
+        if(selected!=null && scene==Scene.MENU && !inBout() && selected!=currentPage){
+            currentPage=selected;careerFocus=-1;careerBranch=false;missingPageReads=0;
+            describeMenu();
+        }
+        forceCapture=true;schedule();
     }
     private void schedule(){
         removeCallbacks(tick);
@@ -673,17 +682,27 @@ final class RingsideView extends LinearLayout {
         editorVisit=inEditor;
         boolean live=inBout();
         CareerDesk.Page editor=inEditor && !live && !session.cabinetOpen?activePage:null;
-        Scene next=editor==null?f.scene(live):Scene.MENU;
+        int front=session==null?CornerSession.FRONT_OTHER:session.frontPage;
+        MenuContext.Page root=live?null:MenuContext.root(front);
+        boolean playlist=front==CornerSession.FRONT_TRAX || session!=null && (session.browsingTrax || session.leaveTrax);
+        Scene next=root!=null || editor!=null?Scene.MENU:f.scene(live);
         boolean showingMenu=next==Scene.MENU || (next==Scene.RINGSIDE && !inBout());
         int mask=0;
-        if(next==Scene.MENU && !inEditor){
-            cues.readMenu(f);mask=cues.mask;
-        }
         long sampled=SystemClock.uptimeMillis();
+        if(next==Scene.MENU && !inEditor && !playlist){
+            // Root captions stay put when the carousel moves. The renderer verifies visibility per frame.
+            if(root==null || sampled>=nextRootFooterRead){
+                cues.readMenu(f);
+                nextRootFooterRead=root==null?0:sampled+220;
+            }
+            mask=cues.mask;
+        }else nextRootFooterRead=0;
         boolean readMenu=showingMenu && editor==null && (forceCapture || sampled-lastMenuRead>=150);
         MenuContext.Page page=currentPage;
         int focus=-1;
-        if(readMenu){
+        if(root!=null){
+            page=root;readMenu=true;
+        }else if(readMenu){
             page=menuContext.identify(f);
             if(page!=null && "Career Central".equals(page.title))focus=menuContext.careerRow(f);
         }

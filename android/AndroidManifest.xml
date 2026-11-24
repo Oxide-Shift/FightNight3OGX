@@ -1,11 +1,11 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.oxideshift.corner" android:versionCode="72" android:versionName="0.4.0-alpha.69">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.oxideshift.corner" android:versionCode="73" android:versionName="0.4.0-alpha.70">
     <queries><package android:name="com.rfandango.haku_x"/></queries>
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION"/>
     <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="34"/>
-    <application android:appCategory="game" android:label="FightNight3OGX" android:icon="@mipmap/fight_night" android:roundIcon="@mipmap/fight_night" android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
+    <application android:enableOnBackInvokedCallback="false" android:appCategory="game" android:label="FightNight3OGX" android:icon="@mipmap/fight_night" android:roundIcon="@mipmap/fight_night" android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
                  android:allowBackup="false" android:extractNativeLibs="true" android:usesCleartextTraffic="false">
         <receiver android:name=".UpdateReceiver" android:exported="false">
             <intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED"/></intent-filter>

@@ -107,7 +107,13 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         String version="";
         try{version=getPackageManager().getPackageInfo(getPackageName(),0).versionName;}
         catch(android.content.pm.PackageManager.NameNotFoundException ignored){}
-        menu=new FightMenu(this,prefs,version==null?"":version,()->{if(active()){engine.session.stop();setup();}else choose(DISC);},
+        menu=new FightMenu(this,prefs,version==null?"":version,()->{if(active()){
+            CornerSession current=engine.session;
+            new android.app.AlertDialog.Builder(this).setMessage("End this game session?")
+                    .setNegativeButton("Cancel",null).setPositiveButton("End session",(dialog,which)->{
+                        if(engine.session==current){current.stop();setup();}
+                    }).show();
+        }else choose(DISC);},
                 this::saveOptions,this::prepareSaveExport,this::launch,this::showCard,()->{
             prefs.edit().remove("save").apply();engine.note="Default save selected";
         },updates::tap);
@@ -491,9 +497,13 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         }
         achievementDisplay=new AchievementDisplay(this,body,menu.fonts(),menu::mainMenuArt,engine.session,game(),prefs.getInt("aspect",0)==0,this::neutralPad);
         CornerSession owner=engine.session;
+        owner.onFrontChanged(()->main.post(()->{
+            if(viewingGame && screen!=null && owner==engine.session && ringside!=null)ringside.frontChanged();
+        }));
         owner.onMenuSelection(stem->main.post(()->{
             if(owner!=engine.session || screen==null || !viewingGame || !awake || owner.cabinetOpen || owner.leaveTrax)return;
-            if(owner.browsingTrax){owner.previewTrack(stem);return;}
+            if(owner.browsingTrax || owner.frontPage==CornerSession.FRONT_TRAX){owner.previewTrack(stem);return;}
+            if(owner.frontPage>=0)return;
             LiveFrame frame=screen.latestFrame();
             MenuContext.Page page=frame==null?null:soundMenus.identify(frame);
             if(page!=null && "EA Trax".equals(page.title))owner.previewTrack(stem);
@@ -517,7 +527,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                 lowerPanel!=null && ringside!=null?ringside.traxInset():0);
     }
     private void closeAchievements(){
-        if(engine.session!=null){engine.session.onSong(null);engine.session.onMenuSelection(null);}
+        if(engine.session!=null){engine.session.onSong(null);engine.session.onMenuSelection(null);engine.session.onFrontChanged(null);}
         if(traxOverlay!=null){traxOverlay.detach();traxOverlay=null;}
         if(achievementDisplay!=null){achievementDisplay.close();achievementDisplay=null;}
     }
@@ -535,14 +545,10 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         removeLocal();viewingGame=false;bindRumble();viewingCard=false;back.setVisibility(View.GONE);menu.setVisibility(View.VISIBLE);syncPower();
     }
     @Override public void onBackPressed(){
-        if(achievementDisplay!=null && achievementDisplay.backFromTrax())return;
-        if(viewingGame && acceptsPad() && screen!=null){
-            if(pauseMenu()){press(CornerControls.Key.START);return;}
-            LiveFrame frame=screen.latestFrame();
-            if(frame!=null && frame.scene(engine.session.inLiveBout())==LiveFrame.Scene.MENU &&
-                    !soundMenus.mainMenu(frame)){press(CornerControls.Key.B);return;}
-        }
-        if(viewingCard||viewingGame)setup();else super.onBackPressed();
+        if(viewingCard || viewingGame){
+            if(achievementDisplay!=null)achievementDisplay.rememberOpenPage();
+            setup();
+        }else super.onBackPressed();
     }
     private static void fullscreen(Window window){
         if(window==null)return;
@@ -603,7 +609,10 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     private boolean press(CornerControls.Key key){
         if(!acceptsPad()||!active()||touchKey!=null)return false;
         if(key==CornerControls.Key.B && achievementDisplay!=null && achievementDisplay.backFromTrax())return true;
-        touchKey=key==CornerControls.Key.B && pauseMenu()?CornerControls.Key.START:key;sendPad();main.postDelayed(release,215);return true;
+        touchKey=key==CornerControls.Key.B && pauseMenu()?CornerControls.Key.START:key;
+        sendPad();
+        boolean rootDirection=engine.session.frontPage>=0 && key.index==0 && key.mask<=8;
+        main.postDelayed(release,rootDirection?64:215);return true;
     }
     private void treatmentStick(boolean down,int x,int y){
         if(down && (!acceptsPad()||!active()))return;
@@ -618,9 +627,11 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     private void neutralPad(){backKeys.clear();pad.clear();releaseTouch();}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
         int code=event.getKeyCode();
-        boolean backButton=code==KeyEvent.KEYCODE_BUTTON_B || (code==KeyEvent.KEYCODE_BACK &&
-                (event.isFromSource(InputDevice.SOURCE_GAMEPAD) || event.isFromSource(InputDevice.SOURCE_JOYSTICK)));
-        if(backButton){
+        if(code==KeyEvent.KEYCODE_BACK && (viewingGame || viewingCard)){
+            if(event.getAction()==KeyEvent.ACTION_UP && !event.isCanceled())onBackPressed();
+            return true;
+        }
+        if(code==KeyEvent.KEYCODE_BUTTON_B){
             long button=((long)event.getDeviceId()<<32)|code;
             if(event.getAction()==KeyEvent.ACTION_UP && backKeys.remove(button)){
                 if(!event.isCanceled() && acceptsPad() && achievementDisplay!=null)achievementDisplay.backFromTrax();
@@ -720,6 +731,16 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     private void refresh(){
         if(!foreground)return;
         syncMusic();
+        if(viewingGame && screen!=null && local==null && active()){
+            // Both displays are native. Building the WebView status and probing the
+            // installed disc on the UI thread here delays controller dispatch.
+            if(awake && achievementDisplay!=null)achievementDisplay.refresh(lowerPanel);
+            if(ringside!=null){
+                ringside.useFonts(menu.fonts());ringside.setCornerArt(menu.cornerArt());
+                ringside.setTrainingArt(menu.trainingArt());ringside.setCareerArt(menu.careerArt());
+            }
+            finishMusicExit();return;
+        }
         CornerSession session=engine.session;boolean ready=new File(game(),"default.xbe").isFile(),live=active();
         Map<String,Object> data=session==null?new CornerSession(base).snapshot():session.snapshot();
         String info=engine.note;

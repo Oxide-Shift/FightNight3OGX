@@ -114,9 +114,17 @@ final class AchievementDisplay {
         }:null;
         AchievementGallery page=new AchievementGallery(activity,fonts,awards,top.getWidth(),artwork.get(),this::leave,this::play,options);
         FrameLayout layers=new FrameLayout(activity);
+        layers.setBackgroundColor(0xff201713);
         layers.addView(page);
         dialog.setContentView(layers);
-        dialog.setOnKeyListener((d,code,key)->page.handleKey(key,closing || changing));
+        dialog.setOnKeyListener((d,code,key)->{
+            if(code==android.view.KeyEvent.KEYCODE_BACK){
+                if(key.getAction()==android.view.KeyEvent.ACTION_UP && !key.isCanceled())activity.onBackPressed();
+                return true;
+            }
+            return page.handleKey(key,closing || changing);
+        });
+        dialog.setOnCancelListener(d->activity.onBackPressed());
         dialog.setOnDismissListener(d->{if(gallery==dialog){routePrompts(null);galleryPage=null;gallery=null;cabinetLayers=null;closing=false;changing=false;backPending=false;session.cabinetOpen=false;}});
         gallery=dialog;galleryPage=page;cabinetLayers=layers;session.cabinetOpen=true;
         Window w=dialog.getWindow();
@@ -225,6 +233,9 @@ final class AchievementDisplay {
         android.view.ViewGroup row=(android.view.ViewGroup)old;
         for(int i=0;i<row.getChildCount();i++)row.getChildAt(i).animate().cancel();
         if(old.getParent() instanceof FrameLayout)((FrameLayout)old.getParent()).removeView(old);
+    }
+    void rememberOpenPage(){
+        if(gallery!=null)session.restoreCabinet(musicHome);
     }
     void close(){
         session.onCabinet(null);
