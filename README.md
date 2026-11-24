@@ -6,13 +6,35 @@
 
 Play the original Xbox edition of *Fight Night Round 3* on Android. On an AYN Thor, the broadcast stays on the upper screen while the lower screen becomes your corner. See who’s winning the exchanges, work on a cut between rounds, and scout the next opponent for your career boxer.
 
-**[Download for Android](https://github.com/Oxide-Shift/FightNight3OGX/releases/latest)** · [Getting started](#getting-started) · [Bring your career save](#bring-your-career-save)
+**[Download for Android](https://github.com/Oxide-Shift/FightNight3OGX/releases/latest)** · [Supported game](#supported-game) · [Getting started](#getting-started) · [Bring your career save](#bring-your-career-save)
 
 > **Bring your own disc.** You’ll need your own North American original Xbox *Fight Night Round 3* ISO. The app recompiles `default.xbe` on your Android device. The APK and this repository omit the retail executable, fighter and arena data, and original EA Trax recordings. FightNight3OGX is an independent fan project. Electronic Arts has no affiliation with the project and does not endorse it.
 
 <p align="center"><img src="docs/screenshots/fight-hud.jpg" width="640" alt="Gatti and Ward trading punches with 30 seconds left in round one. The lower screen shows blue and red health bars, gold stamina bars and both punch counts."></p>
 
 Gatti has landed 9 of 16 punches. Ward has landed 9 of 12. A glance down tells you who’s connecting more often and how much stamina each fighter has left. When the judges turn in a round, their scores appear below the punch totals.
+
+## Supported game
+
+| Field | Tested copy |
+| --- | --- |
+| Game | Fight Night Round 3 |
+| Platform | Original Xbox (NOT Xbox 360 or PS2) |
+| Region | USA / NTSC-U |
+| Disc ID | `EA13402A` |
+| Xbox Title ID | `45410086` |
+| Release | Original (XBE Version 2) |
+| ISO format | Full-size Xbox XGD1 (7.29 GiB) |
+
+**Verified SHA-256 of `default.xbe` inside the ISO**
+
+`cfaf2d2c1c338a6e4e7135466c8dcb80fdf7da63682e71cfecdcba65b3682064`
+
+**Compatibility note**
+
+This is the exact game version tested with FightNight3OGX Alpha 61. Other regions or revisions haven't been verified yet.
+
+If your ISO isn't recognized, please share the exact launcher error and whether you're using a Redump ISO or XISO.
 
 ## Getting started
 
