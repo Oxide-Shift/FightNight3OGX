@@ -64,9 +64,13 @@ int main(void){
     fight_career_property(key,value);assert(!strcmp(events,"FNR3/1 CABINET OPEN\n"));events[0]=0;
     strcpy((char *)ram+string+8,"fnr3/music");
     fight_career_property(key,value);assert(!strcmp(events,"FNR3/1 MUSICMENU OPEN\n"));events[0]=0;
+    set(value+4,7u<<25);set(value+8,0);
+    fight_career_property(key,value);assert(!strcmp(events,"FNR3/1 MAINHOVER 0\n"));events[0]=0;
+    set(value+8,8);fight_career_property(key,value);assert(!events[0]);
+    set(value+4,1u<<25);set(value+8,string);
     strcpy((char *)ram+string+8,"1screengroups/mcon/mcon");
     fight_career_property(key,value);fight_career_property(key,value);
-    assert(!strcmp(events,"FNR3/1 CAREERPAGE mcon 1\n"));events[0]=0;
+    assert(!strcmp(events,"FNR3/1 FRONT 0\nFNR3/1 CAREERPAGE mcon 1\n"));events[0]=0;
     strcpy((char *)ram+string+8,"2screengroups/mcon/mcon");
     fight_career_property(key,value);assert(!strcmp(events,"FNR3/1 CAREERPAGE mcon 2\n"));events[0]=0;
     set(manager+0x190,1);

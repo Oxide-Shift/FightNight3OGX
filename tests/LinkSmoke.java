@@ -1,12 +1,13 @@
+package org.oxideshift.corner;
+
 import java.io.File;
 import java.util.Map;
-import org.oxideshift.corner.CornerSession;
 
 public class LinkSmoke {
     public static void main(String[] args) throws Exception {
         File peer = new File(args[0]).getAbsoluteFile();
         for(int i=0;i<2;i++) {
-            CornerSession s = new CornerSession(peer.getParentFile(),peer.getPath());
+            CornerSession s = new CornerSession(()->System.nanoTime()/1_000_000,peer.getParentFile(),peer.getPath());
             Thread worker = new Thread(s::run); worker.start();
             try {
                 long deadline = System.nanoTime()+5_000_000_000L;

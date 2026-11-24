@@ -2,6 +2,7 @@
 import argparse
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
@@ -36,7 +37,11 @@ def main():
         run([java,"-cp",cp,"org.oxideshift.corner.DiscInstallSmoke",args.build/"default.xbe"])
         run([sys.executable,TESTS/"shader_constants.py"])
         run(["node",TESTS/"scorecard.cjs"])
-        flags=["-O2","-ffunction-sections","-fdata-sections","-Wl,--gc-sections","-I",host/"runtime",
+        # controller_bus includes ohci.c directly. Exercise the controller built by build_host.py.
+        shutil.copyfile(src/"usb/ohci.c",out/"ohci.c")
+        subprocess.run(["git","apply","--no-index","--whitespace=nowarn",ROOT/"patches/fight-controller.patch"],
+                       cwd=out,check=True)
+        flags=["-O2","-ffunction-sections","-fdata-sections","-Wl,--gc-sections","-I",out,"-I",host/"runtime",
                "-I",src/"usb","-I",src,"-I",src/"kernel"]
         # Exercise this build's translated XInputGetState without booting the game.
         # The two imported calls just raise/lower IRQL. The retail handle checks,
@@ -97,7 +102,7 @@ def main():
                 run([exe,"immediate"]);run([exe,"soak"])
         peer=out/"corner-link.exe"
         run([args.cc,"-DCORNER_LINK_ONLY",ROOT/"native/corner_pipe.c","-o",peer])
-        run([java,"-cp",cp,"LinkSmoke",peer])
+        run([java,"-cp",cp,"org.oxideshift.corner.LinkSmoke",peer])
         print(f"Passed {len(java_suites)} Java suites, {len(names)+2} native suites, scorecard and host link with {len(frames)} menu/ring captures.")
 
 if __name__=="__main__":
