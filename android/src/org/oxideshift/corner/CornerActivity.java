@@ -59,6 +59,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     };
     private int hapticGeneration;
     private GameScreen screen;
+    private TopFpsCounter fpsCounter;
     private WebView local;
     private Button back;
     private Presentation presentation;
@@ -388,9 +389,9 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
             String model=android.os.Build.MODEL+" "+android.os.Build.DEVICE+" "+android.os.Build.PRODUCT;
             if(model.toLowerCase(java.util.Locale.ROOT).contains("thor")){
                 android.content.res.AssetManager assets=getAssets();
-                next.thorGuide=()->{
-                    byte[] bytes=new byte[ThorLoadingGuide.ART_BYTES];
-                    try(java.io.DataInputStream in=new java.io.DataInputStream(assets.open("thor-guide.dxt3"))){in.readFully(bytes);}
+                next.thorGuide=(name,length)->{
+                    byte[] bytes=new byte[length];
+                    try(java.io.DataInputStream in=new java.io.DataInputStream(assets.open(name))){in.readFully(bytes);}
                     return bytes;
                 };
             }
@@ -438,6 +439,14 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         updateLower();
         screen.setKeepScreenOn(awake);
         body.addView(screen);
+        if(prefs.getBoolean("showFpsCounter",false)){
+            fpsCounter=new TopFpsCounter(this,screen,engine.session);
+            FrameLayout.LayoutParams position=new FrameLayout.LayoutParams(-2,-2,Gravity.TOP|Gravity.LEFT);
+            int inset=Math.round(5*getResources().getDisplayMetrics().density);
+            position.setMargins(inset,inset,0,0);
+            body.addView(fpsCounter,position);
+            fpsCounter.running(awake);
+        }
         achievementDisplay=new AchievementDisplay(this,body,menu.fonts(),menu::mainMenuArt,engine.session,game(),prefs.getInt("aspect",0)==0,this::neutralPad);
         CornerSession owner=engine.session;
         MenuContext soundMenus=new MenuContext();
@@ -478,6 +487,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     private void removeLocal(){if(local!=null){body.removeView(local);local.destroy();local=null;}}
     private void setup(){
         closeAchievements();neutralPad();
+        if(fpsCounter!=null){fpsCounter.running(false);body.removeView(fpsCounter);fpsCounter=null;}
         if(screen!=null){screen.onPause();body.removeView(screen);screen=null;}
         updateLower();
         removeLocal();viewingGame=false;bindRumble();viewingCard=false;back.setVisibility(View.GONE);menu.setVisibility(View.VISIBLE);syncPower();
@@ -673,6 +683,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         if(engine.session!=null)engine.session.setSleeping(!next || !viewingGame);
         if(changed){
             main.removeCallbacks(tick);
+            if(fpsCounter!=null)fpsCounter.running(next);
             if(screen!=null){
                 screen.setKeepScreenOn(next);
                 if(next)screen.onResume();else screen.onPause();

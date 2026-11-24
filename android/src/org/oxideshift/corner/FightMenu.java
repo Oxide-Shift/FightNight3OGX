@@ -103,6 +103,12 @@ final class FightMenu extends LinearLayout {
         antiAlias.setOnCheckedChangeListener((v,on)->{
             if(v.isEnabled() && on!=(preset.samples==2))savePreset(GraphicsPreset.select(preset.tier,on));
         });
+        Switch counter=new Switch(c);
+        counter.setText("Show FPS counter");counter.setTextColor(PAPER);counter.setTypeface(faces.body);
+        counter.setPadding(dp(9),0,dp(6),0);counter.setMinHeight(dp(48));
+        counter.setChecked(prefs.getBoolean("showFpsCounter",false));
+        counter.setOnCheckedChangeListener((button,on)->prefs.edit().putBoolean("showFpsCounter",on).apply());
+        graphicsDetails.addView(counter);
         updateGraphics();
 
         details=column();settings=disclosure("Save & sound",details);

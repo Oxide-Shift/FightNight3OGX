@@ -11,7 +11,7 @@ import java.util.List;
 /** Recompose the Xbox loading movie around its original, live controller bindings. */
 final class ThorLoadingGuide {
     static final int ART_BYTES=512*256;
-    private static final int PAPER=0xffffe9cd, GOLD=0xffffbd54, LILAC=0xffc9b6f0;
+    private static final int PAPER=0xffffe9cd, GOLD=0xffffbd54, COPPER=0xffffa26c;
     // The native slot names are shared by all six load movies. Black and White in
     // the Xbox pad report are R1 and L1 on Android. The analog triggers are R2 and L2.
     private static final String[] SLOTS={"lanTxt","ranTxt","strTxt","aTxt","bTxt","xTxt","yTxt",
@@ -28,6 +28,20 @@ final class ThorLoadingGuide {
                 "97bc8e341def8d6296781aa7568ae6d5a7daa89fb9d855cb74fde07f51e30486";
         RetailMenu.verify(source,hash);
         return new ThorLoadingGuide(source,variant.equals("Training")).layout();
+    }
+    /** Upgrade the captions appended by the previous guide without rebuilding its movie. */
+    static byte[] upgradeV3(byte[] source,String variant)throws IOException{
+        String expected=variant.equals("Training")?"9f84f88484c13b93c23f1bdf7874b05193d05ec82281e7a798c4b16646c67c0e":
+                variant.equals("PN")?"9d02389889fe18fd8e2cd895ff7ba5f3154cd52b90b8694f8aa2fdb021bda2e8":
+                "ee2d260beb3429fbaaa0fb3e876ab66630f64fbc4f55873df347d799bbe7159d";
+        RetailMenu.verify(source,expected);
+        ByteBuffer b=ByteBuffer.wrap(source).order(ByteOrder.LITTLE_ENDIAN);
+        int root=b.getInt(44),table=b.getInt(root+24);
+        for(int i=0;i<b.getInt(root+20);i++){
+            int field=b.getInt(table+i*4);
+            if(field!=0 && b.getInt(field)==2 && b.getInt(field+32)==0xffc9b6f0)b.putInt(field+32,COPPER);
+        }
+        return source;
     }
     private ThorLoadingGuide(byte[] source,boolean training){
         movie=ByteBuffer.allocate(source.length+16384).order(ByteOrder.LITTLE_ENDIAN);
@@ -121,21 +135,21 @@ final class ThorLoadingGuide {
             if(CAPS[i].isEmpty())continue;
             boolean right=i>=3 && i<=10,arrow=i>=12;
             boolean shoulder=i>=7 && i<=10;
-            caption(arrow?arrows:contents,CAPS[i],right?449:139,ROW[i],shoulder?98:right?50:77,stencil,shoulder?13:16,right?GOLD:LILAC,40+i);
+            caption(arrow?arrows:contents,CAPS[i],right?449:139,ROW[i],shoulder?98:right?50:77,stencil,shoulder?13:16,right?GOLD:COPPER,40+i);
         }
         setItems(directions,arrows);
-        caption(contents,"AYN THOR",139,23,188,stencil,15,LILAC,61);
+        caption(contents,"AYN THOR",139,23,188,stencil,15,COPPER,61);
         caption(contents,"FIGHT CONTROLS",138,40,325,stencil,32,PAPER,62);
         caption(contents,"ANALOG STICKS",139,100,220,stencil,16,GOLD,63);
         caption(contents,"D-PAD",139,205,200,stencil,16,GOLD,64);
         caption(contents,"FACE BUTTONS",446,100,230,stencil,16,GOLD,65);
         caption(contents,"SHOULDERS",446,243,230,stencil,16,GOLD,66);
-        caption(contents,"THOR STYLE",139,423,104,stencil,14,LILAC,67);
+        caption(contents,"THOR STYLE",139,423,104,stencil,14,COPPER,67);
         caption(contents,"XBOX STYLE",325,423,104,stencil,14,GOLD,68);
         faceLayout(contents,"XABY",252,69);
         faceLayout(contents,"YBAX",438,73);
-        caption(contents,"L STICK",512,43,47,stencil,11,LILAC,77);
-        caption(contents,"D-PAD",512,66,47,stencil,11,LILAC,78);
+        caption(contents,"L STICK",512,43,47,stencil,11,COPPER,77);
+        caption(contents,"D-PAD",512,66,47,stencil,11,COPPER,78);
         caption(contents,"START",678,26,52,stencil,11,GOLD,79);
         caption(contents,"ABXY",678,48,52,stencil,11,GOLD,80);
         caption(contents,"R STICK",678,65,52,stencil,11,GOLD,81);

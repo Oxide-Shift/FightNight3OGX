@@ -7,7 +7,6 @@ import android.os.SystemClock;
 import java.io.*;
 import java.nio.*;
 import java.nio.channels.FileChannel;
-import java.util.Locale;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
@@ -32,7 +31,7 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
     private int front,program, texel;
     private long since;
     private int presented;
-    private volatile String output="Waiting for video";
+    private volatile int displayRate=-1;
     private volatile long lastPresented;
     private volatile String dimensions="";
     private volatile boolean hasFrame;
@@ -67,8 +66,10 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
     }
     boolean current(LiveFrame f){return shared!=null && Integer.toUnsignedLong(sequence(shared)-f.sequence)<2;}
     public boolean hasFrame(){return hasFrame;}
-    public String output(){
-        return hasFrame && SystemClock.elapsedRealtime()-lastPresented>1500?dimensions+" \u00b7 0 fps":output;
+    public String output(){return hasFrame?dimensions:"Waiting for video";}
+    int displayedFps(){
+        if(displayRate<0 || !hasFrame)return -1;
+        return SystemClock.elapsedRealtime()-lastPresented>1500?0:displayRate;
     }
     private final DisplayCadence cadence;
     private final int targetFps;
@@ -157,7 +158,7 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
         }
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         evaluatedRoute=renderedRoute=BroadcastCues.NONE;
-        widths[0]=widths[1]=0;serial=0;hasFrame=false;presented=0;since=SystemClock.elapsedRealtime();
+        widths[0]=widths[1]=0;serial=0;hasFrame=false;presented=0;since=0;displayRate=-1;
         GLES20.glVertexAttribPointer(0,2,GLES20.GL_FLOAT,false,0,quad);GLES20.glEnableVertexAttribArray(0);
         GLES20.glClearColor(0,0,0,1);
     }
@@ -279,8 +280,9 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
                     front=back;serial=seq;hasFrame=true;presented++;timing.frame(System.nanoTime(),seq);
                     long now=SystemClock.elapsedRealtime(),elapsed=now-since;
                     lastPresented=now;
-                    if(elapsed>=1000){
-                        output=String.format(Locale.ROOT,"%d \u00d7 %d \u00b7 %.1f fps",w,h,presented*1000.0/elapsed);
+                    if(since==0){since=now;presented=0;}
+                    else if(elapsed>=1000){
+                        displayRate=Math.round(presented*1000f/elapsed);
                         presented=0;since=now;
                     }
                 }
@@ -346,6 +348,6 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
     }
     @Override protected void onAttachedToWindow(){super.onAttachedToWindow();schedule(true);}
     @Override protected void onDetachedFromWindow(){schedule(false);super.onDetachedFromWindow();}
-    @Override public void onResume(){super.onResume();paused=false;schedule(true);}
+    @Override public void onResume(){super.onResume();queueEvent(()->{since=0;presented=0;displayRate=-1;});paused=false;schedule(true);}
     @Override public void onPause(){paused=true;timing.suspend();schedule(false);super.onPause();}
 }

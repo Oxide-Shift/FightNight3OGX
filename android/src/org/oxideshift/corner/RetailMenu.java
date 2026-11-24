@@ -114,13 +114,14 @@ final class RetailMenu {
         if(artwork.length!=ThorLoadingGuide.ART_BYTES)throw new IOException("Invalid Thor guide backdrop");
         Path archive=game.resolve("GUI/overlay.viv");
         if(!Files.isRegularFile(archive))archive=game.resolve("gui/overlay.viv");
-        byte[] stamp=ascii("FNR3-THOR-CONTROLS-3");
-        boolean priorGuide;
+        byte[] stamp=ascii("FNR3-THOR-CONTROLS-4");
+        boolean priorGuide,v3;
         try(RandomAccessFile file=new RandomAccessFile(archive.toFile(),"r")){
             if(file.length()>48L*1024*1024 || file.length()<1024)throw new IOException("Unrecognized controller archive");
             byte[] tail=new byte[stamp.length];file.seek(file.length()-VERSION.length-stamp.length);file.readFully(tail);
             if(Arrays.equals(tail,stamp))return;
-            priorGuide=Arrays.equals(tail,ascii("FNR3-THOR-CONTROLS-1")) || Arrays.equals(tail,ascii("FNR3-THOR-CONTROLS-2"));
+            v3=Arrays.equals(tail,ascii("FNR3-THOR-CONTROLS-3"));
+            priorGuide=v3 || Arrays.equals(tail,ascii("FNR3-THOR-CONTROLS-1")) || Arrays.equals(tail,ascii("FNR3-THOR-CONTROLS-2"));
         }
         byte[] outer=Files.readAllBytes(archive);
         if(!Arrays.equals(Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length),VERSION))
@@ -142,18 +143,51 @@ final class RetailMenu {
             }
             if(matches!=1)throw new IOException("Missing loading backdrop");
             String layoutName=stem+".apt";
-            byte[] layout=ThorLoadingGuide.compose(TraxArt.inflate(member(screen,layoutName),2*1024*1024),variant);
+            byte[] source=TraxArt.inflate(member(screen,layoutName),2*1024*1024);
+            byte[] layout=v3?ThorLoadingGuide.upgradeV3(source,variant):ThorLoadingGuide.compose(source,variant);
             outer=replace(outer,group,replace(replace(screen,layoutName,layout),bankName,bank));
         }
         byte[] result=Arrays.copyOf(outer,outer.length+(priorGuide?0:stamp.length));
         System.arraycopy(stamp,0,result,result.length-VERSION.length-stamp.length,stamp.length);
         System.arraycopy(VERSION,0,result,result.length-VERSION.length,VERSION.length);
         little(result).putInt(4,result.length);
-        Path temp=Files.createTempFile(archive.getParent(),"thor-guide-",".tmp");
+        writeArchive(archive,result);
+    }
+    private static void writeArchive(Path archive,byte[] result)throws IOException{
+        Path temp=Files.createTempFile(archive.getParent(),"thor-art-",".tmp");
         try{
             try(FileOutputStream out=new FileOutputStream(temp.toFile())){out.write(result);out.getFD().sync();}
             Files.move(temp,archive,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
         }finally{Files.deleteIfExists(temp);}
+    }
+    static synchronized void installThorSelector(Path game,byte[] artwork)throws IOException{
+        if(artwork.length!=128*64)throw new IOException("Invalid Thor selector artwork");
+        Path archive=game.resolve("GUI/custom.viv");
+        if(!Files.isRegularFile(archive))archive=game.resolve("gui/custom.viv");
+        byte[] stamp=ascii("FNR3-THOR-SELECT-1");
+        try(RandomAccessFile file=new RandomAccessFile(archive.toFile(),"r")){
+            if(file.length()<1024 || file.length()>48L*1024*1024)throw new IOException("Unrecognized selector archive");
+            byte[] tail=new byte[stamp.length];file.seek(file.length()-tail.length);file.readFully(tail);
+            if(Arrays.equals(tail,stamp))return;
+        }
+        byte[] outer=Files.readAllBytes(archive);
+        // The pre-fight and pause menus import distinct controllerXBox symbols.
+        byte[] updated=replaceSelector(outer,"cstCtrlParts",2800,
+                "1461dd7a2ee8f44f37f9981b2cf97eddf6003d783af5b1649f97bbd3d741fb6b",artwork);
+        updated=replaceSelector(updated,"cstCtrlPartsBe",8560,
+                "5973254d9ea1a534f64088cbaf17d30069359398c724e7a93f24e3d4c9e459c3",artwork);
+        byte[] result=Arrays.copyOf(updated,updated.length+stamp.length);
+        System.arraycopy(stamp,0,result,updated.length,stamp.length);
+        little(result).putInt(4,result.length);
+        writeArchive(archive,result);
+    }
+    private static byte[] replaceSelector(byte[] outer,String stem,int offset,String expected,byte[] artwork)throws IOException{
+        String parts="controls/"+stem+".big",texture=stem+".xsh";
+        byte[] group=TraxArt.inflate(member(outer,parts),2*1024*1024);
+        byte[] bank=TraxArt.inflate(member(group,texture),2*1024*1024);
+        verify(bank,expected);
+        System.arraycopy(artwork,0,bank,offset+16,artwork.length);
+        return replace(outer,parts,replace(group,texture,bank));
     }
     static synchronized void install(Path game,byte[] tag)throws IOException{
         Path archive=game.resolve("GUI/overlay.viv");

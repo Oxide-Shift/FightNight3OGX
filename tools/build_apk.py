@@ -94,6 +94,7 @@ def main():
                 shutil.copyfile(app / "assets/achievement-badges.webp", assets / "achievement-badges.webp")
                 shutil.copyfile(app / "assets/crash-inbox.pem",assets / "crash-inbox.pem")
                 shutil.copyfile(app / "assets/thor-guide.dxt3",assets / "thor-guide.dxt3")
+                shutil.copyfile(app / "assets/thor-selector.dxt3",assets / "thor-selector.dxt3")
                 shutil.copyfile(app / "assets/corner.html", assets / "corner.html")
             run(sdk / "aapt2.exe", "compile", "--dir", res, "-o", resources)
             link.extend(["-A", assets, resources])

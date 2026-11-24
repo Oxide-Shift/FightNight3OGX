@@ -104,7 +104,7 @@ public final class CornerSession {
     synchronized void onCabinet(Runnable listener){cabinetListener=listener;}
     synchronized boolean takeCabinetRequest(){boolean pending=cabinetRequested;cabinetRequested=false;return pending;}
     private File menuDisc;
-    interface Guide { byte[] load()throws IOException; }
+    interface Guide { byte[] load(String name,int length)throws IOException; }
     Guide thorGuide;
     void installMenuFrom(File disc){menuDisc=disc;}
     Achievements achievements;
@@ -549,8 +549,10 @@ public final class CornerSession {
             catch(IOException e){synchronized(this){record("Main menu extensions unavailable: "+e.getMessage());}}
             if(menuDisc!=null)try{AndroidDeviceText.install(menuDisc.toPath());}
         catch(IOException e){synchronized(this){record("Device text unavailable: "+e.getMessage());}}
-        if(menuDisc!=null && thorGuide!=null)try{RetailMenu.installThorGuide(menuDisc.toPath(),thorGuide.load());}
+            if(menuDisc!=null && thorGuide!=null)try{RetailMenu.installThorGuide(menuDisc.toPath(),thorGuide.load("thor-guide.dxt3",ThorLoadingGuide.ART_BYTES));}
             catch(IOException e){synchronized(this){record("Thor controls guide unavailable: "+e.getMessage());}}
+            if(menuDisc!=null && thorGuide!=null)try{RetailMenu.installThorSelector(menuDisc.toPath(),thorGuide.load("thor-selector.dxt3",128*64));}
+            catch(IOException e){synchronized(this){record("Thor side selector unavailable: "+e.getMessage());}}
             ProcessBuilder builder=new ProcessBuilder(command).directory(directory);
             if(command.length>0 && frameFile!=null){
                 File shaders=new File(new File(command[0]).getParentFile(),"libfight_shader.so");

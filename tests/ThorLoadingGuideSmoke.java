@@ -30,6 +30,10 @@ public final class ThorLoadingGuideSmoke {
     }
     private static void check(boolean pass,String message){if(!pass)throw new AssertionError(message);}
 
+    private static byte[] selectorBank(Path game,String stem)throws Exception{
+        return TraxArt.textureBank(game.toFile(),"custom.viv","controls/"+stem+".big",stem+".xsh",2*1024*1024);
+    }
+
     public static void main(String[] args)throws Exception{
         Path source=Paths.get(args[0]),work=Paths.get(args[1]);
         Path archive=work.resolve("GUI/overlay.viv");Files.createDirectories(archive.getParent());
@@ -40,6 +44,24 @@ public final class ThorLoadingGuideSmoke {
         String installed=RetailMenu.digest(Files.readAllBytes(archive));
         RetailMenu.installThorGuide(work,artwork);
         check(installed.equals(RetailMenu.digest(Files.readAllBytes(archive))),"Guide reinstalled twice");
+        // With a selector fixture, exercise both a fresh install and a second launch.
+        if(args.length==5){
+            Path custom=archive.resolveSibling("custom.viv");
+            Files.copy(Paths.get(args[3]),custom);
+            byte[] selector=Files.readAllBytes(Paths.get(args[4]));
+            String[] stems={"cstCtrlParts","cstCtrlPartsBe"};
+            int[] offsets={2800,8560};
+            byte[][] before=new byte[stems.length][];
+            for(int i=0;i<stems.length;i++)before[i]=selectorBank(work,stems[i]);
+            RetailMenu.installThorSelector(work,selector);
+            String digest=RetailMenu.digest(Files.readAllBytes(custom));
+            RetailMenu.installThorSelector(work,selector);
+            check(digest.equals(RetailMenu.digest(Files.readAllBytes(custom))),"Selector reinstalled twice");
+            for(int i=0;i<stems.length;i++){
+                System.arraycopy(selector,0,before[i],offsets[i]+16,selector.length);
+                check(Arrays.equals(before[i],selectorBank(work,stems[i])),"Unexpected selector bank change in "+stems[i]);
+            }
+        }
         for(String variant:VARIANTS){
             String stem="lp-"+variant+"-ContConfig";
             check(Arrays.equals(member(source,stem,"const"),member(work,stem,"const")),"Changed preset constants");

@@ -112,8 +112,7 @@ final class RingsideView extends LinearLayout {
     private final BroadcastCues cues=new BroadcastCues();
     private int footerMask;
     private final LinearLayout fightPanel;
-    private TextView roundLabel,roundValue,punchTiming,finishTiming;
-    private long nextFinishReading;
+    private TextView roundLabel,roundValue;
     private FightBroadcast.Bout bout;
     private final Paint backdropPaint=new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Rect backdropSrc=new Rect(),backdropDst=new Rect();
@@ -401,7 +400,7 @@ final class RingsideView extends LinearLayout {
         scroll.setVisibility(VISIBLE);
         if(cutman!=null){cutman.release();removeView(cutman);cutman=null;}
         menuDock.removeAllViews();menuDock.setVisibility(scene==Scene.MENU && screen!=null?VISIBLE:GONE);
-        content.removeAllViews();scroll.scrollTo(0,0);menuHint=null;scouting=null;contract=null;training=null;ledger=null;judgePanel=null;punchPanel=null;punchTiming=null;finishTiming=null;java.util.Arrays.fill(punchCounts,null);
+        content.removeAllViews();scroll.scrollTo(0,0);menuHint=null;scouting=null;contract=null;training=null;ledger=null;judgePanel=null;punchPanel=null;java.util.Arrays.fill(punchCounts,null);
         resultHeading="";hero.career=false;careerActions.removeAllViews();careerActions.setVisibility(GONE);compactCareer=false;careerPage=null;careerDetails=false;careerRevision=-1;
         boolean showingHome=screen==null;
         launchHint.setVisibility(showingHome?VISIBLE:GONE);
@@ -450,15 +449,6 @@ final class RingsideView extends LinearLayout {
         }else if(scene==Scene.PAUSE){
             hero.title="Paused";
             addScorecard();
-            String pace=screen.timing.ring.reading();
-            if(!pace.isEmpty()){
-                label("LAST IN-RING FRAMES");content.addView(type(pace,15,PAPER));
-                punchTiming=type("",14,GOLD);content.addView(punchTiming);updatePunchTiming();
-            }
-            String cornerPace=screen.timing.corner.reading();
-            if(!cornerPace.isEmpty()){
-                label("LAST ROUND BREAK");content.addView(type(cornerPace,15,PAPER));
-            }
         }else if(scene==Scene.FINAL || scene==Scene.TOTALS){
             boolean end=scene==Scene.FINAL;
             resultHeading=session.result()+session.finish();
@@ -468,10 +458,6 @@ final class RingsideView extends LinearLayout {
             matchup.setTypeface(headline);matchup.setPadding(dp(5),dp(6),dp(5),dp(4));content.addView(matchup);
             if(end && !session.finish().isEmpty())label(session.finish().equals("KO")?"KNOCKOUT":"TECHNICAL KNOCKOUT");
             addScorecard();
-            if(end){
-                finishTiming=type("",15,PAPER);content.addView(finishTiming);
-                nextFinishReading=0;updateFinishTiming();
-            }
         }else if(scene==null){
             hero.title="Fight Night Round 3";
             quietHint("Starting the game…");
@@ -637,24 +623,6 @@ final class RingsideView extends LinearLayout {
         });
         group.addView(view,new LayoutParams(0,-2,1));
     }
-    private void updateFinishTiming(){
-        if(finishTiming==null || screen==null)return;
-        long now=SystemClock.uptimeMillis();
-        if(now<nextFinishReading)return;
-        nextFinishReading=now+1000;
-        String reading=screen.timing.finish.reading();
-        finishTiming.setVisibility(reading.isEmpty()?GONE:VISIBLE);
-        if(!reading.isEmpty()){
-            String text="Post-fight opening  ·  "+reading;
-            if(!text.contentEquals(finishTiming.getText()))finishTiming.setText(text);
-        }
-    }
-    private void updatePunchTiming(){
-        if(punchTiming==null || session==null)return;
-        String reading=session.punchPace();
-        if(!reading.contentEquals(punchTiming.getText()))punchTiming.setText(reading);
-        punchTiming.setVisibility(reading.isEmpty()?GONE:VISIBLE);
-    }
     private void syncDisplayOwnership(){
         if(session==null)return;
         session.lowerCallouts=activeView && isAttachedToWindow() && screen!=null;
@@ -725,7 +693,7 @@ final class RingsideView extends LinearLayout {
         menuDock.setAlpha(session.cabinetOpen?0f:1f);
         openingSlate.movie(session.introMovie());
         if((scene==Scene.RINGSIDE || scene==Scene.MENU) && (tips.due(SystemClock.uptimeMillis()) || displayedCamp!=session.camp() || careerRevision!=session.career.revision))describeMenu();
-        syncDisplayOwnership();updatePunchTiming();updateFinishTiming();
+        syncDisplayOwnership();
         if(cutman!=null){
             cutman.time(session.recoverySeconds());
             if(SystemClock.uptimeMillis()-lastSeen>1800)cutman.release();
