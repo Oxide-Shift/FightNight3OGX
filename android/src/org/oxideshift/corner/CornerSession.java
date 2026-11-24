@@ -545,7 +545,7 @@ public final class CornerSession {
         }
         int exit = -1;
         try {
-            if(menuDisc!=null && musicAssets!=null)try{RetailMenu.install(menuDisc.toPath(),OgxBrand.tag(musicAssets.open("ogx-tag.dxt3")));}
+            if(menuDisc!=null)try{RetailMenu.install(menuDisc.toPath(),DiscFonts.ogxStencil(menuDisc));}
             catch(IOException e){synchronized(this){record("Main menu extensions unavailable: "+e.getMessage());}}
             if(menuDisc!=null)try{AndroidDeviceText.install(menuDisc.toPath());}
         catch(IOException e){synchronized(this){record("Device text unavailable: "+e.getMessage());}}

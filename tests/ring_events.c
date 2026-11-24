@@ -28,7 +28,14 @@ int main(void){
     fight_cinematic(60);assert(fight_present_interval()==2);
     set(0x650e0,1);assert(fight_present_interval()==1);set(0x650e0,2);
     set(g_ecx+0x54,300);assert(fight_present_interval()==1);set(g_ecx+0x54,0);
-    fight_cinematic(15);assert(fight_present_interval()==1);
+    for(unsigned shot=0;shot<=16;shot++){
+        fight_cinematic(shot);assert(fight_present_interval()==2);
+        set(0x650e0,1);assert(fight_present_interval()==1);set(0x650e0,2);
+    }
+    fight_cinematic(17);assert(fight_present_interval()==1);
+    fight_cinematic(124);assert(fight_present_interval()==1);
+    fight_cinematic(0);set(g_ecx+0x54,300);assert(fight_present_interval()==1);set(g_ecx+0x54,0);
+    music_scene(1);assert(fight_present_interval()==1);
     fight_cinematic(100);assert(fight_present_interval()==2);
     set(g_ecx+0x4c,4);assert(fight_present_interval()==1);
     set(g_ecx+0x4c,3);music_scene(1);assert(fight_present_interval()==1);

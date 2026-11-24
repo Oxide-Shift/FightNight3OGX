@@ -42,7 +42,7 @@ Open **Achievements** in the Xbox main menu. Get off the canvas and win for *Bac
 
 ### Take EA Trax into the ring
 
-Open **Music** in the main menu to carry EA Trax into fights. The song stays at entrance volume through the walkouts and drops to 12% when the opening round clock starts. Turn on **FN3 Expanded Music** to add seven tracks by FN3OGX, including *Blood + Sweat* and *The Contender*.
+On a fresh install, **Music during fights** and **FN3 Expanded Music** both start off. Enable either option in the main menu under **Music**. With fight music enabled, the song stays at entrance volume through the walkouts and drops to 12% when the opening round clock starts. Turn on **FN3 Expanded Music** to add seven tracks by FN3OGX, including *Blood + Sweat* and *The Contender*.
 
 ## Picture and performance
 

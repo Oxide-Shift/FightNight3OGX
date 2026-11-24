@@ -133,10 +133,10 @@ static int same_property(const uint8_t *string,const char *name) {
 
 /* The cinematic dispatch hook observes ECX before the retail method touches it. */
 extern RECOMP_TLS uint32_t g_ecx;
-static atomic_uint winner_director;
+static atomic_uint paced_director;
 static atomic_int in_music_menu=1;
 static void music_scene(int menu){
-    if(menu)atomic_store(&winner_director,0);
+    if(menu)atomic_store(&paced_director,0);
     if(atomic_exchange(&in_music_menu,menu)!=menu){
         printf("FNR3/1 MUSICSCENE %d\n",menu);fflush(stdout);
     }
@@ -393,9 +393,9 @@ static void sample_winner(const uint8_t *clock) {
 }
 
 /* Read the same presentation interval that the title's cinematic update writes
- * through sub_000FF240 and sub_0029E1E0. Only a running winner script owns it. */
+ * through sub_000FF240 and sub_0029E1E0. The director must still be playing a selected retail script. */
 unsigned fight_present_interval(void){
-    uint32_t address=atomic_load(&winner_director);
+    uint32_t address=atomic_load(&paced_director);
     if(!address)return 1;
     const uint8_t *director=guest(address,0x58);
     if(!director || !director[0x48] || word(director+0x4c)!=3)return 1;
@@ -413,7 +413,10 @@ void fight_cinematic(uint32_t sequence) {
     int winner=(sequence>=60 && sequence<=69) || (sequence>=75 && sequence<=77) ||
                (sequence>=82 && sequence<=85) || (sequence>=100 && sequence<=112) ||
                (sequence>=125 && sequence<=135);
-    atomic_store(&winner_director,winner?g_ecx:0);
+    /* BCS_BLU_01 through BCS_BLU_13, including the four venue variants,
+     * occupy slots 0-16. Slot 17 begins the entrance scripts. */
+    int coach=sequence<=16;
+    atomic_store(&paced_director,(coach || winner)?g_ecx:0);
     const char *result = sequence >= 100 && sequence <= 112 ? "KO" :
                          sequence >= 125 && sequence <= 136 ? "TKO" : NULL;
     if (!callout_bout || finished_callout) return;
@@ -462,7 +465,7 @@ static void sample_knockdowns(const uint8_t *root, int round) {
     int same=callout_bout==id;
     if (!same) {
         atomic_store(&in_music_menu,0);
-        atomic_store(&winner_director,0);
+        atomic_store(&paced_director,0);
         puts("FNR3/1 BOUTBEGIN");fflush(stdout);
         reported_winner=0;recent_scorer=-1;hit_age=0;stagger_window=0;stumble_cue=0;referee_count=0;
     } else {

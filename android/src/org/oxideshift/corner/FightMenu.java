@@ -331,7 +331,7 @@ final class FightMenu extends LinearLayout {
             final Bitmap[] sprites=music;
             Bitmap[] mainSprites=null;
             try{
-                int[][] pixels=TraxArt.mainMenu(game,OgxBrand.tag(getContext().getAssets().open("ogx-tag.dxt3")));
+                int[][] pixels=TraxArt.mainMenu(game,DiscFonts.ogxStencil(game));
                 mainSprites=new Bitmap[pixels.length];
                 for(int i=0;i<pixels.length;i++)mainSprites[i]=Bitmap.createBitmap(pixels[i],
                         TraxArt.MENU_WIDTH[i],TraxArt.MENU_HEIGHT[i],Bitmap.Config.ARGB_8888);

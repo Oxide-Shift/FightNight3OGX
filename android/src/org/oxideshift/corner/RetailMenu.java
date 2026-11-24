@@ -10,7 +10,7 @@ import java.util.Arrays;
 /** Adds a selectable row to the imported Xbox front end. Only the app's extracted copy is edited. */
 final class RetailMenu {
     private static final String GROUP="screengroups/mainmenu/mainmenu.big";
-    private static final byte[] LEGACY=ascii("FNR3-ACHIEVEMENTS-1"), PRE_BRAND=ascii("FNR3-ACHIEVEMENTS-2"), VERSION=ascii("FNR3-ACHIEVEMENTS-3");
+    private static final byte[] LEGACY=ascii("FNR3-ACHIEVEMENTS-1"), PRE_BRAND=ascii("FNR3-ACHIEVEMENTS-2"), FIRST_BRAND=ascii("FNR3-ACHIEVEMENTS-3"), SLOPED_BRAND=ascii("FNR3-ACHIEVEMENTS-4"), VERSION=ascii("FNR3-ACHIEVEMENTS-5");
     private static final int ALIGN=128;
 
     private static byte[] ascii(String s){return s.getBytes(StandardCharsets.US_ASCII);}
@@ -165,7 +165,8 @@ final class RetailMenu {
         }
         byte[] outer=Files.readAllBytes(archive);
         boolean legacy=Arrays.equals(Arrays.copyOfRange(outer,outer.length-LEGACY.length,outer.length),LEGACY);
-        boolean current=Arrays.equals(Arrays.copyOfRange(outer,outer.length-PRE_BRAND.length,outer.length),PRE_BRAND);
+        byte[] stage=Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length);
+        boolean current=Arrays.equals(stage,PRE_BRAND) || Arrays.equals(stage,FIRST_BRAND) || Arrays.equals(stage,SLOPED_BRAND);
         if(legacy || current){
             outer=Arrays.copyOf(outer,outer.length-LEGACY.length);
             little(outer).putInt(4,outer.length);

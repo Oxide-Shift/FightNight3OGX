@@ -6,19 +6,110 @@ import java.util.Arrays;
 
 /** Compose the same title texture for the retail renderer and both cabinet screens. */
 final class OgxBrand {
-    private static final int WIDTH=256, TITLE_HEIGHT=192, TAG_BYTES=256*64;
-    static byte[] tag(InputStream source)throws IOException{
-        try(DataInputStream in=new DataInputStream(source)){
-            byte[] bytes=new byte[TAG_BYTES];in.readFully(bytes);
-            if(in.read()!=-1)throw new IOException("Invalid OGX mark");
-            RetailMenu.verify(bytes,"08b475fa8e87f99b3d39dfe575d5f26d5b90fee9085fe7876546ef522a636ecf");
-            return bytes;
+    private static final int WIDTH=256, TITLE_HEIGHT=192;
+    static final int GLYPH_SIZE=96;
+    // Transparent BC2 block. Its unused color bytes identify an already composed title.
+    private static final byte[] SIGNATURE={'O','G','X','5','8'};
+    private static final String RETAIL="6916ed16397a4b58d4020ea8d69fb166eff32cf75e1970cb8cf8ef7ba89f14ee";
+    private static final String FIRST_TAG="0034cb7982c70b079de2ed4a1944d30b3815a6d9658b2b625274413fc2e9d238";
+    private static final String SLOPED_TAG="d816799a62d582859b0c7dd894a9e71dccb41dca97cee531a2451e0f3b79de86";
+
+    static void apply(byte[] bank,int at,byte[] glyphs)throws IOException{
+        if(at<0 || at>bank.length-WIDTH*WIDTH || glyphs.length!=2*GLYPH_SIZE*GLYPH_SIZE)
+            throw new IOException("Invalid title texture");
+        int end=at+WIDTH*WIDTH;
+        if(Arrays.equals(Arrays.copyOfRange(bank,end-SIGNATURE.length,end),SIGNATURE))return;
+        String digest=RetailMenu.digest(Arrays.copyOfRange(bank,at,end));
+        if(RETAIL.equals(digest)){
+            fitTitle(bank,at);
+        }else if(SLOPED_TAG.equals(digest)){
+            // Alpha 56 placed ink in five block rows of the fitted title's empty right margin.
+            int[] firstEmptyBlock={172,148,136,104,92};
+            for(int row=0;row<firstEmptyBlock.length;row++){
+                int start=at+(172+row*4)*WIDTH;
+                Arrays.fill(bank,start+firstEmptyBlock[row]*4,start+4*WIDTH,(byte)0);
+            }
+        }else if(!FIRST_TAG.equals(digest)){
+            throw new IOException("Unrecognized title texture");
         }
+        Arrays.fill(bank,at+WIDTH*TITLE_HEIGHT,end,(byte)0);
+        int[] title=TraxArt.bc2(bank,at,WIDTH,WIDTH);
+        int[] front=new int[WIDTH*WIDTH],shadow=new int[WIDTH*WIDTH];
+        for(int x=38;x<=190;x++){
+            for(int y=168;y<WIDTH;y++){
+                double top=199-(x-39)*0.181, height=58-(x-39)*0.087;
+                double v=(y+.5-top)/height;
+                if(v<0 || v>=1)continue;
+                int alpha=coverage(title,glyphs,x+.5,v);
+                if(alpha==0)continue;
+                front[y*WIDTH+x]=alpha<<24 | gold(x,v);
+                // Project the silhouette toward the same rear corner as the NIGHT row.
+                for(int step=0;step<=53;step++){
+                    int rear=(y-step)*WIDTH+x-(step*36+26)/53;
+                    shadow[rear]=Math.max(shadow[rear],alpha);
+                }
+            }
+        }
+        int[] block=new int[16],palette=new int[4];
+        ByteBuffer dest=ByteBuffer.wrap(bank).order(ByteOrder.LITTLE_ENDIAN);
+        for(int y=112;y<WIDTH;y+=4)for(int x=0;x<WIDTH;x+=4){
+            boolean modified=false;
+            for(int k=0;k<16;k++){
+                int i=(y+k/4)*WIDTH+x+k%4;
+                int color=title[i];
+                if(shadow[i]!=0)color=over(color,shadow[i]<<24);
+                if(front[i]!=0)color=over(front[i],color);
+                block[k]=color;
+                modified|=color!=title[i];
+            }
+            if(modified){dest.position(at+y*WIDTH+x*4);encode(dest,block,palette);}
+        }
+        System.arraycopy(SIGNATURE,0,bank,end-SIGNATURE.length,SIGNATURE.length);
     }
-    static void apply(byte[] bank,int at,byte[] tag)throws IOException{
-        if(tag.length!=TAG_BYTES || at<0 || at>bank.length-WIDTH*WIDTH)throw new IOException("Invalid title texture");
-        if(Arrays.equals(tag,Arrays.copyOfRange(bank,at+WIDTH*TITLE_HEIGHT,at+WIDTH*WIDTH)))return;
-        RetailMenu.verify(Arrays.copyOfRange(bank,at,at+WIDTH*WIDTH),"6916ed16397a4b58d4020ea8d69fb166eff32cf75e1970cb8cf8ef7ba89f14ee");
+
+    private static int coverage(int[] title,byte[] masks,double x,double v){
+        if(x>=87 && x<132){
+            // Sample the printed G itself, including its squared crossbar, spur and stencil bridges.
+            double sx=128+(x-87)*44/45;
+            double top=114.5-(sx-130)*.04, bottom=176.5-(sx-130)*.18;
+            double sy=top+v*(bottom-top);
+            int ix=(int)sx,iy=(int)sy,p=iy*WIDTH+ix;
+            return bilinear(ink(title[p]),ink(title[p+1]),ink(title[p+WIDTH]),ink(title[p+WIDTH+1]),sx-ix,sy-iy);
+        }
+        boolean xGlyph=x>=137 && x<190;
+        if(!xGlyph && (x<39 || x>=82))return 0;
+        double u=xGlyph?(x-137)/53:(x-39)/43;
+        double sx=1+u*(GLYPH_SIZE-2)-.5,sy=1+v*(GLYPH_SIZE-2)-.5;
+        int ix=(int)sx,iy=(int)sy,p=(xGlyph?GLYPH_SIZE*GLYPH_SIZE:0)+iy*GLYPH_SIZE+ix;
+        return bilinear(masks[p]&255,masks[p+1]&255,masks[p+GLYPH_SIZE]&255,masks[p+GLYPH_SIZE+1]&255,sx-ix,sy-iy);
+    }
+    private static int ink(int pixel){
+        return (pixel>>>24)*(pixel>>>16&255)/255;
+    }
+    private static int bilinear(int a,int b,int c,int d,double x,double y){
+        return (int)Math.round((a*(1-x)+b*x)*(1-y)+(c*(1-x)+d*x)*y);
+    }
+    private static int gold(int x,double v){
+        // The title's light peaks over the center and falls into amber down the right-hand strokes.
+        double left=Math.max(0,(94-x)/55.0),right=Math.max(0,(x-94)/96.0);
+        int r=(int)Math.round(255-22*right*right*(.35+.65*v));
+        int g=(int)Math.round(199-14*left-45*right-27*v);
+        int b=(int)Math.round(24-8*Math.max(right,v));
+        return r<<16|g<<8|b;
+    }
+    private static int over(int foreground,int background){
+        int fa=foreground>>>24,ba=background>>>24;
+        if(fa==255 || ba==0)return foreground;
+        if(fa==0)return background;
+        int backWeight=ba*(255-fa),weight=fa*255+backWeight;
+        int pixel=((weight+127)/255)<<24;
+        for(int shift=0;shift<=16;shift+=8){
+            int f=foreground>>>shift&255,b=background>>>shift&255;
+            pixel|=((f*fa*255+b*backWeight+weight/2)/weight)<<shift;
+        }
+        return pixel;
+    }
+    private static void fitTitle(byte[] bank,int at){
         // Resample the disc's lettering into the space above the OGX baseline.
         int[] original=TraxArt.bc2(bank,at,WIDTH,WIDTH),block=new int[16],palette=new int[4];
         ByteBuffer dest=ByteBuffer.wrap(bank).order(ByteOrder.LITTLE_ENDIAN);dest.position(at);
@@ -30,7 +121,6 @@ final class OgxBrand {
             }
             encode(dest,block,palette);
         }
-        dest.put(tag);
     }
     private static int blend(int a,int b,int w){
         int out=0;
