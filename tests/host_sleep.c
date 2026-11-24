@@ -21,6 +21,11 @@ static struct probe {
     _Atomic int64_t game_time;
 } *probe;
 void fight_audio_check_route(void){}
+void fight_arm_playlist(int enabled){(void)enabled;}
+void fight_request_menu_cancel(void){}
+void fight_pad_suspend_menu(void){}
+void fight_music_voice(int enabled){(void)enabled;}
+void fight_music_cues(int enabled){(void)enabled;}
 void fight_audio_sleep(int sleep){atomic_store(&probe->active_audio,!sleep);}
 void fight_trax_route(int route){(void)route;}
 int pad_message(const char *s){(void)s;atomic_fetch_add(&probe->pads,1);return 1;}
@@ -69,6 +74,7 @@ int main(void){
         if(!n)usleep(650000);
         assert(work==atomic_load(&probe->work) && audio==atomic_load(&probe->audio));
         send_cmd(in,"SLEEP\nWAKE\nWAKE\nPAD 00\nPING 2\n");expect(out,"FNR3/1 AWAKE\n");expect(out,"FNR3/1 PONG 2\n");
+        for(int i=0;i<100 && !atomic_load(&probe->active_audio);i++)usleep(2000);
         assert(atomic_load(&probe->active_audio));
         advancing();assert(atomic_load(&probe->game_time)-guest<200000000);
         assert(atomic_load(&probe->pads)==(unsigned)n+1);

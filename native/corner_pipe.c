@@ -10,8 +10,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 extern void fight_sleep_supervisor(void);
-extern void fight_audio_sleep(int sleeping);
-extern void fight_audio_check_route(void);
+#include "audio_control.h"
+static void audio_parked(char ticket){send(STDIN_FILENO,&ticket,1,MSG_NOSIGNAL);}
 #endif
 #endif
 
@@ -25,14 +25,13 @@ static int answer_ping(const char *line) {
     if (!strncmp(line,"SLEEP ",6) && line[6] && line[7]=='\n') {
         extern void fight_pad_suspend_menu(void);
         fight_pad_suspend_menu();fight_arm_playlist(0);
-        fight_audio_sleep(1);
-        send(STDIN_FILENO,line+6,1,MSG_NOSIGNAL);
+        queue_audio_control(1,line[6]);
         return 1;
     }
     if(!strcmp(line,"PLAYLIST 1\n") || !strcmp(line,"PLAYLIST 1\r\n")){fight_arm_playlist(1);return 1;}
     if(!strcmp(line,"PLAYLIST 0\n") || !strcmp(line,"PLAYLIST 0\r\n")){fight_arm_playlist(0);return 1;}
     if (!strcmp(line,"MENUCANCEL\n") || !strcmp(line,"MENUCANCEL\r\n")){fight_request_menu_cancel();return 1;}
-    if (!strcmp(line,"WAKE\n")) { fight_audio_sleep(0); puts("FNR3/1 AWAKE"); fflush(stdout); return 1; }
+    if (!strcmp(line,"WAKE\n")) { queue_audio_control(0,0); puts("FNR3/1 AWAKE"); fflush(stdout); return 1; }
 #endif
 #ifndef CORNER_LINK_ONLY
     extern void fight_trax_route(int);
@@ -52,7 +51,7 @@ static int answer_ping(const char *line) {
     if (digits == 0 || digits > 9 || strspn(number + digits, "\r\n") != strlen(number + digits))
         return 0;
 #ifdef __ANDROID__
-    fight_audio_check_route();
+    queue_audio_control(-1,0);
 #endif
     printf("FNR3/1 PONG %.*s\n", (int)digits, number);
     fflush(stdout);

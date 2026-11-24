@@ -19,6 +19,8 @@ def main():
     for name in ("jdk", "android-jar", "toolkit", "build", "cc"):
         parser.add_argument("--"+name, type=Path, required=True)
     parser.add_argument("--frames", type=Path, action="append", default=[])
+    parser.add_argument("--menu-archive", type=Path, action="append", default=[],
+                        help="Test startup on a private retail or previously installed GUI/overlay.viv")
     args=parser.parse_args()
     src=args.toolkit/"src"
     host=args.build/"host-windows"
@@ -28,13 +30,15 @@ def main():
         java=args.jdk/"bin/java.exe"
         java_suites=["CornerControlsSmoke","FightBroadcastSmoke","RingsidePromptSmoke","CutmanStrokeSmoke",
                "HakuSaveSmoke","ProfileSavesSmoke","DisplayCadenceSmoke","MenuStripSmoke","ControllerInputSmoke","FightEventsSmoke","CommandPipeSmoke","SessionSleepSmoke","ReleaseVersionSmoke","ReleaseAssetSmoke","DiscTraxSmoke","AchievementsSmoke","CalloutRumbleSmoke"]
-        paths=[TESTS/(name+".java") for name in java_suites+["LinkSmoke","DiscInstallSmoke"]]
+        paths=[TESTS/(name+".java") for name in java_suites+["LinkSmoke","DiscInstallSmoke","RetailMenuStartupSmoke"]]
         run([javac,"--release","8","-encoding","UTF-8","-cp",args.android_jar,"-d",out,*JAVA.glob("*.java"),*paths])
         cp=os.pathsep.join(map(str,(out,args.android_jar)))
         frames=[f for d in args.frames for f in sorted(d.glob("*.raw")) if f.name.startswith(("boxer","main","round","career-central","contract-","editor-"))]
         for name in java_suites:
             run([java,"-cp",cp,"org.oxideshift.corner."+name,*(frames if name=="RingsidePromptSmoke" else [])])
         run([java,"-cp",cp,"org.oxideshift.corner.DiscInstallSmoke",args.build/"default.xbe"])
+        for n,archive in enumerate(args.menu_archive):
+            run([java,"-cp",cp,"org.oxideshift.corner.RetailMenuStartupSmoke",archive,out/("menu-"+str(n))])
         run([sys.executable,TESTS/"shader_constants.py"])
         run(["node",TESTS/"scorecard.cjs"])
         # controller_bus includes ohci.c directly. Exercise the controller built by build_host.py.
@@ -91,11 +95,11 @@ def main():
         route_voice_stop(out)
         run([args.cc,*flags,"-I",args.build/"gen",TESTS/"voice_stop.c",stop,ROOT/"native/fight_data.c","-o",out/"voice_stop.exe"])
         run([out/"voice_stop.exe"])
-        names=["menu_dpad","flip_pacing","corner_camera","menu_cancel","audio_ring","audio_route","audio_startup","voice_list","voice_rate","fight_texture_layout","frame_publish",
+        names=["menu_dpad","flip_pacing","corner_camera","menu_cancel","audio_ring","audio_route","audio_control","audio_startup","voice_list","voice_rate","fight_texture_layout","frame_publish",
                "mesh_cache","front_surfaces","pushbuffer_wrap","texture_hash","controller_bus","ring_events","trax_filter"]
         for name in names:
             exe=out/(name+".exe")
-            extra={"menu_cancel":["-I",args.toolkit/"templates/runtime"],"audio_route":["-I",TESTS/"route_mock","-pthread","-static"],"pushbuffer_wrap":[host/"nv2a_pb_scan.o"],"controller_bus":[host/"usb_gamepad.o",ROOT/"native/pad_input.c",private_poll,"-I",args.build/"gen","-lxinput"]}.get(name,[])
+            extra={"audio_control":["-pthread","-static"],"menu_cancel":["-I",args.toolkit/"templates/runtime"],"audio_route":["-I",TESTS/"route_mock","-pthread","-static"],"pushbuffer_wrap":[host/"nv2a_pb_scan.o"],"controller_bus":[host/"usb_gamepad.o",ROOT/"native/pad_input.c",private_poll,"-I",args.build/"gen","-lxinput"]}.get(name,[])
             run([args.cc,*flags,TESTS/(name+".c"),*extra,"-o",exe])
             run([exe])
             if name=="controller_bus":

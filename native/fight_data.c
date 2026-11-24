@@ -265,12 +265,14 @@ int fight_career_property(uint32_t key,uint32_t value) {
         const char *page=s && memchr(s+8,0,64)?(const char *)s+8:NULL;
         // Only this private assignment may skip the normal APT setter. The handler
         // tests the temporary object's member before calling the retail screen manager.
-        if(page && !strcmp(page,"fnr3/trax?")){
+        if(page && (!strcmp(page,"fnr3/open?") || !strcmp(page,"fnr3/trax?"))){
 #ifdef __ANDROID__
             fight_bind_menu_thread();
 #endif
-            if(atomic_exchange(&playlist_armed,0))return 0;
-            puts("FNR3/1 MUSICMENU OPEN");fflush(stdout);return 1;
+            int open=atomic_exchange(&playlist_armed,0);
+            puts(open?"FNR3/1 PLAYLIST OPENING":"FNR3/1 MUSICMENU OPEN");fflush(stdout);
+            // Keep the previous imported script usable until its archive upgrade completes.
+            return !strcmp(page,"fnr3/open?")?open:!open;
         }
 #ifdef __ANDROID__
         if(page && (!strcmp(page,"fnr3/achievements") || !strcmp(page,"fnr3/music")))fight_bind_menu_thread();

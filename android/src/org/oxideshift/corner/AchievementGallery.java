@@ -13,7 +13,6 @@ final class AchievementGallery extends LinearLayout {
         boolean enabled(int row);
         void toggle(int row);
         void openTrax();
-        default boolean hasPlaylist(){return true;}
     }
     private final MusicSettings music;
     private static final String[] OPTIONS={"Music during fights","FN3 Expanded Music","EA Trax"};
@@ -86,7 +85,7 @@ final class AchievementGallery extends LinearLayout {
             body.addView(scroll,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
             cards=stack(c);pad(cards,wide?22:10,8);scroll.addView(cards);
             selected=0;
-            for(int i=0;i<(music.hasPlaylist()?OPTIONS.length:2);i++){
+            for(int i=0;i<OPTIONS.length;i++){
                 LayoutParams size=new LayoutParams(-1,-2);size.bottomMargin=dp(c,4);
                 cards.addView(new MusicRow(c,i),size);
             }
@@ -177,7 +176,7 @@ final class AchievementGallery extends LinearLayout {
         row.requestRectangleOnScreen(new Rect(0,0,row.getWidth(),row.getHeight()),false);
     }
     private void moveMusic(int step){int count=cards.getChildCount();selectMusic((selected+step+count)%count);}
-    void selectPlaylist(){if(music!=null && music.hasPlaylist())selectMusic(2,false);}
+    void selectPlaylist(){if(music!=null)selectMusic(2,false);}
     private void toggleMusic(int index){
         if(index==2){music.openTrax();return;}
         selected=index;music.toggle(index);sound.accept(DiscMenuSounds.Cue.FORWARD);showMusicRows();

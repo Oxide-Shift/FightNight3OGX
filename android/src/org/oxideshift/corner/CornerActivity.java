@@ -45,6 +45,9 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     private SensorManager sensors;
     private final BroadcastReceiver powerEvents=new BroadcastReceiver(){
         @Override public void onReceive(Context c,Intent intent){
+            // A suspended hinge sensor may never deliver the opening sample. A new
+            // Android screen-on cycle invalidates the angle sampled before sleep.
+            if(screenOff && Intent.ACTION_SCREEN_ON.equals(intent.getAction()))hingeClosed=false;
             screenOff=Intent.ACTION_SCREEN_OFF.equals(intent.getAction());
             syncPower();
         }
@@ -567,17 +570,29 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     private void immersive(){fullscreen(getWindow());if(presentation!=null)fullscreen(presentation.getWindow());}
     @Override public void onWindowFocusChanged(boolean focus){
         super.onWindowFocusChanged(focus);
-        if(focus)immersive();else if(viewingGame)neutralPad();
+        if(focus){
+            immersive();
+            if(foreground){
+                if(getSystemService(PowerManager.class).isInteractive())screenOff=false;
+                syncPower();
+            }
+        }
+        else if(viewingGame)neutralPad();
         bindRumble();
     }
-    @Override public void onInputDeviceAdded(int id){}
+    @Override public void onInputDeviceAdded(int id){
+        if(viewingGame && foreground)syncPower();
+    }
     @Override public void onInputDeviceChanged(int id){forgetDevice(id);}
     @Override public void onInputDeviceRemoved(int id){forgetDevice(id);}
     private void forgetDevice(int id){
         if(pad.remove(id))sendPad();
         rumble.forget(id);
     }
-    private boolean acceptsPad(){return awake && viewingGame && hasWindowFocus() && engine.session!=null;}
+    private boolean acceptsPad(){
+        if(!awake && foreground && resumed && viewingGame)syncPower();
+        return awake && viewingGame && engine.session!=null && !engine.session.cabinetOpen;
+    }
     private boolean pauseMenu(){
         if(screen==null || engine.session==null || !engine.session.inLiveBout())return false;
         LiveFrame frame=screen.latestFrame();
@@ -682,7 +697,21 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         if(target!=null&&presentation!=null&&presentation.isShowing()&&target.getDisplayId()==presentation.getDisplay().getDisplayId())return;
         closeLower();
         if(target!=null)try{
-            presentation=new Presentation(this,target);
+            presentation=new Presentation(this,target){
+                @Override public boolean dispatchKeyEvent(KeyEvent event){
+                    if(viewingGame && (event.getKeyCode()==KeyEvent.KEYCODE_BACK || event.isFromSource(InputDevice.SOURCE_GAMEPAD)
+                            || event.isFromSource(InputDevice.SOURCE_DPAD) || event.isFromSource(InputDevice.SOURCE_JOYSTICK))){
+                        if(achievementDisplay!=null && achievementDisplay.handleLowerKey(event))return true;
+                        if(CornerActivity.this.dispatchKeyEvent(event))return true;
+                    }
+                    return super.dispatchKeyEvent(event);
+                }
+                @Override public boolean dispatchGenericMotionEvent(MotionEvent event){
+                    if(viewingGame && event.isFromSource(InputDevice.SOURCE_JOYSTICK)
+                            && CornerActivity.this.dispatchGenericMotionEvent(event))return true;
+                    return super.dispatchGenericMotionEvent(event);
+                }
+            };
             Context ctx=presentation.getContext();FrameLayout panel=new FrameLayout(ctx);
             lowerPanel=panel;panel.setBackgroundColor(RingsideView.INK);
             ringside=new RingsideView(ctx,this::press,this::treatmentStick);
@@ -770,6 +799,10 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
                 && !getSystemService(KeyguardManager.class).isKeyguardLocked();
         boolean changed=next!=awake;
         awake=next;
+        main.removeCallbacks(recheckUnlock);
+        // Android can return focus before the display and keyguard finish waking.
+        if(!next && foreground && resumed && !screenOff && !hingeClosed)
+            main.postDelayed(recheckUnlock,350);
         if(changed && !next)neutralPad();
         if(next && updates!=null && !viewingCard && !viewingGame && !active() && !engine.importing)updates.check(false);
         if(engine.session!=null)engine.session.setSleeping(!next || !viewingGame);
@@ -786,6 +819,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         }
         syncMusic();
     }
+    private final Runnable recheckUnlock=this::syncPower;
     @Override protected void onStart(){
         super.onStart();foreground=true;screenOff=false;hingeClosed=false;
         IntentFilter filter=new IntentFilter(Intent.ACTION_SCREEN_OFF);

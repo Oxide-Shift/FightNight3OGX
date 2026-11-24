@@ -93,11 +93,11 @@ final class AchievementDisplay {
         AchievementGallery.MusicSettings options=music?new AchievementGallery.MusicSettings(){
             private String key(int row){return row==0?"fightMusic":"expandedMusic";}
             public boolean enabled(int row){return prefs.getBoolean(key(row),false);}
-            public boolean hasPlaylist(){return session.retailMusicRoute;}
             public void openTrax(){
-                if(gallery==null || closing || awaitingPlaylist || !enterPlaylist.getAsBoolean())return;
+                if(gallery==null || closing || awaitingPlaylist)return;
+                if(!enterPlaylist.getAsBoolean()){playlistUnavailable();return;}
                 awaitingPlaylist=true;
-                top.postDelayed(playlistTimeout,1500);
+                top.postDelayed(playlistTimeout,4000);
             }
             public void toggle(int row){
                 prefs.edit().putBoolean(key(row),!enabled(row)).apply();
@@ -131,20 +131,33 @@ final class AchievementDisplay {
         routePrompts(lowerDisplay);
     }
     private final Runnable playlistTimeout=this::onPlaylistTimeout;
+    private void playlistUnavailable(){
+        android.widget.Toast.makeText(activity,"EA Trax could not open. Return to the launcher and start the game again.",android.widget.Toast.LENGTH_LONG).show();
+    }
     private void onPlaylistTimeout(){
         if(awaitingPlaylist){
-            if(session.browsingTrax){playlistChanged();return;}
+            if(session.playlistOpening()){playlistChanged();return;}
             awaitingPlaylist=false;session.cancelPlaylistRequest();
+            playlistUnavailable();
         }
     }
     void playlistChanged(){
-        if(gallery==null || !musicHome || !session.browsingTrax)return;
+        if(gallery==null || !musicHome || !awaitingPlaylist || !session.playlistOpening())return;
         awaitingPlaylist=false;top.removeCallbacks(playlistTimeout);
         if(gallery!=null)gallery.dismiss();
     }
     private void leave(){
         if(gallery==null || closing || awaitingPlaylist)return;
+        session.cancelPlaylistRequest();
         closing=true;session.menuCancelSound();gallery.dismiss();
+    }
+    boolean handleLowerKey(android.view.KeyEvent key){
+        if(galleryPage==null)return false;
+        if(key.getKeyCode()==android.view.KeyEvent.KEYCODE_BACK){
+            if(key.getAction()==android.view.KeyEvent.ACTION_UP && !key.isCanceled())activity.onBackPressed();
+            return true;
+        }
+        return galleryPage.handleKey(key,closing || awaitingPlaylist);
     }
     private void routePrompts(FrameLayout host){
         if(promptHost==host)return;

@@ -14,6 +14,9 @@ final class RetailMenu {
     private static final byte[] MUSIC_ROUTE=ascii("FNR3-ACHIEVEMENTS-7");
     private static final byte[] NAVIGATION=ascii("FNR3-ACHIEVEMENTS-8");
     private static final byte[] MUSIC_CHILD=ascii("FNR3-ACHIEVEMENTS-9");
+    // Fixed-width revision markers also locate the adjacent Thor guide marker.
+    private static final byte[] STARTUP_FIXED=ascii("FNR3-ACHIEVEMENTS-A");
+    private static final byte[] EXPLICIT_PLAYLIST=ascii("FNR3-ACHIEVEMENTS-B");
     private static final int ALIGN=128;
 
     private static byte[] ascii(String s){return s.getBytes(StandardCharsets.US_ASCII);}
@@ -129,7 +132,7 @@ final class RetailMenu {
         }
         byte[] outer=Files.readAllBytes(archive);
         byte[] menuStamp=Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length);
-        if(!Arrays.equals(menuStamp,VERSION) && !Arrays.equals(menuStamp,MUSIC_ROUTE) && !Arrays.equals(menuStamp,NAVIGATION) && !Arrays.equals(menuStamp,MUSIC_CHILD))
+        if(!Arrays.equals(menuStamp,VERSION) && !Arrays.equals(menuStamp,MUSIC_ROUTE) && !Arrays.equals(menuStamp,NAVIGATION) && !Arrays.equals(menuStamp,MUSIC_CHILD) && !Arrays.equals(menuStamp,STARTUP_FIXED) && !Arrays.equals(menuStamp,EXPLICIT_PLAYLIST))
             throw new IOException("Install the retail menu first");
         for(String variant:new String[]{"CM","CR","HH","PN","Training","Tutorial"}){
             String stem="lp-"+variant+"-ContConfig",group="screengroups/load/"+stem+".big",bankName=stem+".xsh";
@@ -200,10 +203,21 @@ final class RetailMenu {
         try(RandomAccessFile f=new RandomAccessFile(archive.toFile(),"r")){
             if(f.length()<VERSION.length || f.length()>48L*1024*1024)throw new IOException("Unrecognized overlay archive");
             byte[] tail=new byte[VERSION.length];f.seek(f.length()-tail.length);f.readFully(tail);
-            if(Arrays.equals(tail,MUSIC_CHILD))return;
+            if(Arrays.equals(tail,EXPLICIT_PLAYLIST))return;
         }
         byte[] outer=Files.readAllBytes(archive);
         byte[] installed=Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length);
+        if(Arrays.equals(installed,MUSIC_CHILD) || Arrays.equals(installed,STARTUP_FIXED)){
+            byte[] packed=member(outer,GROUP),group=TraxArt.inflate(packed,2*1024*1024);
+            byte[] updated=group;
+            if(Arrays.equals(installed,MUSIC_CHILD)){
+                byte[] apt=member(group,"mainmenu.apt");
+                repairStartup(apt);
+                updated=replace(group,"mainmenu.apt",apt);
+            }
+            writeArchive(archive,storeMainMenu(outer,packed,group,updated));
+            return;
+        }
         if(Arrays.equals(installed,NAVIGATION)){writeArchive(archive,musicChild(outer));return;}
         if(Arrays.equals(installed,MUSIC_ROUTE) || Arrays.equals(installed,VERSION)){
             writeArchive(archive,musicChild(navigation(Arrays.equals(installed,VERSION)?musicRoute(outer):outer)));return;
@@ -309,9 +323,55 @@ final class RetailMenu {
         code.put((byte)0xa3).putShort((short)305).put((byte)0x49);
         jump(code,0x9d,0xd075); // Only an explicit EA Trax request opens the stock playlist.
         code.put((byte)0x76).put((byte)0x3e);
+        repairStartup(apt);
         byte[] updated=replace(replace(group,"mainmenu.apt",apt),"mainmenu.const",pool);
+        return storeMainMenu(outer,packed,group,updated);
+    }
+
+    private static void repairStartup(byte[] apt)throws IOException{
+        verify(apt,"6d547eb7c01d531cfdf02054f228c932b59a47030aae27946d4b603a962c82d9");
+        // Restore the retail menu.setup arguments on both new installs and upgrades.
+        // The lower display reads the visible initial row. D-pad changes still
+        // publish getSelection() from the two scroll handlers.
+        ByteBuffer code=little(apt);
+        int rowArgument=code.getInt(0xcb6c);
+        byte[] selection=Arrays.copyOfRange(apt,0xcb55,0xcb5d);
+        Arrays.fill(apt,0xcb4f,0xcb78,(byte)0);
+        code.position(0xcb4f);
+        pushMenuArgument(code,rowArgument-4);
+        code.put(selection);
+        pushMenuArgument(code,rowArgument);
+        pushMenuArgument(code,rowArgument+4);
+        // The retail loader walks even unreachable actions to relocate later operands.
+        // These gaps follow unconditional jumps or returns. Fill them with single-byte
+        // actions so zero bytes from overwritten operands cannot end the walk early.
+        Arrays.fill(apt,0xce6c,0xce70,(byte)0x04);
+        Arrays.fill(apt,0xce8a,0xce8c,(byte)0x04);
+        Arrays.fill(apt,0xd058,0xd060,(byte)0x04);
+    }
+
+    private static void pushMenuArgument(ByteBuffer code,int tableEntry){
+        code.put((byte)0x96);
+        code.position((code.position()+3)&~3);
+        code.putInt(1).putInt(tableEntry);
+    }
+
+    private static byte[] storeMainMenu(byte[] outer,byte[] packed,byte[] group,byte[] updated)throws IOException{
+        byte[] apt=member(updated,"mainmenu.apt"),pool=member(updated,"mainmenu.const");
+        verify(apt,"0f7364997724cba7100e9cb9d269bd7942699c8016a946e315c10279ddc38611");
+        ByteBuffer table=little(pool);
+        int offset=table.getInt(table.getInt(28)+312*8+4);
+        byte[] old=ascii("fnr3/trax?");
+        if(offset<0 || offset>=pool.length-old.length || pool[offset+old.length]!=0 ||
+                !Arrays.equals(old,Arrays.copyOfRange(pool,offset,offset+old.length)))
+            throw new IOException("Unexpected EA Trax menu marker");
+        System.arraycopy(ascii("fnr3/open?"),0,pool,offset,old.length);
+        // An ordinary Select stores this member and returns to the carousel.
+        // Only the Open row arms the native hook to skip that store once.
+        apt[0xce82]=(byte)0xb8; // EA branch-if-false to the retail playlist
+        updated=replace(replace(updated,"mainmenu.apt",apt),"mainmenu.const",pool);
         byte[] result=replace(outer,GROUP,packed==group?updated:repack(packed,updated));
-        System.arraycopy(MUSIC_CHILD,0,result,result.length-MUSIC_CHILD.length,MUSIC_CHILD.length);
+        System.arraycopy(EXPLICIT_PLAYLIST,0,result,result.length-EXPLICIT_PLAYLIST.length,EXPLICIT_PLAYLIST.length);
         return result;
     }
 

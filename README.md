@@ -66,7 +66,7 @@ If the project server accepts only error summaries, Fight Setup sends the error 
 
 Fight Setup also checks the disc's menu archive (`GUI/overlay.viv`) before compiling and before launching an existing installation. If the file is missing or incomplete, select a complete disc image to repair the installed game. Your career saves are stored separately and survive the repair.
 
-If the game starts and the crash dialog shows **game · exit 41**, your disc passed the import check. The runtime encountered an invalid Xbox function address. Include the device model, the last screen you saw, and **Copy details** from that dialog when reporting it.
+If the game starts and the crash dialog shows **game · exit 41**, your disc passed the import check. Alpha 73 fixes a startup menu error that produced this code before Press Start on verified US discs. If you saw it on an earlier build, update and try your existing import. Include the device model, the last screen you saw, and **Copy details** from that dialog when reporting it.
 
 The crash dialog previews the device manufacturer, model and preferred CPU ABI. For a game crash it also shows the furthest startup or gameplay milestone reached, elapsed session time, last logged frame submission, selected frame-rate limit, anti-aliasing and filtering. For an invalid Xbox call it includes the attempted target and the guest stack return when available. **Send** delivers the displayed diagnostics to the project's private inbox. **Copy details** copies them locally, and **Skip** dismisses the report. Each submission has its own random receipt ID.
 
@@ -92,7 +92,7 @@ You’ll need **ARM64 Android 11 or newer**. The **AYN Thor** is the only handhe
 3. Tap **Choose Xbox ISO** and select your disc image. Keep Fight Setup open while the app extracts and compiles the game. If **Prepare game** appears, tap it to finish. A local file the app can read directly avoids a second full-size ISO copy. If your file provider streams the ISO, allow about **11 GB free** in addition to the disc image.
 4. Choose your picture settings and tap **Enter the ring**. Later launches reuse the prepared game. Use **Check for updates** in Fight Setup for future releases.
 
-**Updating to Alpha 71?** Install the APK over your existing version. Fight Setup keeps your imported disc and career saves. If it offers **Prepare game**, let it finish before launching.
+**Updating to Alpha 73?** Install the APK over your existing version. Fight Setup keeps your imported disc and career saves. If it offers **Prepare game**, let it finish before launching.
 
 <details>
 <summary>See Fight Setup and picture settings</summary>
@@ -155,7 +155,7 @@ Before signing a contract, compare the purse and your opponent’s record, power
 
 ## Take EA Trax into the ring
 
-Open **Music** from the game's main menu. The two music toggles start **off** on a new install. **EA Trax** opens the original playlist editor here. Press **B** to return to Music and **B** again to exit to the main menu.
+Open **Music** from the game's main menu. The two music toggles start **off** on a new install. Select **EA Trax → Open** on the third row to open the original playlist editor. Press **B** to return to Music and **B** again to exit to the main menu.
 
 | Music menu | What it does |
 | --- | --- |
