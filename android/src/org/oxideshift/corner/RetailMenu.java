@@ -10,7 +10,7 @@ import java.util.Arrays;
 /** Adds a selectable row to the imported Xbox front end. Only the app's extracted copy is edited. */
 final class RetailMenu {
     private static final String GROUP="screengroups/mainmenu/mainmenu.big";
-    private static final byte[] LEGACY=ascii("FNR3-ACHIEVEMENTS-1"), PRE_BRAND=ascii("FNR3-ACHIEVEMENTS-2"), FIRST_BRAND=ascii("FNR3-ACHIEVEMENTS-3"), SLOPED_BRAND=ascii("FNR3-ACHIEVEMENTS-4"), VERSION=ascii("FNR3-ACHIEVEMENTS-5");
+    private static final byte[] LEGACY=ascii("FNR3-ACHIEVEMENTS-1"), PRE_BRAND=ascii("FNR3-ACHIEVEMENTS-2"), FIRST_BRAND=ascii("FNR3-ACHIEVEMENTS-3"), SLOPED_BRAND=ascii("FNR3-ACHIEVEMENTS-4"), PRE_PAUSE=ascii("FNR3-ACHIEVEMENTS-5"), VERSION=ascii("FNR3-ACHIEVEMENTS-6");
     private static final int ALIGN=128;
 
     private static byte[] ascii(String s){return s.getBytes(StandardCharsets.US_ASCII);}
@@ -200,7 +200,7 @@ final class RetailMenu {
         byte[] outer=Files.readAllBytes(archive);
         boolean legacy=Arrays.equals(Arrays.copyOfRange(outer,outer.length-LEGACY.length,outer.length),LEGACY);
         byte[] stage=Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length);
-        boolean current=Arrays.equals(stage,PRE_BRAND) || Arrays.equals(stage,FIRST_BRAND) || Arrays.equals(stage,SLOPED_BRAND);
+        boolean current=Arrays.equals(stage,PRE_BRAND) || Arrays.equals(stage,FIRST_BRAND) || Arrays.equals(stage,SLOPED_BRAND) || Arrays.equals(stage,PRE_PAUSE);
         if(legacy || current){
             outer=Arrays.copyOf(outer,outer.length-LEGACY.length);
             little(outer).putInt(4,outer.length);
@@ -212,14 +212,31 @@ final class RetailMenu {
         }
         byte[] bank=TraxArt.inflate(member(group,"mainmenu.xsh"),2*1024*1024);
         ByteBuffer header=little(bank);
-        int matches=0;
+        int matches=0,mainTitle=0;
         for(int i=0;i<header.getInt(8);i++){
             int pos=16+8*i;
             if(!"16".equals(new String(bank,pos,4,StandardCharsets.US_ASCII).trim()))continue;
-            OgxBrand.apply(bank,header.getInt(pos+4)+16,tag);matches++;
+            mainTitle=header.getInt(pos+4)+16;
+            OgxBrand.apply(bank,mainTitle,tag);matches++;
         }
         if(matches!=1)throw new IOException("Missing retail title");
         byte[] result=replace(outer,GROUP,replace(group,"mainmenu.xsh",bank));
+        String pauseGroup="screengroups/pausemenu/pausemenu.big";
+        byte[] pause=TraxArt.inflate(member(result,pauseGroup),2*1024*1024);
+        byte[] textures=TraxArt.inflate(member(pause,"pausemenu.xsh"),2*1024*1024);
+        ByteBuffer directory=little(textures);
+        int found=0;
+        for(int i=0;i<directory.getInt(8);i++){
+            int pos=16+8*i;
+            if(!"2".equals(new String(textures,pos,4,StandardCharsets.US_ASCII).trim()))continue;
+            int at=directory.getInt(pos+4);
+            if(at<0 || at>textures.length-16 || textures[at]!=0x61 ||
+                    directory.getShort(at+4)!=512 || directory.getShort(at+6)!=128)
+                throw new IOException("Invalid pause title texture");
+            OgxBrand.applyPause(textures,at+16,bank,mainTitle,tag);found++;
+        }
+        if(found!=1)throw new IOException("Missing pause title");
+        result=replace(result,pauseGroup,replace(pause,"pausemenu.xsh",textures));
         little(result).putInt(4,result.length+VERSION.length);
         Path temp=Files.createTempFile(archive.getParent(),"menu-",".tmp");
         try{

@@ -17,6 +17,38 @@ static const uint8_t *guest(uint32_t a, size_t n) {
     return XBOX_HOST(a);
 }
 static uint32_t word(const uint8_t *p) { uint32_t v; memcpy(&v,p,4); return v; }
+/* The synchronous DirectSound stop waits for an idle interrupt before it can
+ * rebind a buffer. VOICE_OFF clears ACTIVE for each hardware channel. Only
+ * run the title's locked cleanup early when the voice still owns those slots. */
+int fight_voice_stopped(uint32_t address){
+    const uint8_t *voice=guest(address,0x80);
+    if(!voice || (voice[0x12]&1)==0 || (voice[0x13]&0x80)==0)return 0;
+    unsigned count=voice[0x64];
+    uint32_t next=word(voice+0x4c),previous=word(voice+0x50);
+    if(count==0 || count>3 || next==address+0x4c || !guest(next,8) || !guest(previous,8))return 0;
+    const uint8_t *owner=guest(word(voice+8),0x488);
+    uint32_t table=word(XBOX_HOST(0x471bd0));
+    /* The tiled aperture aliases the contiguous allocation in this runtime. */
+    if(table>=0xf0000000u && table-0xf0000000u<g_xbox_total_ram)
+        table=0x80000000u+(table-0xf0000000u);
+    const uint8_t *hardware=guest(table,256*128);
+    if(!owner || !hardware || word(owner+0x84))return 0;
+    for(unsigned i=0;i<count;i++){
+        uint16_t slot;
+        memcpy(&slot,voice+0xc+i*2,sizeof(slot));
+        if(slot>=256 || word(owner+0x88+slot*4)!=address)return 0;
+        const uint8_t *channel=hardware+slot*128;
+        /* MCPX PAR_STATE.ACTIVE applies to each channel. The retail idle ISR
+         * also excludes CFG_FMT.PERSIST on its final notification handle. */
+        if(word(channel+0x54)&(1u<<21))return 0;
+        if(i+1==count && (word(channel+4)&(1u<<23)))return 0;
+    }
+    static atomic_uint completed;
+    unsigned n=atomic_fetch_add_explicit(&completed,1,memory_order_relaxed)+1;
+    if(n==1 || (n&127)==0)
+        fprintf(stderr,"[Fight Night] voice stop completed count=%u channels=%u\n",n,count);
+    return 1;
+}
 /* GetSelectedBoxer returns the two row IDs from the selection manager.
  * The game's roster accessor walks linked tables (including custom boxers),
  * then reads first and last names from the selected row's string columns. */
@@ -133,7 +165,9 @@ static int same_property(const uint8_t *string,const char *name) {
 
 /* The cinematic dispatch hook observes ECX before the retail method touches it. */
 extern RECOMP_TLS uint32_t g_ecx;
+/* Director objects are word-aligned. Bit zero marks an entrance with a fixed 30 Hz cadence. */
 static atomic_uint paced_director;
+static atomic_uint paced_movie;
 static atomic_int in_music_menu=1;
 static void music_scene(int menu){
     if(menu)atomic_store(&paced_director,0);
@@ -395,12 +429,22 @@ static void sample_winner(const uint8_t *clock) {
 /* Read the same presentation interval that the title's cinematic update writes
  * through sub_000FF240 and sub_0029E1E0. The director must still be playing a selected retail script. */
 unsigned fight_present_interval(void){
+    if(atomic_load(&paced_movie))return 2;
+    /* sub_00188860 advances the active replay transport. The recorder keeps running
+     * during a fight, but only playback attaches a transport to the owner's +0xc. */
+    uint32_t transport=word(XBOX_HOST(0x5b3318));
+    const uint8_t *replay=guest(transport,12);
+    if(replay && word(replay+8)>=1 && word(replay+8)<=4){
+        const uint8_t *owner=guest(word(replay+4),16);
+        if(owner && word(owner+12)==transport)return 2;
+    }
     uint32_t address=atomic_load(&paced_director);
     if(!address)return 1;
-    const uint8_t *director=guest(address,0x58);
+    const uint8_t *director=guest(address&~1u,0x58);
     if(!director || !director[0x48] || word(director+0x4c)!=3)return 1;
     const uint8_t *script=guest(word(director+0x40),16);
     if(!script || word(script)!=0x01707473 || word(director+0x54)>=word(script+8))return 1;
+    if(address&1)return 2;
     const uint8_t *timing=guest(word(XBOX_HOST(0x594da0)),0x1c);
     const uint8_t *display=timing?guest(word(timing+0x0c),0xe4):NULL;
     unsigned interval=display?word(display+0xe0):1;
@@ -409,14 +453,18 @@ unsigned fight_present_interval(void){
 
 void fight_cinematic(uint32_t sequence) {
     /* BWR, DQ win, KOW and referee stoppage clips from the retail sequence table.
-     * Entrances, loser reactions, scorecards and ordinary ring action use normal pacing. */
+     * The existing interval for these and the coach scripts comes from the title. */
     int winner=(sequence>=60 && sequence<=69) || (sequence>=75 && sequence<=77) ||
                (sequence>=82 && sequence<=85) || (sequence>=100 && sequence<=112) ||
                (sequence>=125 && sequence<=135);
     /* BCS_BLU_01 through BCS_BLU_13, including the four venue variants,
      * occupy slots 0-16. Slot 17 begins the entrance scripts. */
     int coach=sequence<=16;
-    atomic_store(&paced_director,(coach || winner)?g_ecx:0);
+    int entrance=(sequence>=17 && sequence<=56) || (sequence>=137 && sequence<=143);
+    uint32_t director=0;
+    if(g_ecx && (g_ecx&3)==0 && (entrance || coach || winner))
+        director=g_ecx | (entrance?1u:0u);
+    atomic_store(&paced_director,director);
     const char *result = sequence >= 100 && sequence <= 112 ? "KO" :
                          sequence >= 125 && sequence <= 136 ? "TKO" : NULL;
     if (!callout_bout || finished_callout) return;
@@ -771,6 +819,9 @@ void fight_music_open(uint32_t token,const char *name,size_t length){
         while(base>name && base[-1]!='\\' && base[-1]!='/')--base;
         size_t n=(size_t)(name+length-base);
         int movie=movie_name(base,n,"easports.nfx")?1:movie_name(base,n,"intro.nfx")?2:0;
+        int reel=n==12 && isdigit((unsigned char)base[6]) && isdigit((unsigned char)base[7]) &&
+                 (movie_name(base,6,"rivals") || movie_name(base,6,"extras"));
+        if(movie || reel)atomic_store(&paced_movie,token);
         unsigned previous=atomic_exchange(&movie_token,movie?token:0);
         if(movie || previous){printf("FNR3/1 INTRO %d\n",movie);fflush(stdout);}
     }
@@ -804,6 +855,8 @@ void fight_music_open(uint32_t token,const char *name,size_t length){
 }
 void fight_music_close(uint32_t token){
     if(!token)return;
+    unsigned playback=token;
+    atomic_compare_exchange_strong(&paced_movie,&playback,0);
     unsigned movie=token;
     if(atomic_compare_exchange_strong(&movie_token,&movie,0)){puts("FNR3/1 INTRO 0");fflush(stdout);}
     for(unsigned i=0;i<16;i++){uint32_t t=token;if(atomic_compare_exchange_strong(&files[i],&t,0))return;}

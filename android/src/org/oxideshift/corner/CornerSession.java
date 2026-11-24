@@ -504,7 +504,7 @@ public final class CornerSession {
                 timingLog.accept(line.substring(14));
             return;
         }
-        if(line.startsWith("[Fight Night] slow flip ") || line.startsWith("[Fight Night] audio stream error ")){
+        if(line.startsWith("[Fight Night] slow flip ") || line.startsWith("[Fight Night] audio stream error ") || line.startsWith("[Fight Night] voice stop completed ")){
             if(timingLog!=null)timingLog.accept(line.substring(14));
             return;
         }

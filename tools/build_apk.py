@@ -25,9 +25,12 @@ def main():
     build.add_argument("--host", type=Path, help="Private Android PIE compiled from your own disc")
     parser.add_argument("--emulator", action="store_true", help="Package a private x86-64 Android test host")
     parser.add_argument("--benchmark", action="store_true", help="Time a full uncached disc preparation on each new app process")
+    parser.add_argument("--profile", action="store_true", help="Allow Android shell CPU profiling on a private disc build")
     args = parser.parse_args()
     if args.benchmark and not args.disc_kit:
         parser.error("--benchmark requires --disc-kit")
+    if args.profile and not args.disc_kit:
+        parser.error("--profile requires --disc-kit")
     project = Path(__file__).resolve().parents[1]
     sdk, jar, jdk = args.build_tools.resolve(), args.platform.resolve(), args.jdk.resolve() / "bin"
     private = args.private_dir.resolve()
@@ -49,7 +52,8 @@ def main():
             parser.error("The on-device compiler requires ARM64")
         from xml.etree import ElementTree
         version = ElementTree.parse(app / "AndroidManifest.xml").getroot().get("{http://schemas.android.com/apk/res/android}versionName")
-        output = private / ("FightNight3OGX-" + version + ".apk")
+        suffix = "-profile.apk" if args.profile else ".apk"
+        output = private / ("FightNight3OGX-" + version + suffix)
     else:
         with args.host.open("rb") as f:
             hdr = f.read(64)
@@ -77,6 +81,14 @@ def main():
             "--lib", jar, "--output", dex, compiled)
         unsigned = work / "unsigned.apk"
         manifest = app / "AndroidManifest.xml"
+        if args.profile:
+            android_ns = "http://schemas.android.com/apk/res/android"
+            ElementTree.register_namespace("android", android_ns)
+            tree = ElementTree.parse(manifest)
+            ElementTree.SubElement(tree.getroot().find("application"), "profileable",
+                                   {f"{{{android_ns}}}shell": "true"})
+            manifest = work / "profile-manifest.xml"
+            tree.write(manifest, encoding="utf-8", xml_declaration=True)
         link = [sdk / "aapt2.exe", "link", "-I", jar, "--manifest", manifest, "-o", unsigned]
         if not args.setup:
             resources = work / "resources.zip"

@@ -45,6 +45,8 @@ You’ll need **ARM64 Android 11 or newer**. The **AYN Thor** is the only handhe
 3. Tap **Choose Xbox ISO** and select your disc image. Keep Fight Setup open while the app extracts and compiles the game. If **Prepare game** appears, tap it to finish. A local file the app can read directly avoids a second full-size ISO copy. If your file provider streams the ISO, allow about **11 GB free** in addition to the disc image.
 4. Choose your picture settings and tap **Enter the ring**. Later launches reuse the prepared game. Use **Check for updates** in Fight Setup for future releases.
 
+**Updating to Alpha 63?** Your imported disc and saves carry over. Let Fight Setup rebuild the game code once after you update. Alpha 63 fixes a half-second audio wait captured during punch exchanges on the Thor.
+
 <details>
 <summary>See Fight Setup and picture settings</summary>
 
@@ -52,7 +54,7 @@ You’ll need **ARM64 Android 11 or newer**. The **AYN Thor** is the only handhe
 
 The launcher offers **30, 45 and 60 FPS** targets, VSync, widescreen and original 4:3. The example uses Vulkan at **1080p, High**, with sharpening, 4× filtering and 2× MSAA. Under **Advanced graphics**, you can change edge smoothing or turn on **Show FPS counter**. It starts off. When enabled, small neon-green digits in the upper-left of the game screen show the displayed frame rate. Pause menus and the lower-screen results stay clear. Frame rate varies by venue and can dip during exchanges.
 
-**Why stop at 60 FPS?** The original round timer counts game updates. In an isolated test at normal clock speed, doubling the update rate made a three-minute round run out in 90 seconds. Alpha 61 keeps the existing fight pacing and the 30 FPS coach and post-fight sequences.
+**Why stop at 60 FPS?** The original round timer counts game updates. In an isolated test at normal clock speed, doubling the update rate made a three-minute round run out in 90 seconds. Alpha 63 keeps the original fight timing. The intro, fighter entrances, highlights, coach’s corner and post-fight sequences use 30 FPS pacing.
 
 </details>
 

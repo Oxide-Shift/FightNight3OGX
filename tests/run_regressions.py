@@ -67,8 +67,27 @@ def main():
               'void sub_0046CB0E(void);\n'+source[start:source.index("\n}",start)+2],encoding="utf-8")
         run([args.cc,*flags,"-I",args.build/"gen",TESTS/"voice_completion.c",voice,"-o",out/"voice_completion.exe"])
         run([out/"voice_completion.exe"])
+        # Include exactly the stop poll from this disc translation. Apply the same
+        # idempotent hook when the fixture predates this release.
+        sys.path.insert(0,str(ROOT/"tools"))
+        from bringup import route_voice_stop
+        signature="void sub_0046CDD3(void)\n{"
+        for chunk in sorted((args.build/"gen").glob("recomp_0*.c")):
+            source=chunk.read_text(encoding="utf-8")
+            if signature in source:
+                start=source.index(signature)
+                break
+        else:
+            raise ValueError("Missing translated DirectSound stop poll")
+        stop=out/"recomp_0247.c"
+        stop.write_text('#define RECOMP_GENERATED_CODE\n#include "recomp_types.h"\n'
+            '#undef RECOMP_ICALL_SAFE_AT\n#define RECOMP_ICALL_SAFE_AT(t,s,site) stop_clock(site)\n'
+            'void stop_clock(uint32_t);void sub_0046CCEA(void);\n'+source[start:source.index("\n}",start)+2],encoding="utf-8")
+        route_voice_stop(out)
+        run([args.cc,*flags,"-I",args.build/"gen",TESTS/"voice_stop.c",stop,ROOT/"native/fight_data.c","-o",out/"voice_stop.exe"])
+        run([out/"voice_stop.exe"])
         names=["flip_pacing","corner_camera","menu_cancel","audio_ring","audio_route","audio_startup","voice_list","voice_rate","fight_texture_layout","frame_publish",
-               "mesh_cache","pushbuffer_wrap","texture_hash","controller_bus","ring_events","trax_filter"]
+               "mesh_cache","front_surfaces","pushbuffer_wrap","texture_hash","controller_bus","ring_events","trax_filter"]
         for name in names:
             exe=out/(name+".exe")
             extra={"menu_cancel":["-I",args.toolkit/"templates/runtime"],"audio_route":["-I",TESTS/"route_mock","-pthread","-static"],"pushbuffer_wrap":[host/"nv2a_pb_scan.o"],"controller_bus":[host/"usb_gamepad.o",ROOT/"native/pad_input.c",private_poll,"-I",args.build/"gen","-lxinput"]}.get(name,[])
@@ -79,7 +98,7 @@ def main():
         peer=out/"corner-link.exe"
         run([args.cc,"-DCORNER_LINK_ONLY",ROOT/"native/corner_pipe.c","-o",peer])
         run([java,"-cp",cp,"LinkSmoke",peer])
-        print(f"Passed {len(java_suites)} Java suites, {len(names)+1} native suites, scorecard and host link with {len(frames)} menu/ring captures.")
+        print(f"Passed {len(java_suites)} Java suites, {len(names)+2} native suites, scorecard and host link with {len(frames)} menu/ring captures.")
 
 if __name__=="__main__":
     main()

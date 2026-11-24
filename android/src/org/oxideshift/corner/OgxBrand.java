@@ -35,21 +35,7 @@ final class OgxBrand {
         Arrays.fill(bank,at+WIDTH*TITLE_HEIGHT,end,(byte)0);
         int[] title=TraxArt.bc2(bank,at,WIDTH,WIDTH);
         int[] front=new int[WIDTH*WIDTH],shadow=new int[WIDTH*WIDTH];
-        for(int x=38;x<=190;x++){
-            for(int y=168;y<WIDTH;y++){
-                double top=199-(x-39)*0.181, height=58-(x-39)*0.087;
-                double v=(y+.5-top)/height;
-                if(v<0 || v>=1)continue;
-                int alpha=coverage(title,glyphs,x+.5,v);
-                if(alpha==0)continue;
-                front[y*WIDTH+x]=alpha<<24 | gold(x,v);
-                // Project the silhouette toward the same rear corner as the NIGHT row.
-                for(int step=0;step<=53;step++){
-                    int rear=(y-step)*WIDTH+x-(step*36+26)/53;
-                    shadow[rear]=Math.max(shadow[rear],alpha);
-                }
-            }
-        }
+        drawMark(title,glyphs,front,shadow);
         int[] block=new int[16],palette=new int[4];
         ByteBuffer dest=ByteBuffer.wrap(bank).order(ByteOrder.LITTLE_ENDIAN);
         for(int y=112;y<WIDTH;y+=4)for(int x=0;x<WIDTH;x+=4){
@@ -65,6 +51,50 @@ final class OgxBrand {
             if(modified){dest.position(at+y*WIDTH+x*4);encode(dest,block,palette);}
         }
         System.arraycopy(SIGNATURE,0,bank,end-SIGNATURE.length,SIGNATURE.length);
+    }
+
+    private static void drawMark(int[] title,byte[] glyphs,int[] front,int[] shadow){
+        for(int x=38;x<=190;x++){
+            for(int y=168;y<WIDTH;y++){
+                double top=199-(x-39)*0.181, height=58-(x-39)*0.087;
+                double v=(y+.5-top)/height;
+                if(v<0 || v>=1)continue;
+                int alpha=coverage(title,glyphs,x+.5,v);
+                if(alpha==0)continue;
+                front[y*WIDTH+x]=alpha<<24 | gold(x,v);
+                // Project the silhouette toward the same rear corner as the NIGHT row.
+                for(int step=0;step<=53;step++){
+                    int rear=(y-step)*WIDTH+x-(step*36+26)/53;
+                    shadow[rear]=Math.max(shadow[rear],alpha);
+                }
+            }
+        }
+    }
+
+    static void applyPause(byte[] bank,int at,byte[] main,int mainAt,byte[] glyphs)throws IOException{
+        final int width=512,height=128;
+        if(at<0 || at>bank.length-width*height)throw new IOException("Invalid pause banner");
+        RetailMenu.verify(Arrays.copyOfRange(bank,at,at+width*height),
+                "ca7c5c53bc4784f5b7190e2ec511ded3b20909beb0e5f84183aa5de4ff1c5870");
+        int[] title=TraxArt.bc2(main,mainAt,WIDTH,WIDTH);
+        int[] front=new int[WIDTH*WIDTH],shadow=new int[WIDTH*WIDTH];
+        drawMark(title,glyphs,front,shadow);
+        int[] banner=TraxArt.bc2(bank,at,width,height),block=new int[16],palette=new int[4];
+        ByteBuffer dest=ByteBuffer.wrap(bank).order(ByteOrder.LITTLE_ENDIAN);
+        // The transparent band alongside the title sits above the pause-menu text.
+        for(int y=0;y<64;y+=4)for(int x=172;x<256;x+=4){
+            boolean changed=false;
+            for(int k=0;k<16;k++){
+                int dx=x+k%4,dy=y+k/4,color=banner[dy*width+dx];
+                int sx=(dx-172)*7/3,sy=110+dy*7/3;
+                if(sy>=WIDTH){block[k]=color;continue;}
+                int index=sy*WIDTH+sx;
+                int shaded=shadow[index]==0?color:over(color,shadow[index]<<24);
+                block[k]=front[index]==0?shaded:over(front[index],shaded);
+                changed|=block[k]!=color;
+            }
+            if(changed){dest.position(at+y*width+x*4);encode(dest,block,palette);}
+        }
     }
 
     private static int coverage(int[] title,byte[] masks,double x,double v){

@@ -32,13 +32,27 @@ int main(void){
         fight_cinematic(shot);assert(fight_present_interval()==2);
         set(0x650e0,1);assert(fight_present_interval()==1);set(0x650e0,2);
     }
-    fight_cinematic(17);assert(fight_present_interval()==1);
+    set(0x650e0,1);
+    for(unsigned shot=17;shot<=56;shot++){fight_cinematic(shot);assert(fight_present_interval()==2);}
+    for(unsigned shot=137;shot<=143;shot++){fight_cinematic(shot);assert(fight_present_interval()==2);}
+    set(g_ecx+0x54,300);assert(fight_present_interval()==1);set(g_ecx+0x54,0);
+    set(0x650e0,2);
     fight_cinematic(124);assert(fight_present_interval()==1);
     fight_cinematic(0);set(g_ecx+0x54,300);assert(fight_present_interval()==1);set(g_ecx+0x54,0);
     music_scene(1);assert(fight_present_interval()==1);
     fight_cinematic(100);assert(fight_present_interval()==2);
     set(g_ecx+0x4c,4);assert(fight_present_interval()==1);
     set(g_ecx+0x4c,3);music_scene(1);assert(fight_present_interval()==1);
+    set(0x5b3318,0x71000);set(0x71004,0x72000);set(0x7200c,0x71000);
+    for(unsigned mode=1;mode<=4;mode++){set(0x71008,mode);assert(fight_present_interval()==2);}
+    set(0x71008,0);assert(fight_present_interval()==1);
+    set(0x71008,2);set(0x7200c,0);assert(fight_present_interval()==1);set(0x5b3318,0);
+    fight_music_open(31,"intro.nfx",9);assert(fight_present_interval()==2);
+    fight_music_open(32,"Rivals00.NFX",12);fight_music_close(31);assert(fight_present_interval()==2);
+    fight_music_close(32);assert(fight_present_interval()==1);
+    fight_music_open(35,"extras02.nfx",12);assert(fight_present_interval()==2);
+    fight_music_close(35);fight_music_open(36,"dodge.nfx",9);assert(fight_present_interval()==1);
+    events[0]=0;
     /* Switching profiles, an empty contract or leaving career must clear stale scouting. */
     uint32_t manager=0x59db10,profile=0x40000;
     set(manager+0x190,4);set(manager+0xf0,1);set(manager+0x3a4c,0x4ab240);

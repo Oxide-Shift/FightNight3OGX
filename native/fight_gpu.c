@@ -9,9 +9,20 @@
 #include "xbox_memory_layout.h"
 #include "vkr.h"
 #include "fight_data.h"
+#include "front_surfaces.h"
 
 static VkrContext *gpu;
-static uint32_t fronts[8], front_count, active_address, active_depth;
+static FightFrontSurfaces fronts;
+static uint32_t active_address, active_depth;
+static unsigned unknown_surface_calls, conflicting_surface_calls, front_replacements;
+static uint32_t missed_address, presented_address;
+
+void fight_render_hitch_stats(char *out, size_t size) {
+    if (out) snprintf(out,size,"front_misses=%u target_conflicts=%u front_replacements=%u last_miss=%08x flip=%08x",
+                      unknown_surface_calls,conflicting_surface_calls,front_replacements,missed_address,presented_address);
+    unknown_surface_calls=conflicting_surface_calls=front_replacements=0;
+    missed_address=0;
+}
 extern const uint32_t *fight_color_pixels(int stage);
 extern VkrTex *fight_upload_color(VkrContext *,uint64_t,uint32_t,uint32_t,const uint32_t *);
 static unsigned draws;
@@ -50,9 +61,14 @@ static int select_surface(const Nv2aTarget *t) {
     if (t->swizzled || t->bpp != 4 || t->pitch != 2560 || !t->width || !t->height ||
         t->x >= 640 || t->width > 640-t->x || t->y >= 480 || t->height > 480-t->y)
         return 0;
-    unsigned i = 0;
-    while (i < front_count && fronts[i] != t->color_offset) ++i;
-    if (i == front_count || (dirty && active_address != t->color_offset)) return 0;
+    if (fight_front_index(&fronts,t->color_offset) == fronts.count) {
+        ++unknown_surface_calls;
+        missed_address=t->color_offset;
+        return 0;
+    }
+    if (dirty && active_address != t->color_offset) {
+        ++conflicting_surface_calls; return 0;
+    }
     if(retained_slot>=0)release_readback();
     if (active_depth != t->zmax) {
         if (!t->zmax || !vkr_set_target(gpu,640,480,(float)t->zmax)) return 0;
@@ -225,9 +241,11 @@ static int clear(const Nv2aTarget *t,uint32_t flags,uint32_t argb,float depth) {
     dirty=1;return 1;
 }
 static void flip(const Nv2aTarget *t) {
-    if(t->pitch==2560 && front_count<8) {
-        unsigned i=0;while(i<front_count && fronts[i]!=t->color_offset)++i;
-        if(i==front_count)fronts[front_count++]=t->color_offset;
+    presented_address=t->color_offset;
+    if(t->pitch==2560) {
+        if(fronts.count==FIGHT_FRONT_LIMIT && fight_front_index(&fronts,t->color_offset)==fronts.count)
+            ++front_replacements;
+        fight_front_present(&fronts,t->color_offset);
     }
     if(!dirty)return;
     release_readback();

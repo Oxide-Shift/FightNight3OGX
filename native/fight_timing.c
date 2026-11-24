@@ -63,14 +63,20 @@ void fight_timing_flip(int64_t before,int64_t after,int64_t end) {
     struct timespec cpu;
     clock_gettime(CLOCK_THREAD_CPUTIME_ID,&cpu);
     int64_t cpu_now=(int64_t)cpu.tv_sec*1000000000+cpu.tv_nsec;
-    if(previous && interval>100000000 && end-last_warning>=1000000000){
+    int warn=previous && interval>100000000 && end-last_warning>=1000000000;
+    char render[144]="";
+#ifdef FNR3_VULKAN
+    extern void fight_render_hitch_stats(char *,size_t);
+    fight_render_hitch_stats(warn?render:NULL,sizeof(render));
+#endif
+    if(warn){
         extern void fight_audio_hitch_stats(char *,size_t);
         char audio[128];fight_audio_hitch_stats(audio,sizeof audio);
-        fprintf(stderr,"[Fight Night] slow flip interval_ms=%lld guest_ms=%lld present_ms=%lld pace_ms=%lld thread_cpu_ms=%lld submit_ms=%lld fence_ms=%lld copy_ms=%lld %s\n",
+        fprintf(stderr,"[Fight Night] slow flip interval_ms=%lld guest_ms=%lld present_ms=%lld pace_ms=%lld thread_cpu_ms=%lld submit_ms=%lld fence_ms=%lld copy_ms=%lld %s %s\n",
                 (long long)(interval/1000000),(long long)((before-previous)/1000000),
                 (long long)((end-after)/1000000),(long long)((after-before)/1000000),
                 (long long)((cpu_now-previous_cpu)/1000000),(long long)(submit_ns/1000000),
-                (long long)(wait/1000000),(long long)(copy_ns/1000000),audio);
+                (long long)(wait/1000000),(long long)(copy_ns/1000000),audio,render);
         last_warning=end;
     }
     previous_cpu=cpu_now;
