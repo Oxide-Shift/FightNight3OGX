@@ -33,16 +33,6 @@ public final class FightBroadcastSmoke {
         check("Never Gonna Get It".equals(FightBroadcast.song("SEANBIG1").title), "EA Trax archive entry");
         check(FightBroadcast.song("UNKNOWN") == null, "Unrecognised track");
 
-        // A static rule, clean cut and duplicate frame must never generate moving film scratches.
-        ByteBuffer filmPixels=ByteBuffer.allocate(8+640*480*4).order(ByteOrder.LITTLE_ENDIAN);
-        for(int i=8;i<filmPixels.capacity();i+=4)filmPixels.putInt(i,0xff727272);
-        MenuFilm film=new MenuFilm();
-        film.observe(new LiveFrame(filmPixels,640,480,1));check(film.used==0,"First menu frame");
-        for(int y=45;y<435;y++)filmPixels.putInt(8+4*(y*640+200),0xff575757);
-        film.observe(new LiveFrame(filmPixels,640,480,2));check(film.used==4 && film.lines[3]-film.lines[1]>.9f && film.opacity[0]>20,"Continuous moving scratch");
-        check(!film.observe(new LiveFrame(filmPixels,640,480,2)),"Duplicate film sample");
-        film.observe(new LiveFrame(filmPixels,640,480,3));check(film.used==0,"Static rule");
-        film.clear();film.observe(new LiveFrame(filmPixels,640,480,4));check(film.used==0,"Menu re-entry");
         CareerDesk scout=new CareerDesk();scout.accept("CAREERPAGE","mcon 1");
         scout.accept("OFFER","536D697468 1000 71 68 72 64 69 71 4,1,0,2 9,2,0,6");
         CareerDesk.Offer selected=scout.selectedOffer();

@@ -92,7 +92,7 @@ You’ll need **ARM64 Android 11 or newer**. The **AYN Thor** is the only handhe
 3. Tap **Choose Xbox ISO** and select your disc image. Keep Fight Setup open while the app extracts and compiles the game. If **Prepare game** appears, tap it to finish. A local file the app can read directly avoids a second full-size ISO copy. If your file provider streams the ISO, allow about **11 GB free** in addition to the disc image.
 4. Choose your picture settings and tap **Enter the ring**. Later launches reuse the prepared game. Use **Check for updates** in Fight Setup for future releases.
 
-**Updating to Alpha 68?** Install the APK over your existing version. Fight Setup keeps your imported disc and career saves. If it offers **Prepare game**, let it finish before launching.
+**Updating to Alpha 69?** Install the APK over your existing version. Fight Setup keeps your imported disc and career saves. If it offers **Prepare game**, let it finish before launching.
 
 <details>
 <summary>See Fight Setup and picture settings</summary>
@@ -105,7 +105,7 @@ The launcher offers **30, 45 and 60 FPS** targets, VSync, widescreen and origina
 
 </details>
 
-Highlight a main-menu item to see what it offers and get tips on the lower screen. **Play Now** offers matchup ideas, **ESPN Classic** introduces the rivalries, and **Achievements** and **Music** explain their own menus before you open them.
+Highlight a main-menu item to see what it offers on the lower screen. **Play Now** keeps a single exhibition description in place, **ESPN Classic** introduces the rivalries, and **Achievements** and **Music** explain their own menus before you open them.
 
 ## Work the corner
 
@@ -140,12 +140,12 @@ Before signing a contract, compare the purse and your opponent’s record, power
 
 <p align="center"><img src="docs/screenshots/career-desks.jpg" width="820" alt="Two lower-screen examples. A scouting report compares Micky Ward’s attributes, and the Fight Store shows that a $1,200 purchase leaves $2,250."></p>
 
-**Career → Edit Boxer** gives you a lower-screen comparison sheet. Tap **Pin reference** before changing your boxer’s appearance or allocating ratings. Your reference stays beside the live view as you edit that tab. **Clear reference** frees the slot. At the heavy bag, you can preview the trade-offs across eight attributes before training and review the actual gains afterward.
+**Career → Edit Boxer** has a touch-only corner notebook. Pick a fight plan and mark off the tabs you’ve reviewed. The game keeps the boxer, the editing controls, and the **Accept Changes** prompt on the top screen. At the heavy bag, you can preview the trade-offs across eight attributes before training and review the actual gains afterward.
 
 <details>
 <summary>See the boxer editor and heavy-bag training</summary>
 
-<p align="center"><img src="docs/screenshots/career-editor.jpg" width="520" alt="Alpha 68 lower-screen preview of the fighter ratings editor with pinned and current sheets side by side."></p>
+<p align="center"><img src="docs/screenshots/career-editor.jpg" width="520" alt="Alpha 69 editor notebook with the pressure fight plan selected and two tabs marked reviewed."></p>
 
 <p align="center"><img src="docs/screenshots/training.jpg" width="510" alt="Heavy Bag selected in Training Select. The lower screen lists potential changes for power, speed, agility, stamina, chin, heart, cuts and body."></p>
 
@@ -153,7 +153,7 @@ Before signing a contract, compare the purse and your opponent’s record, power
 
 ## Take EA Trax into the ring
 
-Open **Music** from the game's main menu. The two music toggles start **off** on a new install. **EA Trax** opens the original playlist editor here. The live return from EA Trax to Music is awaiting a Thor check in Alpha 68.
+Open **Music** from the game's main menu. The two music toggles start **off** on a new install. **EA Trax** opens the original playlist editor here. Press **B** to return to Music and **B** again to exit to the main menu.
 
 | Music menu | What it does |
 | --- | --- |

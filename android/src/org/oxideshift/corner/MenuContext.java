@@ -11,9 +11,8 @@ final class MenuContext {
         }
     }
     private static final Page[] PAGES={
-        new Page("Play Now", "Jump straight into the ring.", new String[]{"Use an exhibition to try a new fighter or stance before taking it into career.",
-            "Fight the same opponent twice and switch corners for the rematch. See which punches are harder to defend from the other side.",
-            "Pick a familiar venue when you try a new boxer. It makes changes in reach and timing easier to feel."},
+        new Page("Play Now", "Jump straight into the ring.", new String[]{
+            "Choose two boxers and a venue for a single exhibition fight. Pick your corner and take the opening bell."},
             0x69564498deL, 0x202d5ac69857L, 0xad5ac29157L, 0xaf594bb557L, 0x40b75943b557L, 0x401353433557L),
         new Page("ESPN Classic", "Relive boxing’s defining rivalries.", new String[]{"Replay the same rivalry from the other corner. Look for the openings you gave your opponent the first time.",
             "Switch corners on the rematch and try to counter the punch that gave you trouble.",

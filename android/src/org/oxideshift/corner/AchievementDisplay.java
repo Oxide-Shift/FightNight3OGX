@@ -21,7 +21,7 @@ final class AchievementDisplay {
     private final Achievements awards;
     private final CornerSession session;
     private final Runnable neutralPad;
-    private boolean closing,changing;
+    private boolean closing,changing,backPending;
     private boolean musicHome;
     private volatile MenuTransition transition;
     private FrameLayout cabinetLayers,lowerDisplay;
@@ -117,7 +117,7 @@ final class AchievementDisplay {
         layers.addView(page);
         dialog.setContentView(layers);
         dialog.setOnKeyListener((d,code,key)->page.handleKey(key,closing || changing));
-        dialog.setOnDismissListener(d->{if(gallery==dialog){routePrompts(null);galleryPage=null;gallery=null;cabinetLayers=null;closing=false;changing=false;session.cabinetOpen=false;}});
+        dialog.setOnDismissListener(d->{if(gallery==dialog){routePrompts(null);galleryPage=null;gallery=null;cabinetLayers=null;closing=false;changing=false;backPending=false;session.cabinetOpen=false;}});
         gallery=dialog;galleryPage=page;cabinetLayers=layers;session.cabinetOpen=true;
         Window w=dialog.getWindow();
         w.setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
@@ -129,7 +129,7 @@ final class AchievementDisplay {
         dialog.show();w.setLayout(-1,-1);
         if(returning)session.menuCancelSound();else play(DiscMenuSounds.Cue.FORWARD);
         page.setVisibility(View.INVISIBLE);
-        swap(()->{page.setVisibility(View.VISIBLE);routePrompts(lowerDisplay);},()->{});
+        swap(()->{page.setVisibility(View.VISIBLE);routePrompts(lowerDisplay);},()->{if(backPending){backPending=false;leave();}});
     }
     private void swap(Runnable change,Runnable done){
         MenuTransition movie=transition;
@@ -159,7 +159,8 @@ final class AchievementDisplay {
         layers.addView(film,new FrameLayout.LayoutParams(-1,-1));
     }
     private void leave(){
-        Dialog dialog=gallery;if(dialog==null || closing || changing)return;
+        Dialog dialog=gallery;if(dialog==null || closing)return;
+        if(changing){backPending=true;return;}
         boolean leavePlaylist=musicHome && session.retailMusicRoute;
         closing=true;if(!leavePlaylist)session.menuCancelSound();
         swap(()->{if(galleryPage!=null)galleryPage.setVisibility(View.INVISIBLE);routePrompts(null);},()->{

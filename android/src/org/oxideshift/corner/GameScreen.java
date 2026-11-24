@@ -40,17 +40,24 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
     private final boolean autoWide;
     private int surfaceWidth,surfaceHeight,cropUniform,centerUniform,patchBounds,ribbonStart,ribbonEnd;
     private final float[] starts=new float[4],ends=new float[4];
-    private volatile int lowerRoute;
+    private static final class LowerRoute {
+        final int mode;
+        final int[] centers;
+        LowerRoute(int mode,int[] centers){this.mode=mode;this.centers=centers==null?null:centers.clone();}
+    }
+    private static final LowerRoute NO_ROUTE=new LowerRoute(0,null);
+    private volatile LowerRoute lowerRoute=NO_ROUTE;
+    private LowerRoute evaluatedRoute=NO_ROUTE;
     private int renderedRoute;
-    private int evaluatedRoute;
-    private final BroadcastCues cues=new BroadcastCues();
-    private final BoxerEditor editor=new BoxerEditor();
-    private int tabBounds,fieldBounds,footerTop;
     final SceneFrameTimes timing=new SceneFrameTimes();
     private boolean routeRedraw;
     void lowerShows(int route){
-        if(lowerRoute==route)return;
-        lowerRoute=route;
+        lowerShows(route,null);
+    }
+    void lowerShows(int route,int[] centers){
+        LowerRoute old=lowerRoute;
+        if(old.mode==route && (route==0 || java.util.Arrays.equals(old.centers,centers)))return;
+        lowerRoute=route==0?NO_ROUTE:new LowerRoute(route,centers);
         if(vsync)routeRedraw=true;else requestRender();
     }
 
@@ -121,10 +128,8 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
     }
     @Override public void onSurfaceCreated(GL10 gl,EGLConfig config){
         String vertex="attribute vec2 pos;uniform float crop,center;uniform vec3 steady;varying vec2 uv;void main(){gl_Position=vec4(pos,0.,1.);uv=vec2(.5+.5*pos.x,center-.5*pos.y*crop);uv=.5+(uv-.5)*(1.-steady.z)+steady.xy;}";
-        String fragment="precision highp float;varying vec2 uv;uniform sampler2D tex;uniform vec2 stepUV;uniform vec4 patchUV,tabUV,fieldUV;uniform vec4 starts,ends;uniform float footerTop;void main(){vec2 at=uv;"
-            +"if(uv.x>tabUV.x && uv.x<tabUV.y && uv.y>tabUV.z && uv.y<tabUV.w)at.x=tabUV.y;"
-            +"if(uv.x>fieldUV.x && uv.x<fieldUV.y && uv.y>fieldUV.z && uv.y<fieldUV.w)at.x=fieldUV.y;"
-            +"if(uv.y>footerTop && uv.y<.9167){vec4 x=vec4(uv.x);if(any(bvec4((x.x>starts.x&&x.x<ends.x),(x.y>starts.y&&x.y<ends.y),(x.z>starts.z&&x.z<ends.z),(x.w>starts.w&&x.w<ends.w))))at.y=1.8334-uv.y;}"
+        String fragment="precision highp float;varying vec2 uv;uniform sampler2D tex;uniform vec2 stepUV;uniform vec4 patchUV;uniform vec4 starts,ends;void main(){vec2 at=uv;"
+            +"if(uv.y>.8645 && uv.y<.9167){vec4 x=vec4(uv.x);if(any(bvec4((x.x>starts.x&&x.x<ends.x),(x.y>starts.y&&x.y<ends.y),(x.z>starts.z&&x.z<ends.z),(x.w>starts.w&&x.w<ends.w))))at.y=1.8334-uv.y;}"
             +"vec3 c=texture2D(tex,at).bgr;";
         if(quality==2 || quality==3) fragment+="vec3 n=texture2D(tex,at+vec2(stepUV.x,0.)).bgr+texture2D(tex,at-vec2(stepUV.x,0.)).bgr+texture2D(tex,at+vec2(0.,stepUV.y)).bgr+texture2D(tex,at-vec2(0.,stepUV.y)).bgr;c=clamp(c*1.32-n*.08,0.,1.);";
         // Reconstruct the paper from both clean edges at the same horizontal position.
@@ -145,8 +150,6 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
         cropUniform=GLES20.glGetUniformLocation(program,"crop");
         centerUniform=GLES20.glGetUniformLocation(program,"center");
         patchBounds=GLES20.glGetUniformLocation(program,"patchUV");
-        tabBounds=GLES20.glGetUniformLocation(program,"tabUV");fieldBounds=GLES20.glGetUniformLocation(program,"fieldUV");
-        footerTop=GLES20.glGetUniformLocation(program,"footerTop");
         ribbonStart=GLES20.glGetUniformLocation(program,"starts");ribbonEnd=GLES20.glGetUniformLocation(program,"ends");
         GLES20.glGenTextures(2,textures,0);
         int target=GLES20.GL_TEXTURE_2D,mode=quality==0?GLES20.GL_NEAREST:GLES20.GL_LINEAR;
@@ -157,7 +160,7 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
             GLES20.glTexParameteri(target,GLES20.GL_TEXTURE_WRAP_T,GLES20.GL_CLAMP_TO_EDGE);
         }
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-        evaluatedRoute=renderedRoute=BroadcastCues.NONE;
+        evaluatedRoute=NO_ROUTE;renderedRoute=BroadcastCues.NONE;
         widths[0]=widths[1]=0;serial=0;hasFrame=false;presented=0;since=0;displayRate=-1;
         GLES20.glVertexAttribPointer(0,2,GLES20.GL_FLOAT,false,0,quad);GLES20.glEnableVertexAttribArray(0);
         GLES20.glClearColor(0,0,0,1);
@@ -182,25 +185,12 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
         GLES20.glUniform1f(centerUniform,(top+bottom)/960f);
     }
     private void matchLower(LiveFrame frame){
-        int request=lowerRoute, want=request&255, visible=0, actual=BroadcastCues.NONE;
-        if(want!=BroadcastCues.NONE && frame!=null){
-            if(want==BroadcastCues.EDITOR_DIALOG){
-                CareerDesk.Page page=session.career.page;
-                if(BoxerEditor.handles(page) && page.index==(request>>>8) && editor.dialog(frame))actual=want;
-            }else if(want==BroadcastCues.EDITOR){
-                CareerDesk.Page page=session.career.page;
-                cues.read(frame);
-                if(BoxerEditor.handles(page) && page.index==(request>>>8) && BoxerEditor.showing(page,frame,cues)){
-                    actual=want;visible=page.index==1?cues.mask&11:8;
-                }
-            }else if(want==BroadcastCues.FOOTER){
-                cues.read(frame);visible=cues.knownPrompts(frame,request>>>8);
-                if(visible!=0)actual=want;
-            }else{
-                LiveFrame.Scene phase=frame.scene();
-                if((want==BroadcastCues.CUTMAN && phase==LiveFrame.Scene.CORNER) ||
-                   (want==BroadcastCues.MANUAL && phase==LiveFrame.Scene.TREATMENT))actual=want;
-            }
+        LowerRoute placement=lowerRoute;
+        int request=placement.mode,visible=0,actual=BroadcastCues.NONE;
+        // The lower desk locates the captions. Only validate those positions on the render thread.
+        if((request&255)==BroadcastCues.FOOTER && frame!=null && !CareerDesk.editingBoxer(session.career.page)){
+            visible=BroadcastCues.visibleAt(frame,request>>>8,placement.centers);
+            if(visible!=0)actual=BroadcastCues.FOOTER;
         }
         if(actual==BroadcastCues.FOOTER && (request&BroadcastCues.SCOUT_CARD)!=0 && frame.scoutPrompt()){
             // Include the shadow fringe while leaving the record above it intact.
@@ -210,29 +200,12 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
         // Continue its unprinted portion across only the commands sent below.
         for(int i=0;i<4;i++){
             int legend=i==2 && (visible&(1<<BroadcastCues.RETIRE))!=0?BroadcastCues.RETIRE:i;
-            boolean routed=(actual==BroadcastCues.FOOTER || actual==BroadcastCues.EDITOR) && (visible&(1<<legend))!=0;
-            starts[i]=routed?frame.sourceX(cues.centers[legend]-12)/640f:0;
-            ends[i]=routed?frame.sourceX(Math.min(640,cues.centers[legend]+FooterLegend.RIGHT[legend]))/640f:0;
+            boolean routed=actual==BroadcastCues.FOOTER && (visible&(1<<legend))!=0;
+            starts[i]=routed?frame.sourceX(placement.centers[legend]-12)/640f:0;
+            ends[i]=routed?frame.sourceX(Math.min(640,placement.centers[legend]+FooterLegend.RIGHT[legend]))/640f:0;
         }
-        boolean editing=actual==BroadcastCues.EDITOR;
-        GLES20.glUniform1f(footerTop,editing?418/480f:.8645f);
-        boolean tabs=editing && (request>>>8)>1;
-        if(tabs){
-            int start=BoxerEditor.startCenter(cues.centers[3]);
-            starts[0]=frame.sourceX(Math.max(start-13,cues.trackRight))/640f;
-            ends[0]=frame.sourceX(start+91)/640f;
-        }
-        boolean field=editing && editor.field(frame,request>>>8);
-        if(tabs && BoxerEditor.shoulders(frame))
-            GLES20.glUniform4f(tabBounds,frame.sourceX(57)/640f,frame.sourceX(132)/640f,140/480f,158/480f);
-        else if(field && editor.closingArrow>0)
-            GLES20.glUniform4f(tabBounds,frame.sourceX(editor.closingArrow-11)/640f,frame.sourceX(editor.closingArrow+6)/640f,editor.top/480f,editor.bottom/480f);
-        else GLES20.glUniform4f(tabBounds,0,0,0,0);
-        if(field || actual==BroadcastCues.EDITOR_DIALOG)
-            GLES20.glUniform4f(fieldBounds,frame.sourceX(editor.left)/640f,frame.sourceX(editor.right)/640f,editor.top/480f,editor.bottom/480f);
-        else GLES20.glUniform4f(fieldBounds,0,0,0,0);
         GLES20.glUniform4fv(ribbonStart,1,starts,0);GLES20.glUniform4fv(ribbonEnd,1,ends,0);
-        evaluatedRoute=request;renderedRoute=actual;
+        evaluatedRoute=placement;renderedRoute=actual;
     }
     private void mapFile(){
         ByteBuffer memory=session.sharedVideo();
@@ -269,10 +242,10 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
                     widths[back]=w;heights[back]=h;
                 }else GLES20.glTexSubImage2D(target,0,0,0,w,h,GLES20.GL_RGBA,GLES20.GL_UNSIGNED_BYTE,pixels);
                 if(Integer.toUnsignedLong(sequence(shared)-seq)<2){
-                    if(lowerRoute!=BroadcastCues.NONE || renderedRoute!=BroadcastCues.NONE)
+                    if(lowerRoute!=NO_ROUTE || renderedRoute!=BroadcastCues.NONE)
                         matchLower(new LiveFrame(pixels,w,h,seq,autoWide));
                     if(!hasFrame || widths[front]!=w || heights[front]!=h)dimensions=w+" \u00d7 "+h;
-                    int shot=lowerRoute==BroadcastCues.NONE?session.cameraShot():0;
+                    int shot=lowerRoute==NO_ROUTE?session.cameraShot():0;
                     if(shot!=0){
                         measureCamera(camera,pixels,w,h,seq,shot,offset);
                         GLES20.glUniform3f(steadyUniform,offset[0],offset[1],.034f);
@@ -289,7 +262,7 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
             }
         }
         if(hasFrame && lowerRoute!=evaluatedRoute){
-            LiveFrame still=lowerRoute==BroadcastCues.NONE?null:latestFrame();
+            LiveFrame still=lowerRoute==NO_ROUTE?null:latestFrame();
             if(still==null || still.sequence==serial)matchLower(still);
         }
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);

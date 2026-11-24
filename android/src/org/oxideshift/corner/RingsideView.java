@@ -40,9 +40,7 @@ final class RingsideView extends LinearLayout {
     private CareerDesk.Page careerPage;
     private CareerDesk.Page editorPage;
     private BoxerEditorDesk editorDesk;
-    private final BoxerEditorDesk.References editorRefs=new BoxerEditorDesk.References();
-    private final BoxerEditor editorField=new BoxerEditor();
-    private boolean editorDialog;
+    private final BoxerEditorDesk.Notebook notebook=new BoxerEditorDesk.Notebook();
     private boolean editorVisit;
     private long careerRevision=-1;
     private boolean careerDetails;
@@ -108,6 +106,8 @@ final class RingsideView extends LinearLayout {
         "The matchup appears when a fight is scheduled. Return after signing to scout your opponent."
     };
     private long lastMenuRead;
+    private int lastMenuSequence;
+    private long lastRecognizedAt;
     private String resultHeading="";
     private CutmanDesk cutman;
     private final DeskScene deskScene=new DeskScene();
@@ -130,34 +130,6 @@ final class RingsideView extends LinearLayout {
     private final TextView[] numbers=new TextView[4];
     private final ProgressBar[] meters=new ProgressBar[4];
     private final int[] levels={-1,-1,-1,-1};
-    private final MenuFilm film=new MenuFilm();
-    private final Paint filmInk=new Paint();
-    private long lastFilmFrame;
-    private boolean filmRunning;
-    private int filmSequence;
-    private final Runnable filmTick=new Runnable(){
-        @Override public void run(){
-            if(!filmRunning)return;
-            if(!activeView || !isAttachedToWindow() || screen==null || session==null || session.cabinetOpen || inBout()){
-                setFilmRunning(false);return;
-            }
-            long now=SystemClock.uptimeMillis();
-            LiveFrame frame=screen.latestFrame();
-            if(frame!=null && frame.sequence!=filmSequence){
-                filmSequence=frame.sequence;lastFilmFrame=now;
-                boolean changed=film.observe(frame);
-                if(!screen.current(frame))clearFilm();
-                else if(changed)invalidate();
-            }else if(now-lastFilmFrame>=45)clearFilm();
-            postOnAnimation(this);
-        }
-    };
-    private void setFilmRunning(boolean run){
-        if(filmRunning==run)return;
-        filmRunning=run;removeCallbacks(filmTick);clearFilm();filmSequence=0;
-        if(run)postOnAnimation(filmTick);
-    }
-    private void clearFilm(){if(film.clear())invalidate();}
     private Bitmap cornerArt;
     int traxInset(){
         return desk.getVisibility()==VISIBLE?Math.max(0,getHeight()-desk.getBottom()):dp(48);
@@ -370,9 +342,9 @@ final class RingsideView extends LinearLayout {
     void follow(GameScreen next,CornerSession owner){
         if(session==owner && screen==next)return;
         if(session!=null){session.lowerCallouts=false;}
-        session=owner;editorPage=null;editorVisit=false;editorRefs.clear();careerBranch=false;careerFocus=-1;announced=null;announcement.clear();
+        session=owner;editorPage=null;editorVisit=false;notebook.clear();careerBranch=false;careerFocus=-1;announced=null;announcement.clear();
         if(screen!=null){screen.lowerShows(BroadcastCues.NONE);screen.timing.suspend();}
-        setFilmRunning(false);deskScene.reset();currentPage=null;missingPageReads=0;tips.leave();displayedCamp=null;lastMenuRead=0;screen=next;sequence=0;lastSeen=0;scene=null;footerMask=0;
+        deskScene.reset();currentPage=null;missingPageReads=0;tips.leave();displayedCamp=null;lastMenuRead=0;screen=next;sequence=0;lastSeen=0;scene=null;footerMask=0;
         lastCard=null;bout=null;fighters=null;drawNames();java.util.Arrays.fill(levels,-1);
         boolean opening=next!=null && owner!=null && owner.openingSlate();
         if(opening){scene=Scene.INTRO;deskScene.observe(scene,0,SystemClock.uptimeMillis());}
@@ -382,8 +354,9 @@ final class RingsideView extends LinearLayout {
     }
     void releaseInput(){if(cutman!=null)cutman.release();}
     void activate(boolean value){
+        if(activeView==value)return;
         activeView=value;syncDisplayOwnership();
-        if(!value){setFilmRunning(false);if(cutman!=null)cutman.release();if(screen!=null){screen.timing.suspend();screen.lowerShows(BroadcastCues.NONE);}}
+        if(!value){if(cutman!=null)cutman.release();if(screen!=null){screen.timing.suspend();screen.lowerShows(BroadcastCues.NONE);}}
         else forceCapture=true;schedule();
     }
     private void schedule(){
@@ -393,7 +366,7 @@ final class RingsideView extends LinearLayout {
     @Override protected void onAttachedToWindow(){super.onAttachedToWindow();syncDisplayOwnership();schedule();}
     @Override protected void onDetachedFromWindow(){
         if(session!=null){session.lowerCallouts=false;}
-        setFilmRunning(false);removeCallbacks(tick);
+        removeCallbacks(tick);
         if(screen!=null){screen.timing.suspend();screen.lowerShows(BroadcastCues.NONE);}
         super.onDetachedFromWindow();
     }
@@ -414,9 +387,7 @@ final class RingsideView extends LinearLayout {
         if(!showingHome && editorPage!=null){
             hero.setVisibility(GONE);rule.setVisibility(GONE);scroll.setVisibility(GONE);
             fightPanel.setVisibility(GONE);menuDock.setVisibility(GONE);
-            editorDesk=new BoxerEditorDesk(getContext(),headline,editorPage,editorRefs,this::editorCommand);
-            editorDesk.camp(session.camp());
-            if(editorDialog)editorDesk.showDialog();
+            editorDesk=new BoxerEditorDesk(getContext(),headline,editorPage,notebook,session.camp());
             desk.addView(editorDesk,new FrameLayout.LayoutParams(-1,-1));return;
         }
         if(intro){
@@ -469,21 +440,6 @@ final class RingsideView extends LinearLayout {
             hero.title=menu?((footerMask&4)!=0?"Boxer options":"Menu options"):"Ringside";
             if(!menu && session!=null && session.judging()!=null && session.judging().round>0)addScorecard();
             if(menu || !inBout()){
-                scouting=new CareerScouting(getContext(),headline);
-                LayoutParams sheet=new LayoutParams(-1,-2);sheet.setMargins(dp(3),dp(5),dp(3),dp(4));
-                content.addView(scouting,sheet);
-                contract=new ContractReport(getContext(),usedFonts==null?DiscFonts.FALLBACK:usedFonts,
-                        forward->browseOffer(forward));
-                contract.setArt(careerArt);
-                contract.setOnClickListener(v->{
-                    if(activeOfferFrame()!=null){pad.press(Key.X);}
-                });
-                content.addView(contract,new LayoutParams(-1,-2));
-                training=trainingSheet();
-                content.addView(training,new LayoutParams(-1,-2));
-                ledger=new CampLedger(getContext(),usedFonts==null?DiscFonts.FALLBACK:usedFonts);
-                ledger.setArt(careerArt);
-                content.addView(ledger,new LayoutParams(-1,-2));
                 careerGuide=false;
                 menuLead=type("",23,PAPER);
                 menuLead.setPadding(dp(10),dp(14),dp(10),dp(2));
@@ -495,20 +451,35 @@ final class RingsideView extends LinearLayout {
                 content.addView(menuHint,new LayoutParams(-1,-2));
                 describeMenu();
             }
-            if(menu){
-                LinearLayout keys=null;
-                for(int i=0;i<BroadcastCues.KEYS.length;i++){
-                    if((footerMask&(1<<i))==0)continue;
-                    if(keys==null){
-                        keys=new LinearLayout(getContext());keys.setBaselineAligned(false);
-                        menuDock.addView(keys,new LayoutParams(-1,-2));
-                    }
-                    guestButton(keys,i);
-                }
-
-            }
+            if(menu)buildMenuDock();
         }
         showFighters();sizeHero();hero.setContentDescription(hero.title);hero.invalidate();
+    }
+    private void buildMenuDock(){
+        menuDock.removeAllViews();menuDock.setVisibility(footerMask==0?GONE:VISIBLE);
+        if(footerMask==0)return;
+        LinearLayout keys=new LinearLayout(getContext());keys.setBaselineAligned(false);
+        menuDock.addView(keys,new LayoutParams(-1,-2));
+        for(int i=0;i<BroadcastCues.KEYS.length;i++)if((footerMask&(1<<i))!=0)guestButton(keys,i);
+    }
+    private void careerPanels(CareerDesk.Page page,boolean scout){
+        if(scout && scouting==null){
+            scouting=new CareerScouting(getContext(),headline);
+            LayoutParams sheet=new LayoutParams(-1,-2);sheet.setMargins(dp(3),dp(5),dp(3),dp(4));
+            content.addView(scouting,0,sheet);
+        }
+        if(page==null)return;
+        DiscFonts fonts=usedFonts==null?DiscFonts.FALLBACK:usedFonts;
+        if(page.is("mcon") && contract==null){
+            contract=new ContractReport(getContext(),fonts,this::browseOffer);contract.setArt(careerArt);
+            contract.setOnClickListener(v->{if(activeOfferFrame()!=null)pad.press(Key.X);});
+            content.addView(contract,0,new LayoutParams(-1,-2));
+        }else if(TrainingSheet.handles(page) && training==null){
+            training=trainingSheet();content.addView(training,0,new LayoutParams(-1,-2));
+        }else if((page.is("fightstore") || page.is("trophycase")) && ledger==null){
+            ledger=new CampLedger(getContext(),fonts);ledger.setArt(careerArt);
+            content.addView(ledger,0,new LayoutParams(-1,-2));
+        }
     }
     private void quietHint(String text){
         menuHint=type(text,15,PAPER);menuHint.setTypeface(headline);
@@ -545,6 +516,8 @@ final class RingsideView extends LinearLayout {
         if(dedicated){tips.leave();title=offers?"Scouting report":page.title;hint=offers?"":desk.text(page,careerDetails);}
         else hint=tips.select(title,choices,SystemClock.uptimeMillis());
         displayedCamp=camp;
+        boolean scout=central || (deeper && !dedicated);
+        careerPanels(page,scout);
         if(contract!=null)contract.show(page,offers?desk.selectedOffer():null);
         boolean atTraining=TrainingSheet.handles(page);
         boolean shop=page!=null && page.is("fightstore");
@@ -554,10 +527,7 @@ final class RingsideView extends LinearLayout {
         boolean atLedger=ledger!=null && ledger.show(desk,page);
         menuHint.setVisibility(offers || atTraining || (atLedger && !careerDetails)?GONE:VISIBLE);
         hero.setVisibility(offers || atTraining || shop?GONE:VISIBLE);rule.setVisibility(hero.getVisibility());
-        if(scouting!=null){
-            scouting.show(central || (deeper && !dedicated)?camp:null);
-            menuDock.setVisibility(scene==Scene.MENU && footerMask!=0?VISIBLE:GONE);
-        }
+        if(scouting!=null)scouting.show(scout?camp:null);
         boolean guide=dedicated || (central && camp==null) || setup;
         if(guide!=careerGuide || dedicated!=compactCareer){
             careerGuide=guide;compactCareer=dedicated;sizeHero();
@@ -651,24 +621,6 @@ final class RingsideView extends LinearLayout {
         LiveFrame f=screen.latestFrame();
         return f!=null && f.scene(inBout())==scene && screen.current(f)?f:null;
     }
-    private boolean editorCommand(Key key){
-        if(editorDesk==null || !activeView || !isShown() || session==null || session.cabinetOpen ||
-                session.career.page!=editorDesk.page || screen==null)return false;
-        LiveFrame frame=screen.latestFrame();if(frame==null)return false;
-        if(editorDesk.dialog)return (key==Key.A || key==Key.UP || key==Key.DOWN) &&
-                editorField.dialog(frame) && screen.current(frame) && pad.press(key);
-        BroadcastCues fresh=new BroadcastCues();fresh.read(frame);
-        if(!BoxerEditor.showing(editorDesk.page,frame,fresh) || !screen.current(frame))return false;
-        if(key==Key.Y || (key==Key.B && editorDesk.help)){
-            editorDesk.show(!editorDesk.help);return true;
-        }
-        return pad.press(key);
-    }
-    boolean editorHelpKey(int code){
-        if(editorDesk==null || editorDesk.dialog)return false;
-        if(code==KeyEvent.KEYCODE_BUTTON_Y)return editorCommand(Key.Y);
-        return code==KeyEvent.KEYCODE_BUTTON_B && editorDesk.help && editorCommand(Key.B);
-    }
     private void refreshFrame(){
         if(!activeView||!isAttachedToWindow()||screen==null)return;
         syncReadings();
@@ -676,10 +628,10 @@ final class RingsideView extends LinearLayout {
         if(f==null && scene==null && session!=null && session.openingSlate()){scene=Scene.INTRO;build();}
         // A menu can stop publishing frames before its prompts finish settling.
         boolean checkResult=session!=null && session.showingResult() && SystemClock.uptimeMillis()-lastMenuRead>=400;
-        boolean readSettledMenu=(scene==Scene.MENU || (scene==Scene.RINGSIDE && !inBout())) &&
-                SystemClock.uptimeMillis()-lastMenuRead>=220;
+        boolean readSettledMenu=editorPage==null && (scene==Scene.MENU || (scene==Scene.RINGSIDE && !inBout())) &&
+                f!=null && (f.sequence!=lastMenuSequence || (currentPage!=null && missingPageReads>0)) && SystemClock.uptimeMillis()-lastMenuRead>=220;
         boolean changedPage=session!=null && editorPage!=session.career.page &&
-                (editorPage!=null || BoxerEditor.handles(session.career.page) && careerRevision!=session.career.revision);
+                (editorPage!=null || CareerDesk.editingBoxer(session.career.page) && careerRevision!=session.career.revision);
         if(f!=null && (f.sequence!=sequence || forceCapture || deskScene.settling() || checkResult || changedPage || readSettledMenu))sample(f);
         postDelayed(tick,110);
     }
@@ -715,43 +667,44 @@ final class RingsideView extends LinearLayout {
         if(scene==Scene.FINAL && !resultHeading.equals(session.result()+session.finish()))build();
     }
     private void sample(LiveFrame f){
-        Scene next=f.scene(inBout());
-        cues.read(f,!inBout());
-        int mask=next==Scene.MENU?cues.knownPrompts(f,BroadcastCues.ALL_PROMPTS):0;
-
-        long sampled=SystemClock.uptimeMillis();
+        CareerDesk.Page activePage=session==null?null:session.career.page;
+        boolean inEditor=CareerDesk.editingBoxer(activePage);
+        if(editorVisit && !inEditor)notebook.clear();
+        editorVisit=inEditor;
+        boolean live=inBout();
+        CareerDesk.Page editor=inEditor && !live && !session.cabinetOpen?activePage:null;
+        Scene next=editor==null?f.scene(live):Scene.MENU;
         boolean showingMenu=next==Scene.MENU || (next==Scene.RINGSIDE && !inBout());
-        boolean readMenu=showingMenu && (forceCapture || sampled-lastMenuRead>=150);
+        int mask=0;
+        if(next==Scene.MENU && !inEditor){
+            cues.readMenu(f);mask=cues.mask;
+        }
+        long sampled=SystemClock.uptimeMillis();
+        boolean readMenu=showingMenu && editor==null && (forceCapture || sampled-lastMenuRead>=150);
         MenuContext.Page page=currentPage;
         int focus=-1;
         if(readMenu){
             page=menuContext.identify(f);
             if(page!=null && "Career Central".equals(page.title))focus=menuContext.careerRow(f);
         }
-        if(!screen.current(f)){setFilmRunning(false);return;}
-        CareerDesk.Page activePage=session==null?null:session.career.page;
-        boolean inEditor=BoxerEditor.handles(activePage);
-        if(editorVisit && !inEditor)editorRefs.clear();
-        editorVisit=inEditor;
-        boolean editing=showingMenu && !inBout() && session!=null && !session.cabinetOpen && BoxerEditor.handles(activePage);
-        boolean form=editing && BoxerEditor.showing(activePage,f,cues);
-        boolean dialog=editing && !form && editorField.dialog(f);
-        CareerDesk.Page editor=form || dialog?activePage:null;
-        boolean editorChanged=editorPage!=editor || editorDialog!=dialog;
-        editorPage=editor;editorDialog=dialog;
-        setFilmRunning(editor==null && showingMenu && !inBout() && session!=null && !session.cabinetOpen);
+        if(!screen.current(f))return;
+        boolean editorChanged=editorPage!=editor;
+        editorPage=editor;
 
         if(readMenu){
-            lastMenuRead=sampled;
+            lastMenuRead=sampled;lastMenuSequence=f.sequence;
+            MenuContext.Page previous=currentPage;
+            int previousFocus=careerFocus;
             careerFocus=focus;
             if(page!=null)careerBranch="Career Central".equals(page.title) || careerSetup(page);
 
             if(page!=null){
-                currentPage=page;missingPageReads=0;
-            }else if(currentPage!=null && ++missingPageReads>=2){
+                currentPage=page;missingPageReads=0;lastRecognizedAt=sampled;
+            }else if(currentPage!=null && ++missingPageReads>=2 &&
+                    (!MenuContext.isMain(currentPage) || sampled-lastRecognizedAt>=900)){
                 currentPage=null;
             }
-            describeMenu();
+            if(currentPage!=previous || careerFocus!=previousFocus)describeMenu();
         }else if(!showingMenu){tips.leave();currentPage=null;careerFocus=-1;careerBranch=false;missingPageReads=0;}
         long now=SystemClock.uptimeMillis();
         if(f.sequence!=sequence || forceCapture)lastSeen=now;
@@ -770,35 +723,25 @@ final class RingsideView extends LinearLayout {
         if(session!=null && session.showingResult() && next!=Scene.LOADING)layout=Scene.FINAL;
         if(activePage!=null && activePage.is("drill") && (next==Scene.LOADING || next==Scene.RINGSIDE || next==Scene.ROUND))
             layout=Scene.TRAINING;
-        if(editor!=null){layout=Scene.MENU;mask=8;}
+        if(editor!=null){layout=Scene.MENU;mask=0;}
         boolean sceneChanged=deskScene.observe(layout,mask,now);
-        if(sceneChanged || editorChanged){scene=deskScene.shown;footerMask=deskScene.prompts;build();}
-        if(editorDesk!=null)editorDesk.observe(f);
-        if(editorDesk!=null && !editorDesk.dialog && editorDesk.page.index==2)
-            editorDesk.nameField(editorField.field(f,2) && editorField.select);
+        if(sceneChanged || editorChanged){
+            boolean buttonsOnly=!editorChanged && scene==Scene.MENU && deskScene.shown==scene && editor==null;
+            scene=deskScene.shown;footerMask=deskScene.prompts;
+            if(buttonsOnly)buildMenuDock();else build();
+        }
         screen.timing.observe(next,session==null?0:session.boutNumber(),card==null?0:card.round,
                 card!=null && card.round>0 && card.last()==card.round,layout==Scene.FINAL);
-        int route=scene==next?cues.route(next):BroadcastCues.NONE;
+        int route=scene==Scene.MENU && next==scene && !inEditor && mask!=0?BroadcastCues.FOOTER:BroadcastCues.NONE;
         if(route==BroadcastCues.FOOTER)route=(footerMask&mask)==0?BroadcastCues.NONE:route|((footerMask&mask)<<8);
-        if(route==BroadcastCues.TRACK || route==BroadcastCues.CUTMAN || route==BroadcastCues.MANUAL)route=BroadcastCues.NONE;
         if((route&255)==BroadcastCues.FOOTER && contract!=null && contract.getVisibility()==VISIBLE &&
                 careerPage!=null && careerPage.index==1 && session!=null && careerPage==session.career.page &&
                 session.career.selectedOffer()!=null && f.scoutPrompt())route|=BroadcastCues.SCOUT_CARD;
-        if(BoxerEditor.handles(activePage))route=editorDesk!=null && editorDesk.page==activePage?
-                (editorDesk.dialog?BroadcastCues.EDITOR_DIALOG:BroadcastCues.EDITOR)|(activePage.index<<8):BroadcastCues.NONE;
-        screen.lowerShows(route);
+        screen.lowerShows(route,cues.centers);
     }
 
     @Override protected void dispatchDraw(Canvas canvas){
         super.dispatchDraw(canvas);
-        if(film.used>0 && (session==null || !session.cabinetOpen)){
-            int w=getWidth(),h=getHeight();
-            filmInk.setStrokeWidth(Math.max(1,w/640f));
-            for(int j=0;j<film.used;j+=4){
-                filmInk.setColor(film.opacity[j/4]<<24);
-                canvas.drawLine(w*film.lines[j],h*film.lines[j+1],w*film.lines[j+2],h*film.lines[j+3],filmInk);
-            }
-        }
         if(announcement.draw(canvas,getWidth(),getHeight(),headline,SystemClock.uptimeMillis()))postInvalidateOnAnimation();
     }
     @Override protected void onDraw(Canvas canvas){

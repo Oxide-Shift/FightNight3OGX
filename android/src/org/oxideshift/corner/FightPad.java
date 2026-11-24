@@ -63,14 +63,14 @@ final class FightPad {
         boolean controller=(sources & InputDevice.SOURCE_GAMEPAD)==InputDevice.SOURCE_GAMEPAD ||
                 (sources & InputDevice.SOURCE_JOYSTICK)==InputDevice.SOURCE_JOYSTICK;
         boolean direction=code>=KeyEvent.KEYCODE_DPAD_UP && code<=KeyEvent.KEYCODE_DPAD_RIGHT;
-        if(!controller && !(direction && (sources & InputDevice.SOURCE_DPAD)==InputDevice.SOURCE_DPAD))return false;
+        if(!controller && code!=KeyEvent.KEYCODE_BUTTON_B && !(direction && (sources & InputDevice.SOURCE_DPAD)==InputDevice.SOURCE_DPAD))return false;
         int mask=0,index=-1;
         switch(code){
             case KeyEvent.KEYCODE_DPAD_UP:mask=1;break;case KeyEvent.KEYCODE_DPAD_DOWN:mask=2;break;
             case KeyEvent.KEYCODE_DPAD_LEFT:mask=4;break;case KeyEvent.KEYCODE_DPAD_RIGHT:mask=8;break;
             case KeyEvent.KEYCODE_BUTTON_START:mask=16;break;case KeyEvent.KEYCODE_BUTTON_SELECT:mask=32;break;
             case KeyEvent.KEYCODE_BUTTON_THUMBL:mask=64;break;case KeyEvent.KEYCODE_BUTTON_THUMBR:mask=128;break;
-            case KeyEvent.KEYCODE_BUTTON_A:index=2;break;case KeyEvent.KEYCODE_BUTTON_B:index=3;break;
+            case KeyEvent.KEYCODE_BUTTON_A:index=2;break;case KeyEvent.KEYCODE_BUTTON_B:case KeyEvent.KEYCODE_BACK:index=3;break;
             case KeyEvent.KEYCODE_BUTTON_X:index=4;break;case KeyEvent.KEYCODE_BUTTON_Y:index=5;break;
             case KeyEvent.KEYCODE_BUTTON_R1:index=6;break;case KeyEvent.KEYCODE_BUTTON_L1:index=7;break;
             case KeyEvent.KEYCODE_BUTTON_L2:index=8;break;case KeyEvent.KEYCODE_BUTTON_R2:index=9;break;

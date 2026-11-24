@@ -58,6 +58,8 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         }
     };
     private int hapticGeneration;
+    private final MenuContext soundMenus=new MenuContext();
+    private long firstPlaylistBack,lastPlaylistBack;
     private GameScreen screen;
     private TopFpsCounter fpsCounter;
     private WebView local;
@@ -66,7 +68,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     private FrameLayout lowerPanel;
     private AchievementDisplay achievementDisplay;
     private RingsideView ringside;
-    private final java.util.HashSet<Long> editorKeys=new java.util.HashSet<>();
+    private final java.util.HashSet<Long> backKeys=new java.util.HashSet<>();
     private CornerControls.Key touchKey;
     private boolean treating;
     private int treatX,treatY;
@@ -474,6 +476,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     private void showGame(){
         if(engine.frame==null||engine.session==null||viewingGame)return;
         removeLocal();menu.setVisibility(View.GONE);viewingCard=false;viewingGame=true;sendPad();bindRumble();
+        firstPlaylistBack=lastPlaylistBack=0;
         screen=new GameScreen(this,engine.frame,menu.qualityValue(),prefs.getInt("aspect",0)==0,engine.session.presentationHeight(),DisplayCadence.target(menu.pacing.index()),menu.vsync.isChecked(),engine.session);
         updateLower();
         screen.setKeepScreenOn(awake);
@@ -488,7 +491,6 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         }
         achievementDisplay=new AchievementDisplay(this,body,menu.fonts(),menu::mainMenuArt,engine.session,game(),prefs.getInt("aspect",0)==0,this::neutralPad);
         CornerSession owner=engine.session;
-        MenuContext soundMenus=new MenuContext();
         owner.onMenuSelection(stem->main.post(()->{
             if(owner!=engine.session || screen==null || !viewingGame || !awake || owner.cabinetOpen || owner.leaveTrax)return;
             if(owner.browsingTrax){owner.previewTrack(stem);return;}
@@ -534,6 +536,12 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     }
     @Override public void onBackPressed(){
         if(achievementDisplay!=null && achievementDisplay.backFromTrax())return;
+        if(viewingGame && acceptsPad() && screen!=null){
+            if(pauseMenu()){press(CornerControls.Key.START);return;}
+            LiveFrame frame=screen.latestFrame();
+            if(frame!=null && frame.scene(engine.session.inLiveBout())==LiveFrame.Scene.MENU &&
+                    !soundMenus.mainMenu(frame)){press(CornerControls.Key.B);return;}
+        }
         if(viewingCard||viewingGame)setup();else super.onBackPressed();
     }
     private static void fullscreen(Window window){
@@ -564,9 +572,30 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         rumble.forget(id);
     }
     private boolean acceptsPad(){return awake && viewingGame && hasWindowFocus() && engine.session!=null;}
+    private boolean pauseMenu(){
+        if(screen==null || engine.session==null || !engine.session.inLiveBout())return false;
+        LiveFrame frame=screen.latestFrame();
+        return frame!=null && frame.pauseRow()>=0 && screen.current(frame);
+    }
     private void finishMusicExit(){
         CornerSession session=engine==null?null:engine.session;
-        if(session!=null && session.leaveTrax && press(CornerControls.Key.B))session.leaveTrax=false;
+        if(session==null || !session.leaveTrax){firstPlaylistBack=lastPlaylistBack=0;return;}
+        if(!acceptsPad() || screen==null)return;
+        long now=SystemClock.uptimeMillis();
+        if(firstPlaylistBack!=0 && now-lastPlaylistBack<750)return;
+        LiveFrame frame=screen.latestFrame();
+        MenuContext.Page page=frame==null?null:soundMenus.identify(frame);
+        if(frame!=null && !screen.current(frame))return;
+        if(MenuContext.isMain(page) || (firstPlaylistBack!=0 && now-firstPlaylistBack>=5000)){
+            session.leaveTrax=false;firstPlaylistBack=lastPlaylistBack=0;return;
+        }
+        // The underlying Xbox menu can still be animating when the Music window closes.
+        // Only repeat Back while the playlist itself is still visible.
+        if(firstPlaylistBack!=0 && (page==null || !"EA Trax".equals(page.title)))return;
+        if(press(CornerControls.Key.BACK)){
+            if(firstPlaylistBack==0)firstPlaylistBack=now;
+            lastPlaylistBack=now;
+        }
     }
     private void sendPad(){
         if(viewingGame && engine.session!=null)engine.session.controller(pad.report(touchKey,treating,treatX,treatY));
@@ -574,7 +603,7 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
     private boolean press(CornerControls.Key key){
         if(!acceptsPad()||!active()||touchKey!=null)return false;
         if(key==CornerControls.Key.B && achievementDisplay!=null && achievementDisplay.backFromTrax())return true;
-        touchKey=key;sendPad();main.postDelayed(release,215);return true;
+        touchKey=key==CornerControls.Key.B && pauseMenu()?CornerControls.Key.START:key;sendPad();main.postDelayed(release,215);return true;
     }
     private void treatmentStick(boolean down,int x,int y){
         if(down && (!acceptsPad()||!active()))return;
@@ -586,21 +615,24 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         if(ringside!=null)ringside.releaseInput();
         sendPad();
     }
-    private void neutralPad(){pad.clear();releaseTouch();}
+    private void neutralPad(){backKeys.clear();pad.clear();releaseTouch();}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
         int code=event.getKeyCode();
-        if(code==KeyEvent.KEYCODE_BUTTON_B && viewingGame && engine.session!=null && engine.session.browsingTrax && achievementDisplay!=null){
-            if(event.getAction()==KeyEvent.ACTION_UP)achievementDisplay.backFromTrax();
-            return true;
-        }
-        if(code==KeyEvent.KEYCODE_BUTTON_Y || code==KeyEvent.KEYCODE_BUTTON_B){
-            long key=((long)event.getDeviceId()<<32)|code;
-            if(event.getAction()==KeyEvent.ACTION_UP && editorKeys.remove(key))return true;
-            if(event.getAction()==KeyEvent.ACTION_DOWN){
-                if(event.getRepeatCount()>0 && editorKeys.contains(key))return true;
+        boolean backButton=code==KeyEvent.KEYCODE_BUTTON_B || (code==KeyEvent.KEYCODE_BACK &&
+                (event.isFromSource(InputDevice.SOURCE_GAMEPAD) || event.isFromSource(InputDevice.SOURCE_JOYSTICK)));
+        if(backButton){
+            long button=((long)event.getDeviceId()<<32)|code;
+            if(event.getAction()==KeyEvent.ACTION_UP && backKeys.remove(button)){
+                if(!event.isCanceled() && acceptsPad() && achievementDisplay!=null)achievementDisplay.backFromTrax();
+                return true;
+            }
+            if(event.getAction()==KeyEvent.ACTION_DOWN && acceptsPad()){
+                if(event.getRepeatCount()>0 && backKeys.contains(button))return true;
                 if(event.getRepeatCount()==0){
-                    editorKeys.remove(key);
-                    if(acceptsPad() && ringside!=null && ringside.editorHelpKey(code)){editorKeys.add(key);return true;}
+                    backKeys.remove(button);
+                    if(engine.session.browsingTrax || (pauseMenu() && press(CornerControls.Key.START))){
+                        backKeys.add(button);return true;
+                    }
                 }
             }
         }
@@ -696,12 +728,14 @@ public final class CornerActivity extends Activity implements DisplayManager.Dis
         if(session!=null&&!live&&!engine.importing&&"Closed".equals(data.get("link"))&&engine.note.startsWith("Starting"))
             info="Session ended Â· "+data.get("reason");
         if(!host.isFile()&&ready)info="This package has no Fight Night runtime";
-        menu.showBuildProgress(info,engine.importing?engine.buildStarted:0);
-        menu.setKeepScreenOn(engine.importing && engine.buildStarted!=0);
-        menu.showState(info,ready,engine.importing || updates.installing(),live,host.canExecute(),!prefs.getString("save","").isEmpty(),presentation!=null,
-                discBuild!=null && discBuild.needsPreparation());
-        menu.backupStatus.setText(backups.status);
-        updates.refresh(menu.updates);
+        if(!viewingGame){
+            menu.showBuildProgress(info,engine.importing?engine.buildStarted:0);
+            menu.setKeepScreenOn(engine.importing && engine.buildStarted!=0);
+            menu.showState(info,ready,engine.importing || updates.installing(),live,host.canExecute(),!prefs.getString("save","").isEmpty(),presentation!=null,
+                    discBuild!=null && discBuild.needsPreparation());
+            menu.backupStatus.setText(backups.status);
+            updates.refresh(menu.updates);
+        }
         if(ready)menu.loadDiscPoster(game());
         if(ready && ringside!=null)ringside.useFonts(menu.fonts());
         if(ringside!=null){ringside.setCornerArt(menu.cornerArt());ringside.setTrainingArt(menu.trainingArt());ringside.setCareerArt(menu.careerArt());}

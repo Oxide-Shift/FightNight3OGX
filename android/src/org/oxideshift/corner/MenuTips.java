@@ -10,6 +10,7 @@ final class MenuTips {
     private long next;
     private int index;
     String select(String key,String[] tips,long now){
+        if(tips.length==1){leave();return tips[0];}
         if(!key.equals(topic) || now>=next){
             Integer previous=last.get(key);
             index=previous==null?0:(previous+1)%tips.length;

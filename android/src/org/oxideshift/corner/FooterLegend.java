@@ -14,19 +14,21 @@ final class FooterLegend {
     };
     static boolean matches(LiveFrame frame,int center,int key){
         int[] points=STROKES[key];
+        int pairs=points.length/4,required=(3*pairs+3)/4;
         for(int dy=0;dy<=2;dy++){
             int y=420+(dy==2?-1:dy);
             for(int dx=0;dx<7;dx++){
                 int x=center+((dx&1)==0?dx/2:-(1+dx/2));
                 if(x+RIGHT[key]>=640)continue;
-                int votes=0;
+                int votes=0,misses=0;
                 for(int i=0;i<points.length;i+=4){
                     int light=frame.at(x+points[i],y+points[i+1]);
                     int dark=frame.at(x+points[i+2],y+points[i+3]);
                     int red=LiveFrame.red(light);
-                    if(red>LiveFrame.green(light)*2 && red-LiveFrame.red(dark)>32)votes++;
+                    if(red>LiveFrame.green(light)*2 && red-LiveFrame.red(dark)>32){
+                        if(++votes>=required)return true;
+                    }else if(++misses>pairs-required)break;
                 }
-                if(votes*4>=points.length/4*3)return true;
             }
         }
         return false;

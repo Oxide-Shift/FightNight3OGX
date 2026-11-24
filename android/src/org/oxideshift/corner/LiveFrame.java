@@ -113,10 +113,10 @@ final class LiveFrame {
         if(loadingArtwork())return Scene.LOADING;
         if(inBout && fightMeters() && colorCount(276,385,333,399,0)>35 &&
                 colorCount(277,400,332,415,1)>32)return Scene.ROUND;
+        if(inBout && pauseRow()>=0)return Scene.PAUSE;
         if(BroadcastCues.hasMenuLogo(this) || (!inBout && BroadcastCues.hasUnbadgedFooter(this)))return Scene.MENU;
         if(!inBout)return Scene.RINGSIDE;
         if(totals())return Scene.TOTALS;
-        if(pauseRow()>=0)return Scene.PAUSE;
         if(colorCount(106,369,149,402,1)>95 && colorCount(157,365,178,384,2)>7
                 && colorCount(351,365,370,383,1)>8 && cutmanClock())return Scene.CORNER;
         if(colorCount(106,369,149,402,1)>95 && colorCount(157,364,222,384,1)>20

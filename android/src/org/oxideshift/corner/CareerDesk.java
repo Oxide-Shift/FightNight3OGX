@@ -13,6 +13,7 @@ final class CareerDesk {
         }
         boolean is(String key){return group.equals(key);}
     }
+    static boolean editingBoxer(Page page){return page!=null && page.is("cac") && page.index>=1 && page.index<=8;}
     private static Page p(String group,int n,String title,String note,String detail){
         return new Page(group,n,title,note,detail);
     }

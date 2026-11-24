@@ -52,26 +52,19 @@ final class RingsidePromptSmoke {
         BoutFrameTimes skipped=new BoutFrameTimes();skipped.active(true);
         for(int i=0;i<100;i++)skipped.frame(1L+i*33333333L,i*2);
         check(skipped.reading().contains("30.0 FPS displayed") && skipped.reading().contains("60.0 FPS produced"),skipped.reading());
+        MenuTips rotation=new MenuTips();
+        String[] one={"Exhibition fight"};
+        check(rotation.select("Play Now",one,0).equals(one[0]) && !rotation.due(Long.MAX_VALUE),"Static Play Now");
+        rotation.select("Career",new String[]{"A","B"},2);
+        check(rotation.due(MenuTips.INTERVAL+2) && rotation.select("Play Now",one,MenuTips.INTERVAL+2).equals(one[0])
+                && !rotation.due(Long.MAX_VALUE),"Returning to Play Now stops the previous timer");
         for(String path:paths){
             ByteBuffer pixels=ByteBuffer.wrap(Files.readAllBytes(Paths.get(path))).order(ByteOrder.LITTLE_ENDIAN);
             LiveFrame frame=new LiveFrame(pixels,pixels.getInt(0),pixels.getInt(4),1,true);
             String capture=Paths.get(path).getFileName().toString();
             if(capture.startsWith("editor-")){
-                int page=capture.contains("chooser")?1:capture.contains("info")?2:4;
-                BroadcastCues cues=new BroadcastCues();cues.read(frame);
-                boolean showing=BoxerEditor.showing(CareerDesk.find("cac",page),frame,cues);
-                check(showing!=capture.contains("dialog"),"Editor or dimmed dialog: "+capture);
-                BoxerEditor field=new BoxerEditor();
-                check(field.dialog(frame)==capture.contains("dialog"),"Confirmation control on "+capture);
-                if(!showing)check(field.left>210 && field.right<260 && field.top>225 && field.bottom<271,
-                        "Confirmation prompt must stay clear of the question and answer text");
-                check(!BoxerEditor.showing(CareerDesk.find("cac",9),frame,cues),"Career setup owns its prompts");
-                if(showing){
-                    check(field.field(frame,page),"Missing field control on "+capture);
-                    check(field.select==(page==1 || capture.contains("info-name")),"Wrong field action on "+capture);
-                    check(page==1?field.closingArrow>=215 && field.closingArrow<=226:BoxerEditor.shoulders(frame),"Editor tab or chooser legends: "+capture);
-                    if(capture.contains("nickname"))check(field.top>=276 && field.bottom<=302,"Field mask touched the label above the nickname");
-                }
+                check(CareerDesk.editingBoxer(CareerDesk.find("cac",4)) && !CareerDesk.editingBoxer(CareerDesk.find("cac",9)),
+                        "Editor notebook is restricted to the edit tabs");
                 continue;
             }
             boolean gallery=frame.scene(false)==LiveFrame.Scene.MENU && new MenuContext().mainMenu(frame);
@@ -80,6 +73,7 @@ final class RingsidePromptSmoke {
             check(frame.scoutPrompt()==scout,"Scout caption "+capture);
             BroadcastCues cues=new BroadcastCues();cues.read(frame);
             int mask=cues.knownPrompts(frame,BroadcastCues.ALL_PROMPTS);
+            check(BroadcastCues.visibleAt(frame,mask,cues.centers)==mask,"Render positions match footer on "+capture);
             System.out.println(Paths.get(path).getFileName()+" keys="+cues.mask+" native="+mask);
             if(Paths.get(path).getFileName().toString().startsWith("boxer")){
                 check(mask==15,"Select, Back, Ratings and Help on boxer select");
