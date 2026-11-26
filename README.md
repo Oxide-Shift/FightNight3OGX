@@ -1,4 +1,4 @@
-> **AI Disclaimer.** I wanted to play the Xbox version of *Fight Night Round 3* on my AYN Thor and use the bottom screen to work the corner between rounds. I directed the project and tested it on my Thor. OpenAI’s Codex helped write the port, launcher and touchscreen features.
+> **AI Disclaimer.** I wanted to play the Xbox version of *Fight Night Round 3* on my AYN Thor and use the bottom screen to work the corner between rounds. I directed the project and tested it on my Thor. OpenAI’s Codex and Anthropic’s Claude Code helped write the port, launcher and touchscreen features.
 
 ---
 
@@ -83,7 +83,21 @@ After an import failure or crash, **Copy details** gives you the same diagnostic
 
 If you upgrade an existing installation, the launcher can still read its installed XBE and certificate. In the report preview, choose **More options → Check installed game files** to compare the whole installed game with the tested USA copy. This reads the files locally and returns you to the preview. Original container details require a fresh import. Your disc image, filenames, saves and raw logs stay on the device.
 
-## What's new in Alpha 80
+## What's new in Alpha 81
+
+- **Damage by region.** During rounds, between rounds and on the pause screen, the lower screen shows where each boxer has been hit: both eyes, nose, mouth, both jaws and both sides of the body, read from the game's own damage data.
+- **Transitions on both screens.** When the game plays its red and orange transition, the lower screen plays the same bars in step with it, including on the Achievements and Music pages.
+- **Redesigned career, Achievements and Music screens** with a darker Fight Night look and motion throughout (see below).
+- **Music controls** on the lower screen: Back, Play/Pause and Next.
+- **Notifications:** a larger EA Trax now-playing badge, and achievement unlocks that wait while a fight announcement is on screen.
+- **Faster main menu** (60 FPS menus), arena lights behind the lower-screen menus, and the first song after Start comes in quickly.
+
+<p align="center"><img src="docs/screenshots/transition-mirror-81.jpg" width="760" alt="Nine frames of the lower screen during a transition: red and orange bars close in from both sides, a LOADING plate opens while the top screen loads, then the bars pull away to reveal the next page. Rendered on a PC from the app's own drawing code with the transition from a retail disc."></p>
+
+<p align="center"><sub>Lower-screen transition, frame by frame. The Alpha 81 images in this README are rendered on a PC from the app's own screens with sample data, not captured on a Thor.</sub></p>
+
+<details>
+<summary>What was new in Alpha 80</summary>
 
 - **A controller is required.** Fight Setup now says so when no gamepad is connected. There are no touch controls for boxing.
 - **Lower-screen timekeeper:** one centered line, `1:42 | R1`, with a larger clock and tally-mark flanks.
@@ -95,6 +109,8 @@ If you upgrade an existing installation, the launcher can still read its install
 - **Graphics driver resets** now return to Fight Setup with a plain message instead of an unexplained crash.
 - **Pipelined frames** (Advanced graphics, off by default, experimental): the GPU renders one frame while the game prepares the next. On the Thor it raised live-round averages to about 59.5 FPS, but it adds one frame of display delay, had a worse single slowest frame in one venue, and can make the announcer's commentary choppy. Leave it off unless you want to experiment.
 - Crash and import dialogs use the standard Android font.
+
+</details>
 
 ## Getting started
 
@@ -156,28 +172,21 @@ The red-orange Thor loading guide follows the control configuration you selected
 
 Open **Achievements** in the game’s main menu. Seven shelves hold **100 illustrated awards worth 6,155 Fight Score**, including the eight Xbox 360 career awards with their original point values. Flip shelves with the bumpers or tap **Prev** and **Next** on the lower screen.
 
-<p align="center"><img src="docs/screenshots/achievements.jpg" width="860" alt="The Finishes shelf in the Fight Night stencil font. Earned medals are gold, locked medals are dim, and each card lists its goal and Fight Score. The lower-screen navigation strip is shown beneath the menu."></p>
+<p align="center"><img src="docs/screenshots/menus-top-81.jpg" width="860" alt="Alpha 81 Achievements and Music menus on the upper screen. Achievements: category tabs with progress meters, an overall 35 percent ring, and award cards with gold rims for earned ones. Music: On during fights switched on, FN3 Expanded off, and EA Trax Open. Rendered on a PC from the app's own screens."></p>
 
-*Second wind* pays **75** for getting knocked down twice and still winning. For a longer career chase, *Zero on the ledger* pays **125** for reaching 50 wins with no losses or draws. Each unlock ribbon shows the title, the points and what you did to earn them.
+The lower screen spotlights the award you've highlighted, with its medal, what it takes or what you did, and your progress in that category and overall.
 
-<p align="center"><img src="docs/screenshots/achievement-unlock.png" width="440" alt="Second wind unlock ribbon, worth 75 Fight Score. You hit the canvas twice and still got your hand raised."></p>
+<p align="center"><img src="docs/screenshots/menus-lower-81.jpg" width="760" alt="Two lower screens. Left: the Burger King award spotlighted with its medal, 100 Fight Score and Xbox 360 shelf progress. Right: the Music page with a spinning EA Trax record, Now playing Never Gonna Get It by Sean Biggs, and Back, Pause and Next keys. Rendered on a PC from the app's own screens."></p>
+
+*Second wind* pays **75** for getting knocked down twice and still winning. For a longer career chase, *Zero on the ledger* pays **125** for reaching 50 wins with no losses or draws. When you earn one, the medal strikes in on the lower screen and a short card shows the title, the points and what you did. If a fight announcement is on screen, the card waits for it instead of expiring unseen.
 
 ## Build a career between bouts
 
-Before signing a contract, compare the purse and your opponent’s record, power, speed and stamina. In the Fight Store, try equipment on your boxer up top and check what the purchase would leave in your wallet below.
+Before signing a contract, the scouting report shows the purse, any bonus objective, and a tale of the tape against your opponent. At training, an eight-point radar shows your current ratings and what the drill could change. The trophy case gives every trophy its own shape, and hiring a trainer or buying gear shows what it leaves in your wallet.
 
-<p align="center"><img src="docs/screenshots/career-desks.jpg" width="820" alt="Two lower-screen examples. A scouting report compares Micky Ward’s attributes, and the Fight Store shows that a $1,200 purchase leaves $2,250."></p>
+<p align="center"><img src="docs/screenshots/career-lower-81.jpg" width="820" alt="Four Alpha 81 lower screens: a scouting report on Micky Ward with the purse and tale of the tape; Heavy Bag training with a forecast table and a radar of now versus potential; the trophy cabinet with fourteen differently shaped trophies; and Hire a Trainer, short by 700 dollars with a wallet versus fee gauge. Rendered on a PC from the app's own screens with sample data."></p>
 
-**Career → Edit Boxer** has a touch-only corner notebook. Pick a fight plan and mark off the tabs you’ve reviewed. The game keeps the boxer, the editing controls, and the **Accept Changes** prompt on the top screen. At the heavy bag, you can preview the trade-offs across eight attributes before training and review the actual gains afterward.
-
-<details>
-<summary>See the boxer editor and heavy-bag training</summary>
-
-<p align="center"><img src="docs/screenshots/career-editor.jpg" width="520" alt="Alpha 69 editor notebook with the pressure fight plan selected and two tabs marked reviewed."></p>
-
-<p align="center"><img src="docs/screenshots/training.jpg" width="510" alt="Heavy Bag selected in Training Select. The lower screen lists potential changes for power, speed, agility, stamina, chin, heart, cuts and body."></p>
-
-</details>
+**Career → Edit Boxer** has a touch-only corner notebook. Pick a fight plan and mark off the tabs you’ve reviewed. The game keeps the boxer, the editing controls, and the **Accept Changes** prompt on the top screen.
 
 ## Take EA Trax into the ring
 
@@ -185,16 +194,11 @@ Open **Music** from the game's main menu. The two music toggles start **off** on
 
 | Music menu | What it does |
 | --- | --- |
-| **Music during fights** | The song carries through loading, walkouts and announcements. When the opening round clock starts, the music fades to 12% volume. |
-| **FN3 Expanded Music** | The private Alpha 78 candidate includes nine tracks credited to FN3OGX. *Still Want the Crown* opens the expanded selection on a fresh game launch, then the rotation shuffles. |
+| **On during fights** | The song carries through loading, walkouts and announcements. When the opening round clock starts, the music fades down so punches and breathing carry. |
+| **FN3 Expanded** | Adds nine tracks credited to FN3OGX. *Still Want the Crown* opens the expanded selection on a fresh game launch, then the rotation shuffles. |
 | **EA Trax** | Choose which original soundtrack tracks are in rotation. |
 
-<details>
-<summary>See the in-game Music menu</summary>
-
-<p align="center"><img src="docs/screenshots/music-menu.jpg" width="760" alt="Alpha 68 Music menu preview showing the two music toggles and the EA Trax playlist entry."></p>
-
-</details>
+While the Music menu is open, the lower screen shows the song playing on a turning record, with **Back**, **Play/Pause** and **Next** keys. Back returns to the previous song, or restarts the current one.
 
 ## Bring your career save
 
