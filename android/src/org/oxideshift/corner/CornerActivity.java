@@ -471,14 +471,15 @@ public class CornerActivity extends Activity implements DisplayManager.DisplayLi
             next.musicAssets=getAssets();
             next.musicOptions(prefs.getBoolean("fightMusic",false),prefs.getBoolean("expandedMusic",false));
             String model=android.os.Build.MODEL+" "+android.os.Build.DEVICE+" "+android.os.Build.PRODUCT;
-            if(model.toLowerCase(java.util.Locale.ROOT).contains("thor")){
-                android.content.res.AssetManager assets=getAssets();
-                next.thorGuide=(name,length)->{
-                    byte[] bytes=new byte[length];
-                    try(java.io.DataInputStream in=new java.io.DataInputStream(assets.open(name))){in.readFully(bytes);}
-                    return bytes;
-                };
-            }
+            // The loading guide (Thor, RP Duo or phone, picked at random each launch) installs on every device;
+            // the Thor icon on the corner selector stays Thor-only.
+            android.content.res.AssetManager assets=getAssets();
+            next.thorGuide=(name,length)->{
+                byte[] bytes=new byte[length];
+                try(java.io.DataInputStream in=new java.io.DataInputStream(assets.open(name))){in.readFully(bytes);}
+                return bytes;
+            };
+            next.thorSelector=model.toLowerCase(java.util.Locale.ROOT).contains("thor");
             CrashReports reports=crashReports;
             final int fpsLimit=DisplayCadence.target(menu.pacing.index());
             next.onCrash((exit,pc,event,round,pixels,soft,state)->reports.record("game",exit,pc,event,round,pixels,soft?"software":"vulkan",state,fpsLimit));

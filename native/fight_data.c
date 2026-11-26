@@ -81,15 +81,23 @@ int fight_voice_stop_ready(uint32_t address,uint64_t now){
     }
     // A synchronous Stop has already been requested. An active or persistent
     // channel can miss its idle notification and leave the caller spinning for
-    // 500 ms per sound. Allow two 256-sample mixer blocks before invoking the
-    // same locked cleanup used by the retail watchdog, only for owned slots.
+    // 500 ms per sound. Invoke the same locked cleanup used by the retail
+    // watchdog after a short grace, only for owned slots.
+    //
+    // The grace used to be two 256-sample mixer blocks (10.7 ms). On the Thor
+    // nearly every stop ran it out (384 recovered, 1 completed in a BK fight):
+    // a released voice plays its envelope for tens of milliseconds, so the wait
+    // bought nothing. It did cost the sound thread 10 ms per stop, ~3.5 stops a
+    // second, and the main thread waits on that thread for its sound commands:
+    // main-thread stalls of 5-45 ms, every one woken by the sound thread.
+    // That was the stutter: announcer first, then frame rate. 0.5 ms now.
     if(!idle){
-        const uint64_t two_blocks=(2ULL*256*10000000+48000-1)/48000;
+        const uint64_t grace=5000; /* 0.5 ms in 100 ns units */
         uint64_t requested=((uint64_t)word(voice+0x7c)<<32)|word(voice+0x78);
         if (now < requested) return 0;
         uint64_t elapsed = now - requested;
-        if (elapsed < two_blocks) {
-            wait_pending_voice(elapsed, two_blocks - elapsed);
+        if (elapsed < grace) {
+            wait_pending_voice(elapsed, grace - elapsed);
             return 0;
         }
         static atomic_uint recovered;

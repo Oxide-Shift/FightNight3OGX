@@ -106,7 +106,7 @@ final class ReleaseUpdates {
         else retryAfter=System.currentTimeMillis()+15*60*1000L;
         if(!inSetup.getAsBoolean())return;
         if(next!=null && (manual || !offered.equals(next.tag)))offer();
-        else if(manual)notice(success?"You're on the latest available Thor build.":"Couldn't reach GitHub. Try again later.");
+        else if(manual)notice(success?"You're on the latest available Android build.":"Couldn't reach GitHub. Try again later.");
     }
     private void offer(){
         final ReleaseAsset next=pending;offered=next.tag;

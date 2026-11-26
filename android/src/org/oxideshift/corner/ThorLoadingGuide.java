@@ -43,6 +43,57 @@ final class ThorLoadingGuide {
         }
         return source;
     }
+    /** The handheld the guide is drawn for. The art keeps the Thor's control positions, so only the title,
+     *  the backdrop and the Thor-only face-letter row change. */
+    enum Device {
+        THOR("AYN THOR",'T',"thor-guide.dxt3"),DUO("RETROID POCKET DUO",'D',"duo-guide.dxt3"),PHONE("PHONE + CONTROLLER",'P',"phone-guide.dxt3");
+        final String title;final char code;final String art;
+        Device(String title,char code,String art){this.title=title;this.code=code;this.art=art;}
+        static Device random(){Device[] all=values();return all[(int)(Math.random()*all.length)];}
+    }
+    private static boolean title(String label){
+        for(Device d:Device.values())if(d.title.equals(label))return true;
+        return false;
+    }
+    /** Point an installed guide at another device: new title, and the "THOR STYLE" row only on the Thor.
+     *  Works on any guide this class composed, so the pristine retail movie is not needed. */
+    static byte[] retitle(byte[] source,Device device)throws IOException{
+        ByteBuffer b=ByteBuffer.allocate(source.length+256).order(ByteOrder.LITTLE_ENDIAN);
+        b.put(source);while((b.position()&3)!=0)b.put((byte)0);
+        int root=b.getInt(44),table=b.getInt(root+24),count=b.getInt(root+20);
+        if(count<=0 || count>100000 || table<0 || table+4L*count>source.length)throw new IOException("Unrecognized controls guide");
+        int heading=-1;
+        for(int i=0;i<count;i++){
+            int field=b.getInt(table+4*i);
+            if(field>0 && field<source.length-56 && b.getInt(field)==2 && title(text(b,field))){heading=i;break;}
+        }
+        // caption() order: title, FIGHT CONTROLS, ANALOG STICKS, D-PAD, FACE BUTTONS, SHOULDERS, THOR STYLE,
+        // XBOX STYLE, then the Thor row's four letters and the Xbox row's four.
+        if(heading<0 || heading+15>=count)throw new IOException("Controls guide has no device title");
+        int thorRow=b.getInt(table+4*(heading+6)),xboxRow=b.getInt(table+4*(heading+7));
+        if(!"XBOX STYLE".equals(text(b,xboxRow)))throw new IOException("Unexpected controls guide layout");
+        int titleField=b.getInt(table+4*heading);
+        b.putInt(titleField+52,append(b,device.title));
+        b.putFloat(titleField+16,300);  // room for the longer names
+        boolean thor=device==Device.THOR;
+        b.putInt(thorRow+52,append(b,thor?"THOR STYLE":""));
+        String letters="XABY";
+        for(int i=0;i<4;i++){
+            int field=b.getInt(table+4*(heading+8+i));
+            b.putInt(field+52,append(b,thor?letters.substring(i,i+1):""));
+        }
+        return Arrays.copyOf(b.array(),b.position());
+    }
+    private static String text(ByteBuffer b,int field){
+        int start=b.getInt(field+52);if(start<=0 || start>=b.position())return "";
+        int end=start;while(end<b.position() && b.get(end)!=0)end++;
+        return new String(b.array(),start,end-start,StandardCharsets.US_ASCII);
+    }
+    private static int append(ByteBuffer b,String value){
+        int at=b.position();b.put(value.getBytes(StandardCharsets.US_ASCII)).put((byte)0);
+        while((b.position()&3)!=0)b.put((byte)0);
+        return at;
+    }
     private ThorLoadingGuide(byte[] source,boolean training){
         movie=ByteBuffer.allocate(source.length+16384).order(ByteOrder.LITTLE_ENDIAN);
         movie.put(source);align();

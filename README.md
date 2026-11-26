@@ -10,9 +10,9 @@ Play the original Xbox edition of *Fight Night Round 3* on Android. On an AYN Th
 
 > **Bring your own disc.** You’ll need your own North American original Xbox *Fight Night Round 3* ISO. The app recompiles `default.xbe` on your Android device. The APK and this repository omit the retail executable, fighter and arena data, and original EA Trax recordings. FightNight3OGX is an independent fan project. Electronic Arts has no affiliation with the project and does not endorse it.
 
-<p align="center"><img src="docs/screenshots/fight-hud.jpg" width="640" alt="Gatti and Ward in round two with 13 seconds left, captured on an AYN Thor. The lower screen shows a centered 0:13 | R2 timekeeper with round tacks either side, both fighter cards with records, health and stamina, punch counts and the judges' scorecard for round one."></p>
+<p align="center"><img src="docs/screenshots/fight-hud.jpg" width="640" alt="Gatti and Ward trading in round one at Aragon with 23 seconds left, captured on an AYN Thor running Alpha 81.4. The lower screen shows a centered 0:23 | R1 timekeeper with round tacks either side, both fighter cards with records, health and stamina, punch counts, and the top of the Damage this bout panel with both boxers in their guard."></p>
 
-Round two, 13 seconds left. The lower screen keeps the clock and round on one centered line, flanked by ten round tacks per corner that light up in the fighter's colour for each round the judges give them. Below it: both records, health and stamina, punches landed and thrown, and every filed round on the official scorecard. Ward has landed 135 of 138. Gatti's health is down to 33%.
+Round one at Aragon, 23 seconds left. The lower screen keeps the clock and round on one centered line, flanked by ten round tacks per corner that light up in the fighter's colour for each round the judges give them. Below it: both records, health and stamina, punches landed and thrown, where each boxer is being hurt, and (scroll down) every filed round on the official scorecard. Ward has landed 47 of 54.
 
 ## Supported game
 
@@ -85,7 +85,9 @@ If you upgrade an existing installation, the launcher can still read its install
 
 ## What's new in Alpha 81
 
-- **Damage by region.** During rounds, between rounds and on the pause screen, the lower screen shows where each boxer has been hit: both eyes, nose, mouth, both jaws and both sides of the body, read from the game's own damage data. Each boxer is a silhouette that starts green and heats through yellow and orange to red as their health falls, with the most-hit area hottest and the colours recovering between rounds as health returns. Under each name: the boxer's health and the area taking the most punishment.
+- **Damage by region.** During rounds, between rounds and on the pause screen, the lower screen shows where each boxer has been hit: both eyes, nose, mouth, both jaws and both sides of the body, read from the game's own damage data. Each boxer is a rim-lit silhouette in a high guard (redrawn in 81.4 with real boxer proportions) whose face zones and both sides of the body start green and heat through yellow and orange to red as their health falls, with the most-hit area hottest and the colours recovering between rounds as health returns. Under each name: the boxer's health and the area taking the most punishment.
+- **Your handheld on screen (81.4).** Hovering Options shows an AYN Thor, a Retroid Pocket Duo and a phone with a controller in turn, drawn in the style of the disc's controller photo. The loading-screen controls guide is drawn for one of the three on each launch. Lower screens also adapt to shorter second screens, such as the Retroid Pocket Duo's 4:3 panel (checked in layout renders, not on that device).
+- **Stutter fix (81.4).** Fixes the stutter that built up during a fight: choppy commentary first, then dropped frames and rough fight audio. When the game stopped a sound, its sound engine waited about 10 ms for the emulated audio chip, and the game itself waited on the sound engine. Over a Burger King fight that happened about three times a second. On the Thor, the longest frames (over 34 ms) dropped from 0.26% to 0.02% of frames in the same fight.
 - **Smoother fights (81.3).** The crowd in the stands is now drawn on the graphics chip instead of the CPU. In testing on the Thor that removed about 5 ms of work from every frame and live rounds held 60 FPS where they had dipped to around 50.
 - **Transitions on both screens.** When the game plays its red and orange transition, the lower screen plays the same bars in step with it, including on the Achievements and Music pages.
 - **Redesigned career, Achievements and Music screens** with a darker Fight Night look and motion throughout (see below).
@@ -93,11 +95,17 @@ If you upgrade an existing installation, the launcher can still read its install
 - **Notifications:** a larger EA Trax now-playing badge, and achievement unlocks that wait while a fight announcement is on screen.
 - **Faster main menu** (60 FPS menus), arena lights behind the lower-screen menus, and the first song after Start comes in quickly.
 
-<p align="center"><img src="docs/screenshots/damage-map-81.png" width="600" alt="Damage this bout mid-fight: two boxer silhouettes in a guard. Gatti, in blue, at 38 percent health, has an orange jaw and a yellow body side; Ward, in red, at 71 percent, is turning yellow on his left side. Under each name: health percent in its heat colour and the most-hit area. Rendered on a PC from the app's own drawing code with sample hits."></p>
+<p align="center"><img src="docs/screenshots/fighter-health-81.jpg" width="560" alt="The lower screen early in round three, 1:48 on the clock, captured on an AYN Thor running Alpha 81.4. Gatti, blue corner, is at 59 percent health and 100 percent stamina; Ward, red corner, at 97 and 92. Punches landed over thrown: 35 of 56 and 141 of 157. Below, Damage this bout: two boxer silhouettes in a high guard with corner-coloured gloves; Gatti's face glows yellow around the eyes and mouth, Ward's is still green."></p>
+
+<p align="center"><sub>Fighter health and damage, captured on a Thor in round three.</sub></p>
+
+<p align="center"><img src="docs/screenshots/options-devices-81.jpg" width="820" alt="Three frames of the Options plate on the lower screen, captured on an AYN Thor: a dark clamshell AYN Thor with both screens lit, a grey Retroid Pocket Duo with coloured face buttons and a 4:3 lower screen, and a phone held in a telescopic controller. Each is tilted in a three-quarter view with a floor shadow."></p>
+
+<p align="center"><sub>The Options plate cycles through the handhelds (captured on a Thor).</sub></p>
 
 <p align="center"><img src="docs/screenshots/transition-mirror-81.jpg" width="760" alt="Nine frames of the lower screen during a transition: red and orange bars close in from both sides, a LOADING plate opens while the top screen loads, then the bars pull away to reveal the next page. Rendered on a PC from the app's own drawing code with the transition from a retail disc."></p>
 
-<p align="center"><sub>Lower-screen transition, frame by frame. The Alpha 81 images in this README are rendered on a PC from the app's own screens with sample data, not captured on a Thor.</sub></p>
+<p align="center"><sub>Lower-screen transition, frame by frame. This and the redesigned menu and career images below are rendered on a PC from the app's own screens with sample data; the fight, health, Options, loading-guide and cutman images are captured on a Thor.</sub></p>
 
 <details>
 <summary>What was new in Alpha 80</summary>
@@ -106,7 +114,7 @@ If you upgrade an existing installation, the launcher can still read its install
 - **Lower-screen timekeeper:** one centered line, `1:42 | R1`, with a larger clock and tally-mark flanks.
 - **Between rounds** the lower screen shows the next round, both fighters' health and stamina, punches, accuracy, your knockdowns, and up to two corner tips worked out from those numbers.
 
-<p align="center"><img src="docs/screenshots/between-rounds.jpg" width="560" alt="Between rounds two and three on an AYN Thor: Ward in his corner on the top screen; the lower screen reads Round 3 next with both fighter cards, punch totals and the judges' scorecard."></p>
+<p align="center"><img src="docs/screenshots/between-rounds.jpg" width="560" alt="Between rounds one and two at Aragon on an AYN Thor running Alpha 81.4: Ward in his corner by a Burger King post on the top screen; the lower screen reads Round 2 next with both fighter cards, punch totals (12 of 23 and 63 of 70) and the top of the Damage this bout panel."></p>
 - **Steadier menu companion:** the lower screen no longer flashes "From your corner" while a submenu such as Play Now is open.
 - **Clearer import messages:** a refused disc is labelled **Wrong platform**, **Different game**, **Unrecognized disc revision** or **Unsupported container**, and **Copy details** includes the `default.xbe` SHA-256.
 - **Graphics driver resets** now return to Fight Setup with a plain message instead of an unexplained crash.
@@ -158,16 +166,25 @@ Highlight a main-menu item to see what it offers on the lower screen. **Play Now
 
 At the bell, choose **Manual** to take the cutman’s stool. Watch the boxer’s face on the upper screen while you select a side, switch between treating cuts and swelling, and sweep across the lower touchscreen. Lift your finger to recenter for the next stroke.
 
-<p align="center"><img src="docs/screenshots/manual-cutman.jpg" width="530" alt="Close-up of the cutman treating a boxer above the touchscreen sweep pad. The lower display shows 28 seconds and controls for side and tool."></p>
+<p align="center"><img src="docs/screenshots/cutman-sweep-81.jpg" width="530" alt="Between rounds one and two at Aragon, captured on an AYN Thor. Upper screen: Gatti's face in close-up with 22.6 percent and 19.0 percent damage readouts either side and the game's Select side, Cuts and Heal prompts with 9 seconds left. Lower screen: the Cutman pad at 0:08, a ringed sweep circle with Sweep to treat, Start anywhere, Lift to recenter, and Left side, Switch tool and Right side buttons."></p>
 
 On a Thor, the purple handheld marks Player 1 on **Select Corner**. Move it to blue or red before choosing your boxer. The same handheld appears under **Select Controller** when you pause a fight.
 
-The red-orange Thor loading guide follows the control configuration you selected in the game. In configurations 1–4, **R2 blocks**. In 5–6, **R2 punches** and the **right stick blocks**. The two face-button diagrams let you read the guide in either Thor or Xbox button order.
+The red-orange loading guide follows the control configuration you selected in the game. In configurations 1–4, **R2 blocks**. In 5–6, **R2 punches** and the **right stick blocks**. Each launch draws it for an AYN Thor, a Retroid Pocket Duo or a phone with a controller. The Thor version adds a second face-button diagram so you can read the guide in either Thor or Xbox button order.
+
+**What the D-pad does depends on that configuration.** In configuration 1 it moves your boxer like the left stick, and taunt, clinch and illegal blow are on the face buttons. In configuration 3, D-pad up clinches, left taunts and right throws an illegal blow. Change it in **Options → Controller**.
 
 <details>
 <summary>See the Thor controls for configuration 3</summary>
 
 <p align="center"><img src="docs/screenshots/thor-controls.jpg" width="820" alt="Configuration 3 in the Thor loading guide. The face buttons throw hooks and straights, the right stick uses Total Punch Control, and R2 blocks."></p>
+
+</details>
+
+<details>
+<summary>See the phone + controller guide for configuration 1</summary>
+
+<p align="center"><img src="docs/screenshots/loading-guide-phone-81.jpg" width="820" alt="The loading guide drawn for a phone with a controller, captured on an AYN Thor: Phone + Controller, Fight Controls, Config 1. The D-pad is camera relative movement; A is signature punch, B illegal blow, X taunt and Y clinch; only the Xbox face-button order is shown."></p>
 
 </details>
 

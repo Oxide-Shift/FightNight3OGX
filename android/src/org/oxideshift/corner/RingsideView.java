@@ -84,7 +84,7 @@ final class RingsideView extends LinearLayout {
     }
     private TrainingSheet trainingSheet(){
         TrainingSheet sheet=new TrainingSheet(getContext(),usedFonts==null?DiscFonts.FALLBACK:usedFonts,
-                getWidth()<=dp(360) || getHeight()<=dp(320));
+                getWidth()<=dp(360) || getHeight()<dp(460)); // full sheet needs ~453 dp (Thor lower: 468)
         sheet.setArt(trainingArt);sheet.setBackdrop(careerArt);return sheet;
     }
     private CampLedger ledger;

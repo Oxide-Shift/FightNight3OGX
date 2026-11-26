@@ -123,17 +123,23 @@ final class RetailMenu {
         while(code.position()<0xd082)code.put((byte)0x04);
         return data;
     }
-    static synchronized void installThorGuide(Path game,byte[] artwork)throws IOException{
+    static void installThorGuide(Path game,byte[] artwork)throws IOException{
+        installThorGuide(game,artwork,ThorLoadingGuide.Device.THOR);
+    }
+    /** The stamp's last character names the device the installed guide shows (4 = Thor, from Alpha 80-81.3). */
+    static synchronized void installThorGuide(Path game,byte[] artwork,ThorLoadingGuide.Device device)throws IOException{
         if(artwork.length!=ThorLoadingGuide.ART_BYTES)throw new IOException("Invalid Thor guide backdrop");
         Path archive=TraxArt.guiFile(game.toFile(),"overlay.viv").toPath();
-        byte[] stamp=ascii("FNR3-THOR-CONTROLS-4");
-        boolean priorGuide,v3;
+        byte[] stamp=ascii("FNR3-THOR-CONTROLS-"+device.code);
+        boolean priorGuide,v3,composed;
         try(RandomAccessFile file=new RandomAccessFile(archive.toFile(),"r")){
             if(file.length()>48L*1024*1024 || file.length()<1024)throw new IOException("Unrecognized controller archive");
             byte[] tail=new byte[stamp.length];file.seek(file.length()-VERSION.length-stamp.length);file.readFully(tail);
             if(Arrays.equals(tail,stamp))return;
-            v3=Arrays.equals(tail,ascii("FNR3-THOR-CONTROLS-3"));
-            priorGuide=v3 || Arrays.equals(tail,ascii("FNR3-THOR-CONTROLS-1")) || Arrays.equals(tail,ascii("FNR3-THOR-CONTROLS-2"));
+            String installed=new String(tail,StandardCharsets.US_ASCII);
+            composed=installed.equals("FNR3-THOR-CONTROLS-4") || (installed.startsWith("FNR3-THOR-CONTROLS-") && installed.length()==20 && "TDP".indexOf(installed.charAt(19))>=0);
+            v3=installed.equals("FNR3-THOR-CONTROLS-3");
+            priorGuide=composed || v3 || installed.equals("FNR3-THOR-CONTROLS-1") || installed.equals("FNR3-THOR-CONTROLS-2");
         }
         byte[] outer=Files.readAllBytes(archive);
         byte[] menuStamp=Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length);
@@ -157,7 +163,8 @@ final class RetailMenu {
             if(matches!=1)throw new IOException("Missing loading backdrop");
             String layoutName=stem+".apt";
             byte[] source=TraxArt.inflate(member(screen,layoutName),2*1024*1024);
-            byte[] layout=v3?ThorLoadingGuide.upgradeV3(source,variant):ThorLoadingGuide.compose(source,variant);
+            byte[] layout=composed?source:v3?ThorLoadingGuide.upgradeV3(source,variant):ThorLoadingGuide.compose(source,variant);
+            layout=ThorLoadingGuide.retitle(layout,device);
             outer=replace(outer,group,replace(replace(screen,layoutName,layout),bankName,bank));
         }
         byte[] result=Arrays.copyOf(outer,outer.length+(priorGuide?0:stamp.length));

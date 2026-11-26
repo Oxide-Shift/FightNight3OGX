@@ -205,6 +205,7 @@ public final class CornerSession {
     private File menuDisc;
     interface Guide { byte[] load(String name,int length)throws IOException; }
     Guide thorGuide;
+    boolean thorSelector;
     void installMenuFrom(File disc){menuDisc=disc;}
     Achievements achievements;
     private int achievementRound,trainingDrill;
@@ -884,9 +885,14 @@ public final class CornerSession {
             catch(IOException e){String problem="Main menu extensions unavailable: "+e.getMessage();synchronized(this){record(problem);}if(timingLog!=null)timingLog.accept(problem);}
             if(menuDisc!=null)try{AndroidDeviceText.install(menuDisc.toPath());}
         catch(IOException e){synchronized(this){record("Device text unavailable: "+e.getMessage());}}
-            if(menuDisc!=null && thorGuide!=null)try{RetailMenu.installThorGuide(menuDisc.toPath(),thorGuide.load("thor-guide.dxt3",ThorLoadingGuide.ART_BYTES));}
+            if(menuDisc!=null && thorGuide!=null)try{
+                ThorLoadingGuide.Device device=ThorLoadingGuide.Device.random();
+                long t0=System.nanoTime();
+                RetailMenu.installThorGuide(menuDisc.toPath(),thorGuide.load(device.art,ThorLoadingGuide.ART_BYTES),device);
+                if(timingLog!=null)timingLog.accept("controls guide "+device+" ready in "+(System.nanoTime()-t0)/1000000+" ms");
+            }
             catch(IOException e){synchronized(this){record("Thor controls guide unavailable: "+e.getMessage());}}
-            if(menuDisc!=null && thorGuide!=null)try{RetailMenu.installThorSelector(menuDisc.toPath(),thorGuide.load("thor-selector.dxt3",128*64));}
+            if(menuDisc!=null && thorGuide!=null && thorSelector)try{RetailMenu.installThorSelector(menuDisc.toPath(),thorGuide.load("thor-selector.dxt3",128*64));}
             catch(IOException e){synchronized(this){record("Thor side selector unavailable: "+e.getMessage());}}
             ProcessBuilder builder=new ProcessBuilder(command).directory(directory);
             if(command.length>0 && frameFile!=null){

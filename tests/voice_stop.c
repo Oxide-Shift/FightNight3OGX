@@ -83,7 +83,7 @@ static void benchmark(void) {
             sub_0046CDD3();
         } while (MEM16(VOICE+0x12)&0x8000);
         elapsed[i]=monotonic_ticks()-start; counts[i]=polls;
-        assert(cleanups==before+1 && elapsed[i]>=106667);
+        assert(cleanups==before+1 && elapsed[i]>=5000);
     }
     uint64_t cpu=thread_cpu_ticks()-begin_cpu;
     for (unsigned i=0; i<100; ++i)
@@ -109,7 +109,7 @@ int main(int argc, char **argv){
     MEM32(VOICE+0x4c)=VOICE+0x4c;poll_stop(WAITER,0);MEM32(VOICE+0x4c)=0x35000;
     MEM8(VOICE+0x64)=4;poll_stop(WAITER,0);MEM8(VOICE+0x64)=0;poll_stop(WAITER,0);
     MEM8(VOICE+0x64)=1;MEM16(VOICE+0xc)=256;poll_stop(WAITER,0);MEM16(VOICE+0xc)=3;
-    // Two 256-sample mixer blocks at 48 kHz. Exercise consecutive stop requests,
+    // A 0.5 ms grace (5,000 guest ticks). Exercise consecutive stop requests,
     // clock rollover, and a slot which is reassigned while waiting.
     uint64_t requested=0xfffffff0ull;
     MEM32(TABLE+3*128+0x54)=1u<<21;
@@ -118,11 +118,11 @@ int main(int argc, char **argv){
         now=requested-1;poll_stop(WAITER,0);
         // The mixer can clear ACTIVE during a wait. A new poll sees its new state
         // immediately, including a slot reassigned before the next poll.
-        now=requested+5000;poll_stop(WAITER,0);
+        now=requested+2000;poll_stop(WAITER,0);
         MEM32(TABLE+3*128+0x54)=0;poll_stop(WAITER,1);
         MEM32(OWNER+0x88+3*4)=0x35000;poll_stop(WAITER,0);
         MEM32(OWNER+0x88+3*4)=VOICE;MEM32(TABLE+3*128+0x54)=1u<<21;
-        now=requested+106666;poll_stop(WAITER,0);
+        now=requested+4999;poll_stop(WAITER,0);
         now++;poll_stop(WAITER,1);poll_stop(0x46bdee,0);
         MEM32(OWNER+0x88+3*4)=0x35000;poll_stop(WAITER,0);MEM32(OWNER+0x88+3*4)=VOICE;
         now=requested+5000000;poll_stop(0x46bdee,1);

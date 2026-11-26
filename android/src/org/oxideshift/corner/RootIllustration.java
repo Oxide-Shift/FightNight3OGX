@@ -9,7 +9,7 @@ import java.io.IOException;
 /** The lower half of the selected fight bill. All photo plates come from the player's disc. */
 final class RootIllustration extends View {
     static Bitmap[] load(File game,Bitmap[] training,Bitmap[] mainMenu){
-        Bitmap[] plates=new Bitmap[9];
+        Bitmap[] plates=new Bitmap[9+DeviceArt.COUNT];
         plates[0]=read(game,"mainmenu","24",512,256);
         plates[1]=read(game,"rivals","2",256,128);
         plates[2]=read(game,"cac","141",128,128);
@@ -18,6 +18,8 @@ final class RootIllustration extends View {
         plates[5]=read(game,"trophycase","9",128,128);
         plates[7]=read(game,"options","62",128,128);
         plates[8]=mainMenu!=null && mainMenu.length>0?mainMenu[0]:null;
+        // Options shows the handhelds you play on, in the disc controller's product-shot style.
+        for(int k=0;k<DeviceArt.COUNT;k++)plates[9+k]=DeviceArt.render(k,512);
         return plates;
     }
     private static Bitmap read(File game,String group,String id,int w,int h){
@@ -40,8 +42,22 @@ final class RootIllustration extends View {
         // The plate that was showing hands over: the new photo slides in from the right as the old one leaves.
         previous=getVisibility()==VISIBLE?row:-1;changedAt=android.os.SystemClock.uptimeMillis();
         row=next;setVisibility(next<0?GONE:VISIBLE);invalidate();
+        if(next==7)firstDevice=(int)(Math.random()*DeviceArt.COUNT);
     }
-    private int previous=-1;private long changedAt;
+    private int previous=-1,firstDevice;private long changedAt;
+    static final long DEVICE_MS=3600,DEVICE_FADE_MS=520;
+    /** The image for a row; Options cycles through the drawn handhelds when they exist. */
+    private Bitmap image(int r,long now,float[] fade,Bitmap[] next){
+        if(plates==null)return null;
+        if(r!=7 || plates.length<9+DeviceArt.COUNT || plates[9]==null){fade[0]=0;return plates[r];}
+        long held=SheetMotion.on()?Math.max(0,now-changedAt):0;
+        int step=(int)(held/DEVICE_MS);long into=held%DEVICE_MS;
+        int k=(firstDevice+step)%DeviceArt.COUNT;
+        fade[0]=SheetMotion.on() && into>DEVICE_MS-DEVICE_FADE_MS?(into-(DEVICE_MS-DEVICE_FADE_MS))/(float)DEVICE_FADE_MS:0f;
+        next[0]=plates[9+(k+1)%DeviceArt.COUNT];
+        return plates[9+k];
+    }
+    private final float[] fade=new float[1];private final Bitmap[] nextDevice=new Bitmap[1];
     static final long CHANGE_MS=380;
     @Override protected void onDraw(Canvas canvas){
         if(row<0)return;
@@ -53,10 +69,16 @@ final class RootIllustration extends View {
         float zoom=motion?1.02f+.02f*(float)Math.sin(now/7000.0*Math.PI*2):1f;
         int w=getWidth(),h=getHeight();
         if(eased<1f && previous>=0 && plates!=null){
-            plate.draw(canvas,w,h,previous,plates[previous],plates[8],-eased*w*.18f,zoom,1f);
+            plate.draw(canvas,w,h,previous,image(previous,now,new float[1],new Bitmap[1]),plates[8],-eased*w*.18f,zoom,1f);
         }
-        Bitmap image=plates==null?null:plates[row];
-        plate.draw(canvas,w,h,row,image,plates==null?null:plates[8],(1f-eased)*w*.22f,zoom,eased);
+        Bitmap image=image(row,now,fade,nextDevice);
+        Bitmap ring=plates==null?null:plates[8];
+        plate.draw(canvas,w,h,row,image,ring,(1f-eased)*w*.22f,zoom,eased);
+        // Handheld cycle: the next device fades in over the current one, drifting in slightly from the right.
+        if(fade[0]>0f && nextDevice[0]!=null){
+            float f=fade[0]*fade[0]*(3f-2f*fade[0]);
+            plate.draw(canvas,w,h,row,nextDevice[0],ring,(1f-f)*w*.06f,zoom,f);
+        }
         if(motion && isShown())postInvalidateDelayed(t<1f?0:MenuAmbience.FRAME_MS);
     }
 

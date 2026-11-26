@@ -115,6 +115,26 @@ public final class ThorLoadingGuideSmoke {
             int at=bank.getInt(20)+16;
             check(Arrays.equals(artwork,Arrays.copyOfRange(bank.array(),at,at+artwork.length)),"Wrong backdrop");
         }
-        System.out.println("Verified all six imported loading movies, live fields, Thor labels and idempotent install.");
+        // Switch the installed guide to the RP Duo and back: title changes, the Thor-only row disappears and returns.
+        for(ThorLoadingGuide.Device device:new ThorLoadingGuide.Device[]{ThorLoadingGuide.Device.DUO,ThorLoadingGuide.Device.PHONE,ThorLoadingGuide.Device.THOR}){
+            RetailMenu.installThorGuide(work,artwork,device);
+            for(String variant:VARIANTS){
+                ByteBuffer b=ByteBuffer.wrap(member(work,"lp-"+variant+"-ContConfig","apt")).order(ByteOrder.LITTLE_ENDIAN);
+                int root=b.getInt(44),table=b.getInt(root+24);
+                Set<String> labels=new HashSet<>();int letters=0;
+                for(int i=0;i<b.getInt(root+20);i++){
+                    int field=b.getInt(table+4*i);
+                    if(field==0 || b.getInt(field)!=2)continue;
+                    String label=string(b,b.getInt(field+52));labels.add(label);
+                    if(label.length()==1 && "XABY".contains(label))letters++;
+                }
+                check(labels.contains(device.title),"Missing "+device+" title on "+variant);
+                check(labels.contains("THOR STYLE")==(device==ThorLoadingGuide.Device.THOR),"Thor row on "+device+" "+variant);
+                // Face-button captions A/B/X/Y plus the Xbox row (8); the Thor adds its own row (12).
+                boolean thor=device==ThorLoadingGuide.Device.THOR;
+                check(thor?letters>=12:letters<=8,"Face legends on "+device+" "+variant+": "+letters);
+            }
+        }
+        System.out.println("Verified all six imported loading movies, live fields, Thor labels, device switching and idempotent install.");
     }
 }
