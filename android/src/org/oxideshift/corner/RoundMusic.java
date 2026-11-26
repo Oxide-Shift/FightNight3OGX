@@ -238,9 +238,10 @@ final class RoundMusic implements AutoCloseable {
             }
         }
     }
-    /** Gains relative to decoded stereo PCM. Stock menu captures measure 0.22 at the default mix. */
+    /** Gains relative to decoded stereo PCM. Stock menu captures measure 0.22 at the default mix.
+     *  Fight music sits 3 dB under the former 0.12 so punches and breathing (game stream) carry over it. */
     static final class SceneMix {
-        static final float MENU=.22f,FIGHT=.12f;
+        static final float MENU=.22f,FIGHT=.085f;
         static final int FADE_FRAMES=DiscTrax.RATE*3/4;
         private float current,target,step;
         private int remaining;

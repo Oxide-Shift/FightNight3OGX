@@ -32,7 +32,7 @@ def main():
         javac=args.jdk/"bin/javac.exe"
         java=args.jdk/"bin/java.exe"
         java_suites=["GraphicsStartupSmoke","LaunchRecoveryTest","CornerControlsSmoke","FightBroadcastSmoke","RingsidePromptSmoke","CutmanStrokeSmoke",
-               "HakuSaveSmoke","ProfileSavesSmoke","DisplayCadenceSmoke","MenuStripSmoke","ControllerInputSmoke","FightEventsSmoke","CommandPipeSmoke","SessionSleepSmoke","ReleaseVersionSmoke","ReleaseAssetSmoke","DiscTraxSmoke","AchievementsSmoke","CalloutRumbleSmoke","BetweenRoundsSmoke"]
+               "HakuSaveSmoke","ProfileSavesSmoke","DisplayCadenceSmoke","MenuStripSmoke","ControllerInputSmoke","FightEventsSmoke","CommandPipeSmoke","SessionSleepSmoke","ReleaseVersionSmoke","ReleaseAssetSmoke","DiscTraxSmoke","AchievementsSmoke","CalloutRumbleSmoke","BetweenRoundsSmoke","DiagnosticTailSmoke"]
         paths=[TESTS/(name+".java") for name in java_suites+["LinkSmoke","DiscInstallSmoke","RetailMenuStartupSmoke"]]
         run([javac,"--release","8","-encoding","UTF-8","-cp",args.android_jar,"-d",out,*JAVA.glob("*.java"),*paths])
         cp=os.pathsep.join(map(str,(out,args.android_jar)))

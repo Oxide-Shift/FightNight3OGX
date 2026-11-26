@@ -25,7 +25,12 @@ CONTEXT_FIELDS = {"manufacturer", "model", "abi", "milestone", "elapsed_ms", "la
 MILESTONES = {"launch", "linked", "kernel", "guest", "frame", "intro", "menu", "bout"}
 
 # Each optional field has a defined type and range. Partial imports have only the observations reached so far.
-def validate_details(details, importing, report, extended=False):
+def log_tail_ok(value):
+    """Scrubbed game log tail: printable ASCII lines, newline separated, bounded like DiagnosticTail.java."""
+    return isinstance(value, str) and 0 < len(value) <= 6000 and all(c == "\n" or " " <= c <= "~" for c in value)
+
+
+def validate_details(details, importing, report, extended=False, v4=False):
     if not isinstance(details, dict) or set(details) != {"device", "failure", "rom"}:
         raise ValueError("detail sections")
     label = r"[ -~]{1,64}"
@@ -39,6 +44,10 @@ def validate_details(details, importing, report, extended=False):
                   display_height=(1,65536), display_millihz=(1,10000000), vulkan_api_version=uint)
     if extended:
         device.update(host_page_bytes=(1024,65536), presentation_displays=(0,255))
+    if v4:
+        device.update(app_version_code=(1, 2**31-1), firmware_build=label, security_patch=r"[0-9]{4}-[0-9]{2}-[0-9]{2}",
+                      display_count=(0,64), lower_display=r"[0-9]{1,5}x[0-9]{1,5}@[0-9]{1,7}",
+                      controllers=r"none|[0-9a-f]{4}:[0-9a-f]{4}(?:,[0-9a-f]{4}:[0-9a-f]{4}){0,5}")
     rom = dict.fromkeys(("selected_bytes","image_bytes","partition_offset","payload_bytes","source_xbe_bytes","installed_xbe_bytes"),size)
     rom.update(origin={"import","installed_only"}, container={"raw","zip"}, layout={"xiso","partitioned"}, files=(0,25000),
                title=hex8, region=hex8, media_mask=hex8, disc_number=uint, revision=uint,
@@ -56,6 +65,13 @@ def validate_details(details, importing, report, extended=False):
             if extended:
                 failure.update(fault_location={"outside_game_module"}, native_return_offset=hex8,
                                fault_module={"game","shader","runner"}, module_pc=re.compile(r"[0-9a-f]{16}"))
+            if v4:
+                failure.update(renderer_mode={"vulkan","software","general","shared"}, pipelined_frames=bool, widescreen=bool,
+                               in_bout=bool, sleeping=bool, gpu_device_lost=bool, gpu_init_failed=bool,
+                               pace_work_us=uint, pace_gpu_wait_us=uint,
+                               soft_targets=r"format=[0-9]{1,9} front=[0-9]{1,9} conflict=[0-9]{1,9} depth=[0-9]{1,9}",
+                               gpu_name=label, gpu_driver=r"[0-9.]{1,24}", gpu_vendor_id=r"[0-9a-f]{1,8}",
+                               log_tail=log_tail_ok, log_lines=(1,40))
         else:
             failure.update(android_exit_reason=(0,255), importance=(0,10000), process_pss_kib=size, process_rss_kib=size)
     for group, spec in (("device",device),("rom",rom),("failure",failure)):
@@ -70,6 +86,8 @@ def validate_details(details, importing, report, extended=False):
                 valid = type(v) is int and rule[0] <= v <= rule[1]
             elif isinstance(rule, set):
                 valid = isinstance(v, str) and v in rule
+            elif callable(rule) and not isinstance(rule, (str, re.Pattern)):
+                valid = bool(rule(v))
             else:
                 valid = isinstance(v, str) and re.fullmatch(rule, v)
             if not valid:
@@ -146,7 +164,7 @@ def initialize(db):
             id TEXT PRIMARY KEY REFERENCES {parent}(id) ON DELETE CASCADE, details TEXT NOT NULL)""")
 
 
-def accept(path, report, importing=False, detailed=False, rich=False, extended=False):
+def accept(path, report, importing=False, detailed=False, rich=False, extended=False, v4=False):
     context = None
     if rich:
         if not isinstance(report, dict) or "details" not in report:
@@ -162,7 +180,7 @@ def accept(path, report, importing=False, detailed=False, rich=False, extended=F
     if detailed:
         validate_context(context, report)
     if rich:
-        validate_details(details, importing, report, extended)
+        validate_details(details, importing, report, extended, v4)
     table = "disc_imports" if importing else "reports"
     now = int(time.time())
     with closing(sqlite3.connect(path, timeout=3)) as db, db:
@@ -255,7 +273,8 @@ class Inbox(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
-        if self.path not in ("/v1/reports", "/v1/imports", "/v1/crashes", "/v2/imports", "/v2/crashes", "/v3/imports", "/v3/crashes"):
+        if self.path not in ("/v1/reports", "/v1/imports", "/v1/crashes", "/v2/imports", "/v2/crashes", "/v3/imports", "/v3/crashes",
+                             "/v4/imports", "/v4/crashes"):
             return self.respond(404)
         if self.headers.get_content_type() != "application/json":
             return self.respond(415)
@@ -263,11 +282,13 @@ class Inbox(BaseHTTPRequestHandler):
             return self.respond(429)
         try:
             size = int(self.headers.get("Content-Length", "0"))
-            extended=self.path.startswith("/v3/")
+            v4=self.path.startswith("/v4/")
+            extended=v4 or self.path.startswith("/v3/")
             rich=extended or self.path.startswith("/v2/")
-            if not 0 < size <= (8192 if rich else 4096 if self.path == "/v1/crashes" else 1024):
+            # v4 carries a bounded log tail (6,000 characters), so it gets a larger, still fixed, body limit.
+            if not 0 < size <= (16384 if v4 else 8192 if rich else 4096 if self.path == "/v1/crashes" else 1024):
                 return self.respond(413)
-            accept(self.server.database, json.loads(self.rfile.read(size)), self.path.endswith("/imports"), self.path.endswith("/crashes"), rich, extended)
+            accept(self.server.database, json.loads(self.rfile.read(size)), self.path.endswith("/imports"), self.path.endswith("/crashes"), rich, extended, v4)
         except (ValueError, KeyError, TypeError, AttributeError, RecursionError):
             return self.respond(400)
         except (sqlite3.Error, OverflowError):

@@ -55,6 +55,34 @@ final class ReportDetails {
             for(FeatureInfo f:activity.getPackageManager().getSystemAvailableFeatures())
                 if(PackageManager.FEATURE_VULKAN_HARDWARE_VERSION.equals(f.name))d.put("vulkan_api_version",f.version);
         }catch(RuntimeException ignored){}
+        // Schema v4 device identity (stripped for older inboxes). Controllers are vendor:product IDs only, never names.
+        try{
+            d.put("app_version_code",activity.getPackageManager().getPackageInfo(activity.getPackageName(),0).versionCode);
+        }catch(PackageManager.NameNotFoundException | RuntimeException ignored){}
+        label(d,"firmware_build",Build.DISPLAY);label(d,"security_patch",Build.VERSION.SECURITY_PATCH);
+        try{
+            DisplayManager dm=activity.getSystemService(DisplayManager.class);
+            if(dm!=null){
+                d.put("display_count",dm.getDisplays().length);
+                Display[] extra=dm.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
+                if(extra.length>0){
+                    Display.Mode m=extra[0].getMode();
+                    d.put("lower_display",m.getPhysicalWidth()+"x"+m.getPhysicalHeight()+"@"+Math.round(m.getRefreshRate()*1000));
+                }
+            }
+        }catch(RuntimeException ignored){}
+        StringBuilder pads=new StringBuilder();int count=0;
+        for(int id:android.view.InputDevice.getDeviceIds()){
+            android.view.InputDevice in=android.view.InputDevice.getDevice(id);
+            if(in==null || in.isVirtual())continue;
+            int s=in.getSources();
+            if((s&android.view.InputDevice.SOURCE_GAMEPAD)!=android.view.InputDevice.SOURCE_GAMEPAD &&
+                    (s&android.view.InputDevice.SOURCE_JOYSTICK)!=android.view.InputDevice.SOURCE_JOYSTICK)continue;
+            if(count++==6)break;
+            if(pads.length()>0)pads.append(',');
+            pads.append(String.format(Locale.ROOT,"%04x:%04x",in.getVendorId()&0xffff,in.getProductId()&0xffff));
+        }
+        d.put("controllers",pads.length()==0?"none":pads.toString());
         JSONObject f=new JSONObject(failure);
         try(BufferedReader in=new BufferedReader(new InputStreamReader(activity.getAssets().open("disc-kit.id"),StandardCharsets.US_ASCII))){
             String kit=in.readLine();if(kit!=null && kit.matches("[0-9a-f]{64}"))f.put("build_kit_sha256",kit);
@@ -82,8 +110,14 @@ final class ReportDetails {
                     "\nFingerprint measured from the installed game folder.":"\nExisting installation. The installed executable was checked.");
             List<String> keys=new ArrayList<>();for(Iterator<String> i=item.keys();i.hasNext();)keys.add(i.next());
             Collections.sort(keys);
-            for(String key:keys)text.append('\n').append(key.replace('_',' ')).append("  ").append(item.get(key));
+            for(String key:keys){
+                if(key.equals("log_tail"))continue;   // shown as its own section below
+                text.append('\n').append(key.replace('_',' ')).append("  ").append(item.get(key));
+            }
         }
+        JSONObject failure=details.optJSONObject("failure");
+        if(failure!=null && failure.has("log_tail"))
+            text.append("\n\nLast game log lines (storage paths removed)\n").append(failure.getString("log_tail"));
         return text.toString();
     }
 }

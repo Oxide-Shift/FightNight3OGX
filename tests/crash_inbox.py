@@ -150,6 +150,26 @@ class Reports(unittest.TestCase):
             self.assertEqual(request("POST","/v2/crashes",candidate)[0],400)
             bad=dict(extended_details,failure=dict(extended_details["failure"],native_return_offset="/private/path"))
             self.assertEqual(request("POST","/v3/crashes",dict(candidate,details=bad))[0],400)
+            # Schema v4: identity, settings, timing and a scrubbed log tail. Old routes keep rejecting the new keys.
+            v4_device=dict(extended_details["device"],app_version_code=94,firmware_build="AYN_Thor_20261101",
+                           security_patch="2026-10-01",display_count=2,lower_display="1240x1080@60000",controllers="2020:0111")
+            v4_failure=dict(extended_details["failure"],renderer_mode="vulkan",pipelined_frames=False,widescreen=True,in_bout=True,
+                            sleeping=False,gpu_device_lost=False,gpu_init_failed=False,pace_work_us=18376,pace_gpu_wait_us=5296,
+                            soft_targets="format=12 front=0 conflict=3 depth=0",gpu_name="Adreno (TM) 740",gpu_driver="512.744.0",
+                            gpu_vendor_id="5143",log_tail="[Fight Night] renderer Vulkan\nFNR3/1 MILESTONE bout\n",log_lines=2)
+            v4_details=dict(extended_details,device=v4_device,failure=v4_failure)
+            v4_report=dict(candidate,id=str(uuid.uuid4()),version="0.4.0-alpha.80",details=v4_details)
+            self.assertEqual(request("POST","/v3/crashes",v4_report)[0],400)
+            self.assertEqual(request("POST","/v3/crashes",dict(v4_report,details=extended_details))[0],201)
+            self.assertEqual(request("POST","/v4/crashes",v4_report)[0],201)
+            v4_rows=json.loads(request("GET","/v1/crashes?version=0.4.0-alpha.80&exit=%d" % v4_report["exit"],auth=server.reader)[1])
+            stored=[r["details"] for r in v4_rows if r["details"] and r["details"]["device"].get("app_version_code")==94]
+            self.assertEqual(stored,[v4_details])
+            for change in ({"log_tail":"café\n"},{"log_tail":"x"*6001},{"log_lines":41},{"gpu_driver":"/data/x"}):
+                self.assertEqual(request("POST","/v4/crashes",dict(v4_report,id=str(uuid.uuid4()),
+                                         details=dict(v4_details,failure=dict(v4_failure,**change))))[0],400)
+            self.assertEqual(request("POST","/v4/crashes",dict(v4_report,id=str(uuid.uuid4()),
+                                     details=dict(v4_details,device=dict(v4_device,controllers="Matt's pad"))))[0],400)
             import_details=dict(details,failure={})
             for _ in range(2):
                 self.assertEqual(request("POST","/v2/imports",dict(issue,details=import_details))[0],201)
@@ -158,6 +178,9 @@ class Reports(unittest.TestCase):
             self.assertEqual(len(rows),1)
             self.assertEqual(rows[0]["details"],import_details)
             self.assertEqual(request("POST","/v2/imports",dict(issue,details=import_details,sha256=None))[0],400)
+            v4_import=dict(details,device=v4_device,failure={})
+            self.assertEqual(request("POST","/v4/imports",dict(issue,id=str(uuid.uuid4()),details=v4_import))[0],201)
+            self.assertEqual(request("POST","/v3/imports",dict(issue,id=str(uuid.uuid4()),details=v4_import))[0],400)
 
 if __name__ == "__main__":
     unittest.main()

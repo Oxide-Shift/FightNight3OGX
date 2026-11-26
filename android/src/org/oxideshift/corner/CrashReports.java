@@ -257,6 +257,14 @@ final class CrashReports {
             });
         },"check-installed-disc").start();
     }
+    /** Remove schema v4 keys in place; true if any were present. */
+    static boolean stripV4(JSONObject details){
+        boolean any=false;
+        JSONObject device=details.optJSONObject("device"),failure=details.optJSONObject("failure");
+        if(device!=null)for(String k:CornerSession.V4_DEVICE)if(device.remove(k)!=null)any=true;
+        if(failure!=null)for(String k:CornerSession.V4_FAILURE)if(failure.remove(k)!=null)any=true;
+        return any;
+    }
     private void deliver(String key,boolean playerTappedSend){
         final String body=store.getString(key,null);if(body==null)return;
         sending=true;
@@ -268,11 +276,19 @@ final class CrashReports {
                 boolean detailed=report.has("context");
                 String endpoint=importing?"imports":detailed?"crashes":"reports";
                 boolean rich=report.has("details");
-                int response=post((rich?"v3/":"v1/")+endpoint,body);
                 boolean reduced=false;
+                int response;
+                if(rich && stripV4(new JSONObject(body).getJSONObject("details"))){
+                    // Schema v4 first. An inbox without it answers 404: send the v3 subset and keep the full report queued.
+                    response=post("v4/"+endpoint,body);
+                    if(response==404){
+                        reduced=stripV4(report.getJSONObject("details"));
+                        response=post("v3/"+endpoint,report.toString());
+                    }
+                }else response=post((rich?"v3/":"v1/")+endpoint,body);
                 if(rich && response==404){
                     JSONObject details=report.getJSONObject("details");
-                    reduced=details.getJSONObject("device").has("host_page_bytes")
+                    reduced=reduced || details.getJSONObject("device").has("host_page_bytes")
                             || details.getJSONObject("device").has("presentation_displays")
                             || details.getJSONObject("failure").has("fault_location")
                             || details.getJSONObject("failure").has("native_return_offset");

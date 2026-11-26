@@ -41,6 +41,7 @@ public final class DiscTraxSmoke {
             throw new AssertionError("Stereo balance during fade");
         return pcm[pcm.length-2];
     }
+    private static final int FIGHT_LEVEL=Math.round(20000*RoundMusic.SceneMix.FIGHT);
     private static void trackLevels(){
         RoundMusic.SceneMix mix=new RoundMusic.SceneMix(true);
         mix.selectTrack("DILATEDP");
@@ -48,27 +49,27 @@ public final class DiscTraxSmoke {
         mix.selectTrack("Make It Two");
         float boost=(float)Math.pow(10,8.30/20);
         if(Math.abs(mix(mix,true,1)-4400*boost)>1 ||
-                Math.abs(mix(mix,false,RoundMusic.SceneMix.FADE_FRAMES)-2400*boost)>1)
+                Math.abs(mix(mix,false,RoundMusic.SceneMix.FADE_FRAMES)-FIGHT_LEVEL*boost)>1)
             throw new AssertionError("Expanded loudness across scenes");
         mix.selectTrack("ATMOSPH1");
-        if(Math.abs(mix(mix,false,1)-2400*Math.pow(10,-2.1/20))>1)
+        if(Math.abs(mix(mix,false,1)-FIGHT_LEVEL*Math.pow(10,-2.1/20))>1)
             throw new AssertionError("Disc trim on a track change during a fight");
         mix.selectTrack("unknown");
-        if(mix(mix,false,1)!=2400)throw new AssertionError("Unknown tracks use unity gain");
+        if(mix(mix,false,1)!=FIGHT_LEVEL)throw new AssertionError("Unknown tracks use unity gain");
     }
     private static void sceneLevels(){
         RoundMusic.SceneMix mix=new RoundMusic.SceneMix(true);
         int fade=RoundMusic.SceneMix.FADE_FRAMES;
         if(mix(mix,true,1)!=4400)throw new AssertionError("Original menu level");
         int half=mix(mix,false,fade/2);
-        if(Math.abs(half-3400)>1 || Math.abs(mix(mix,true,1)-half)>1)
+        if(Math.abs(half-(4400+FIGHT_LEVEL)/2)>1 || Math.abs(mix(mix,true,1)-half)>1)
             throw new AssertionError("Continuous reversal during loading");
         if(mix(mix,true,fade)!=4400 || mix(mix,false,1)!=4400)
             throw new AssertionError("Fade starts at the previous level");
         for(int i=1;i<fade;i+=441)mix(mix,false,Math.min(441,fade-i));
-        if(mix(mix,false,1)!=2400 || mix(mix,true,fade)!=4400)
+        if(mix(mix,false,1)!=FIGHT_LEVEL || mix(mix,true,fade)!=4400)
             throw new AssertionError("Fight level and menu restoration");
-        if(mix(new RoundMusic.SceneMix(false),false,1)!=2400)
+        if(mix(new RoundMusic.SceneMix(false),false,1)!=FIGHT_LEVEL)
             throw new AssertionError("Starting inside a fight");
     }
     private static void playlist(){

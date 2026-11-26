@@ -649,6 +649,12 @@ public class CornerActivity extends Activity implements DisplayManager.DisplayLi
     }
     @Override public void onInputDeviceChanged(int id){forgetDevice(id);}
     @Override public void onInputDeviceRemoved(int id){forgetDevice(id);if(!viewingGame)refresh();}
+    /** True when the device reports a real B button, so its Back key is a separate system key (e.g. the Thor). */
+    static boolean hasButtonB(InputDevice device){
+        if(device==null)return false;
+        boolean[] keys=device.hasKeys(KeyEvent.KEYCODE_BUTTON_B);
+        return keys.length>0 && keys[0];
+    }
     /** Phones have no built-in pad; handhelds report theirs as a gamepad or joystick (same rule as FightPad). */
     static boolean controllerConnected(){
         for(int id:InputDevice.getDeviceIds()){
@@ -709,7 +715,9 @@ public class CornerActivity extends Activity implements DisplayManager.DisplayLi
     @Override public boolean dispatchKeyEvent(KeyEvent event){
         int code=event.getKeyCode();
         boolean controller=event.isFromSource(InputDevice.SOURCE_GAMEPAD) || event.isFromSource(InputDevice.SOURCE_JOYSTICK);
-        if(viewingGame && code==KeyEvent.KEYCODE_BACK && controller){
+        // Android Back opens Fight Setup (Resume bout / End session) as an overlay. Only a pad with no B button of its
+        // own, whose B therefore arrives as Back, keeps it as the game's B. The Thor's dedicated back key opens the launcher.
+        if(viewingGame && code==KeyEvent.KEYCODE_BACK && controller && !hasButtonB(event.getDevice())){
             code=KeyEvent.KEYCODE_BUTTON_B;
             event=new KeyEvent(event.getDownTime(),event.getEventTime(),event.getAction(),code,event.getRepeatCount(),
                     event.getMetaState(),event.getDeviceId(),event.getScanCode(),event.getFlags(),event.getSource());

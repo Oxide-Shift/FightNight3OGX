@@ -18,6 +18,11 @@ public final class GraphicsStartupSmoke {
             if(args[0].equals("wait")){
                 System.out.println("FNR3/1 FRONT 1");System.out.flush();
                 Thread.sleep(15000);
+            }else if(args[0].equals("native-crash")){
+                System.err.println("[VKR] device: Adreno (TM) 740 (Vulkan 1.3, driver 512.744.0, vendor 5143)");
+                System.err.println("[Fight Night] renderer Vulkan");
+                System.err.println("open /data/user/0/org.oxideshift.corner/files/retail/game/default.xbe ok");
+                System.exit(139);
             }else if(args[0].equals("device-lost")){
                 System.err.println("FNR3/1 GPU_DEVICE_LOST");
                 System.exit(75);
@@ -40,6 +45,18 @@ public final class GraphicsStartupSmoke {
         check(lost.deviceLost() && lost.retryGraphics() && !lost.unsupportedGraphics(),"Device lost before first frame retries once");
         CornerSession lostGeneral=session("device-lost",true,false);lostGeneral.run();
         check(lostGeneral.deviceLost() && !lostGeneral.retryGraphics(),"Device lost on general shaders does not loop");
+        // Report schema v4: the crash snapshot carries GPU identity, settings and a scrubbed log tail.
+        CornerSession crashed=session("native-crash",false,false);
+        final CornerSession.CrashState[] seen=new CornerSession.CrashState[1];
+        crashed.onCrash((exit,pc,event,round,height,software,state)->seen[0]=state);
+        crashed.run();
+        check(seen[0]!=null,"Crash listener fired");
+        java.util.Map<String,Object> d=seen[0].details;
+        check("Adreno (TM) 740".equals(d.get("gpu_name")) && "512.744.0".equals(d.get("gpu_driver")) && "5143".equals(d.get("gpu_vendor_id")),"GPU identity "+d);
+        check("vulkan".equals(d.get("renderer_mode")) && Boolean.FALSE.equals(d.get("pipelined_frames")) && Boolean.FALSE.equals(d.get("gpu_device_lost")),"settings "+d);
+        String log=(String)d.get("log_tail");
+        check(log!=null && log.contains("[Fight Night] renderer Vulkan") && log.contains("open <app> ok") && !log.contains("/data/"),"scrubbed tail "+log);
+        check(Integer.valueOf(3).equals(d.get("log_lines")),"tail line count "+d.get("log_lines"));
         for(boolean drawn:new boolean[]{false,true}){
             clock.set(0);
             CornerSession game=session("wait",false,false);

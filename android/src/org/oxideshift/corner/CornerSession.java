@@ -433,8 +433,27 @@ public final class CornerSession {
             }
             for(Map.Entry<Milestone,Long> entry:s.firstSeen.entrySet())
                 details.put(entry.getKey().name().toLowerCase(Locale.ROOT)+"_ms",entry.getValue());
+            // Schema v4: everything needed to explain a crash on hardware we cannot test. Stripped for older inboxes.
+            details.put("renderer_mode",s.software?"software":s.generalShaders?"general":s.useSharedFrames()?"shared":"vulkan");
+            details.put("pipelined_frames",s.pipelinedFrames);
+            details.put("widescreen",s.widescreen);
+            details.put("in_bout",s.inLiveBout());
+            details.put("sleeping",s.sleeping);
+            details.put("gpu_device_lost",s.gpuDeviceLost);
+            details.put("gpu_init_failed",s.gpuInitFailed);
+            if(s.paceWork>=0){details.put("pace_work_us",s.paceWork);details.put("pace_gpu_wait_us",s.paceWait);}
+            if(s.softTargets!=null)details.put("soft_targets",s.softTargets);
+            if(s.gpuName!=null)details.put("gpu_name",DiagnosticTail.scrub(s.gpuName));
+            if(s.gpuDriver!=null)details.put("gpu_driver",s.gpuDriver);
+            if(s.gpuVendor!=null)details.put("gpu_vendor_id",s.gpuVendor);
+            String log=s.tail.text();
+            if(!log.isEmpty()){details.put("log_tail",log);details.put("log_lines",s.tail.size());}
         }
     }
+    /** Keys introduced by report schema v4; removed when an older inbox only accepts v3. */
+    static final String[] V4_FAILURE={"renderer_mode","pipelined_frames","widescreen","in_bout","sleeping","gpu_device_lost",
+            "gpu_init_failed","pace_work_us","pace_gpu_wait_us","soft_targets","gpu_name","gpu_driver","gpu_vendor_id","log_tail","log_lines"};
+    static final String[] V4_DEVICE={"app_version_code","firmware_build","security_patch","display_count","lower_display","controllers"};
     interface CrashListener {void stopped(int exit,String pc,String lastEvent,int round,int height,boolean software,CrashState state);}
     private CrashListener crashListener;
     private String lastEvent="STARTUP",faultPc="unknown",nativeReturn,faultModule,moduleOffset;
@@ -446,7 +465,21 @@ public final class CornerSession {
     private boolean retailRumble;
     private Motors motors;
     synchronized void motors(Motors listener){motors=listener;}
+    /** Scrubbed last game log lines plus the identity and timing a remote crash needs (report schema v4). */
+    final DiagnosticTail tail=new DiagnosticTail();
+    private static final Pattern GPU_LINE=Pattern.compile("\\[VKR\\] device: (.{1,64}) \\(Vulkan [0-9.]+, driver ([0-9.]{1,24})(?:, vendor ([0-9A-Fa-f]{1,8}))?\\)");
+    private String gpuName,gpuDriver,gpuVendor,softTargets;
+    private int paceWork=-1,paceWait=-1;
     synchronized void line(String line) throws IOException {
+        tail.add(line);
+        if(line.startsWith("[VKR] device: ")){
+            Matcher g=GPU_LINE.matcher(line);
+            if(g.matches()){gpuName=g.group(1);gpuDriver=g.group(2);gpuVendor=g.group(3)==null?null:g.group(3).toLowerCase(Locale.ROOT);}
+        }
+        if(line.startsWith("[Fight Night] soft targets ")){
+            int colon=line.indexOf(':');
+            softTargets=line.substring("[Fight Night] soft targets ".length(),colon<0?line.length():colon).trim();
+        }
         if(line.equals("FNR3/1 GPU_NO_ADAPTER")){noAdapter=true;return;}
         if(line.equals("FNR3/1 GPU_INIT_FAILED")){gpuInitFailed=true;reason="Vulkan initialization failed";return;}
         if(line.equals("FNR3/1 GPU_DEVICE_LOST")){gpuDeviceLost=true;reason="GPU driver reset (Vulkan device lost)";record(reason);return;}
@@ -668,6 +701,7 @@ public final class CornerSession {
                 int n=Integer.parseInt(fields[0]),work=Integer.parseInt(fields[1]),wait=Integer.parseInt(fields[2]);
                 int quiet=Integer.parseInt(fields[4]),rest=Integer.parseInt(fields[5]);
                 if(n>=6 && work>=0 && wait>=0 && quiet>=0 && rest>=0){
+                    paceWork=work;paceWait=wait;
                     impactTiming="punches="+n+" work_us="+work+" gpu_wait_us="+wait+" interval_us="+Integer.parseInt(fields[3]);
                     punchPace=String.format(java.util.Locale.ROOT,"Punch work %.1f ms  (GPU wait %.1f ms)",work/1000.0,wait/1000.0);
                     if(quiet>=6)punchPace+=String.format(java.util.Locale.ROOT,"  /  Moving %.1f ms",rest/1000.0);

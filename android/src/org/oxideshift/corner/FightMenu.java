@@ -117,7 +117,8 @@ final class FightMenu extends LinearLayout {
         // Alpha 80: GPU renders one frame while the game builds the next. Higher mean FPS on the Thor, one extra
         // frame (~17 ms) before a frame is shown, and a worse single worst frame at Palace, so it is opt-in.
         Switch pipelined=new Switch(c);
-        pipelined.setText("Pipelined frames (smoother, +1 frame delay)");pipelined.setTextColor(PAPER);pipelined.setTypeface(faces.body);
+        // Thor, 2026-11-25: commentary audio chops with this on and is clean without it.
+        pipelined.setText("Pipelined frames (experimental: smoother video, +1 frame delay, can make commentary choppy)");pipelined.setTextColor(PAPER);pipelined.setTypeface(faces.body);
         pipelined.setPadding(dp(9),0,dp(6),0);pipelined.setMinHeight(dp(48));
         pipelined.setChecked(prefs.getBoolean("pipelinedFrames",false));
         pipelined.setOnCheckedChangeListener((button,on)->prefs.edit().putBoolean("pipelinedFrames",on).apply());
