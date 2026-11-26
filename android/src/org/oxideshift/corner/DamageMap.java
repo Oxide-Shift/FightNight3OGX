@@ -28,23 +28,33 @@ final class DamageMap extends View {
                 int player=Integer.parseInt(p[0]),at=area(p[1]);
                 float amount=Float.parseFloat(p[3]);
                 if(player<0 || player>1 || at<0 || !(amount>=0 && amount<1000))return false;
+                // The routine runs twice per landed punch (overall damage, then body damage, which is 0 for head
+                // punches; Thor log 2026-11-26). Keep the first line of each pair.
+                String key=p[0]+" "+p[1]+" "+(p.length==5?p[4]:"");
+                if(key.equals(lastKey) && !skippedLast){skippedLast=true;return false;}
+                skippedLast=false;lastKey=key;
                 // The log names the boxer who landed the punch (owner on Thor: his own hits showed on his boxer),
                 // so the damage belongs to the other one.
-                total[1-player][at]+=amount;sum+=amount;hits++;revision++;return true;
+                total[1-player][at]+=amount;revision++;return true;
             }catch(NumberFormatException e){return false;}
         }
-        private float sum;private int hits;
-        /** Average hits a region needs to reach the middle of the scale. Long fights need room: one hit is a faint
-         *  green, about 12 average hits is yellow-orange, and red takes dozens. */
-        static final float HALF_HITS=12f;
-        /** 0..1 for region i of boxer p. Each hit is weighed against the bout's average hit, because the game's
-         *  damage amounts have no known unit; the curve never quite reaches 1. */
-        synchronized float level(int p,int i){
-            if(hits==0 || sum<=0f || total[p][i]<=0f)return 0f;
-            float effective=total[p][i]/(sum/hits);
-            return effective/(effective+HALF_HITS);
+        private String lastKey="";private boolean skippedLast;
+        /** 0..1 for region i of boxer p whose health is healthPercent. The boxer's health loss sets how hot the map
+         *  can get (full health is all green, so it recovers between rounds as health does); the most-hit region
+         *  takes that full value and the others scale by their share of the damage. */
+        synchronized float level(int p,int i,int healthPercent){
+            float most=0f;for(float v:total[p])most=Math.max(most,v);
+            if(most<=0f || total[p][i]<=0f || healthPercent<0)return 0f;
+            float loss=Math.max(0f,Math.min(1f,1f-healthPercent/100f));
+            return loss*(float)Math.sqrt(total[p][i]/most);
         }
-        synchronized void clear(){for(float[] t:total)java.util.Arrays.fill(t,0f);sum=0f;hits=0;revision++;}
+        /** The most-hit region of boxer p, or -1. */
+        synchronized int worst(int p){
+            int at=-1;float most=0f;
+            for(int i=0;i<AREAS.length;i++)if(total[p][i]>most){most=total[p][i];at=i;}
+            return at;
+        }
+        synchronized void clear(){for(float[] t:total)java.util.Arrays.fill(t,0f);lastKey="";skippedLast=false;revision++;}
         synchronized float head(int p){float s=0;for(int i=0;i<6;i++)s+=total[p][i];return s;}
         synchronized float body(int p){return total[p][6]+total[p][7];}
         synchronized float peak(){float m=0;for(float[] t:total)for(float v:t)m=Math.max(m,v);return m;}
@@ -59,23 +69,29 @@ final class DamageMap extends View {
     private String[] names={"BLUE","RED"};
 
     DamageMap(Context c,Typeface face){super(c);this.face=face;setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);}
-    void show(Tally tally,FightBroadcast.Fighters fighters){synchronized(tally){showLocked(tally,fighters);}}
-    private void showLocked(Tally tally,FightBroadcast.Fighters fighters){
+    /** health: {blue, red} health percent from the bout (or -1 when unknown). */
+    void show(Tally tally,FightBroadcast.Fighters fighters,int[] health){synchronized(tally){showLocked(tally,fighters,health);}}
+    private void showLocked(Tally tally,FightBroadcast.Fighters fighters,int[] health){
         if(fighters!=null)names=new String[]{fighters.blue.toUpperCase(java.util.Locale.ROOT),fighters.red.toUpperCase(java.util.Locale.ROOT)};
-        if(tally.revision==revision)return;
-        // A freshly built map shows the bout so far at once; only new hits glow in.
+        if(tally.revision==revision && health[0]==this.health[0] && health[1]==this.health[1])return;
+        // A freshly built map shows the bout so far at once; only changes glow in.
         boolean first=revision<0;
-        revision=tally.revision;
-        for(int p=0;p<2;p++)for(int i=0;i<Tally.AREAS.length;i++){
-            target[p][i]=tally.level(p,i);
-            if(first)shown[p][i]=target[p][i];
+        revision=tally.revision;this.health[0]=health[0];this.health[1]=health[1];
+        for(int p=0;p<2;p++){
+            for(int i=0;i<Tally.AREAS.length;i++){
+                target[p][i]=tally.level(p,i,health[p]);
+                if(first)shown[p][i]=target[p][i];
+            }
+            worst[p]=tally.worst(p);
         }
-        setContentDescription("Damage this bout. "+names[0]+": head "+Math.round(tally.head(0))+", body "+Math.round(tally.body(0))+
-                ". "+names[1]+": head "+Math.round(tally.head(1))+", body "+Math.round(tally.body(1))+".");
-        headTotals[0]=tally.head(0);headTotals[1]=tally.head(1);bodyTotals[0]=tally.body(0);bodyTotals[1]=tally.body(1);
+        setContentDescription("Damage this bout. "+summary(0)+". "+summary(1)+".");
         invalidate();
     }
-    private final float[] headTotals=new float[2],bodyTotals=new float[2];
+    private final int[] health={-1,-1},worst={-1,-1};
+    private static final String[] AREA_NAMES={"LEFT EYE","RIGHT EYE","NOSE","MOUTH","LEFT JAW","RIGHT JAW","LEFT BODY","RIGHT BODY"};
+    private String summary(int p){
+        return names[p]+(health[p]>=0?": health "+health[p]+" percent":"")+(worst[p]>=0?", most hit "+AREA_NAMES[worst[p]].toLowerCase(java.util.Locale.ROOT):", untouched");
+    }
 
     @Override protected void onDraw(Canvas c){
         float d=getResources().getDisplayMetrics().density,w=getWidth(),h=getHeight();
@@ -146,8 +162,8 @@ final class DamageMap extends View {
         Path neck=poly(cx,oy,u,-3.6f,19,3.6f,19,4.6f,24.4f,7.5f,25,0,26,-7.5f,25,-4.6f,24.4f);
         seg(c,neck,idle,seam,d);
         // Head: tinted by its most-hurt zone, ears, then the five face zones.
-        float worst=0f;for(int i=0;i<6;i++)worst=Math.max(worst,s[i]);
-        int skull=MenuArt.Switch.blend(idle,heat(worst),.38f);
+        float hurt=0f;for(int i=0;i<6;i++)hurt=Math.max(hurt,s[i]);
+        int skull=MenuArt.Switch.blend(idle,heat(hurt),.38f);
         ink.setColor(seam);c.drawOval(cx-9.2f*u,oy+8.5f*u,cx-6.6f*u,oy+14*u,ink);c.drawOval(cx+6.6f*u,oy+8.5f*u,cx+9.2f*u,oy+14*u,ink);
         ink.setColor(skull);c.drawOval(cx-8.8f*u,oy+9*u,cx-7f*u,oy+13.5f*u,ink);c.drawOval(cx+7f*u,oy+9*u,cx+8.8f*u,oy+13.5f*u,ink);
         Path headShape=new Path();headShape.addOval(new RectF(cx-7.8f*u,oy+1.5f*u,cx+7.8f*u,oy+21.5f*u),Path.Direction.CW);
@@ -185,8 +201,15 @@ final class DamageMap extends View {
         float room=w-12*d;if(ink.measureText(name)>room)ink.setTextSize(ink.getTextSize()*room/ink.measureText(name));
         float base=y0+h+16*d;
         c.drawText(name,cx,base,ink);
-        ink.setTextSize(11*sp);ink.setColor(GameInk.MUTED);
-        c.drawText("HEAD "+Math.round(headTotals[p])+"   BODY "+Math.round(bodyTotals[p]),cx,base+15*d,ink);
+        // Health (the same number as the fighter card) in its heat colour, and the area taking the most punishment.
+        ink.setTextSize(11*sp);
+        String hp=health[p]>=0?"HEALTH "+health[p]+"%":"HEALTH —";
+        String most=worst[p]>=0?"   ·   MOST HIT "+AREA_NAMES[worst[p]]:"   ·   UNTOUCHED";
+        float hw=ink.measureText(hp),mw=ink.measureText(most),left=cx-(hw+mw)/2f;
+        ink.setTextAlign(Paint.Align.LEFT);
+        ink.setColor(health[p]>=0?heat(1f-health[p]/100f):GameInk.MUTED);c.drawText(hp,left,base+15*d,ink);
+        ink.setColor(GameInk.MUTED);c.drawText(most,left+hw,base+15*d,ink);
+        ink.setTextAlign(Paint.Align.CENTER);
     }
     /** A closed polygon from unit coordinates (x,y pairs) in the figure frame. */
     private Path poly(float cx,float oy,float u,float... xy){

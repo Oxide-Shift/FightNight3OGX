@@ -403,7 +403,11 @@ final class RingsideView extends LinearLayout {
         int at=punchPanel!=null && punchPanel.getParent()==content?content.indexOfChild(punchPanel)+1:content.getChildCount();
         LayoutParams size=new LayoutParams(-1,dp(280));size.setMargins(dp(3),dp(6),dp(3),dp(4));
         content.addView(damageMap,at,size);
-        damageMap.show(session.damage,fighters);
+        damageMap.show(session.damage,fighters,boxerHealth());
+    }
+    /** {blue, red} health percent from the latest bout reading, or -1 when there is none yet. */
+    private int[] boxerHealth(){
+        return bout!=null && bout.levels!=null && bout.levels.length>=4?new int[]{bout.levels[0],bout.levels[2]}:new int[]{-1,-1};
     }
     private void addScorecard(){
         addPunches();
@@ -788,7 +792,7 @@ final class RingsideView extends LinearLayout {
         if(latest!=bout){bout=latest;drawBout();showFighters();}
         FightBroadcast.Fighters names=session.fighters();
         if(names!=fighters){fighters=names;drawNames();}
-        if(damageMap!=null)damageMap.show(session.damage,fighters);
+        if(damageMap!=null)damageMap.show(session.damage,fighters,boxerHealth());
         menuDock.setAlpha(session.cabinetOpen?0f:1f);
         openingSlate.movie(session.introMovie());
         if((scene==Scene.RINGSIDE || scene==Scene.MENU) && (tips.due(SystemClock.uptimeMillis()) || displayedCamp!=session.camp() || careerRevision!=session.career.revision))describeMenu();

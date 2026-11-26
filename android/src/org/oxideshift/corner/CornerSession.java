@@ -379,6 +379,9 @@ public final class CornerSession {
     public synchronized void controller(String state){
         if(state.equals(padState))return;
         lastPadChange=uptime.getAsLong();
+        // Off unless `adb shell setprop log.tag.FightNightPad DEBUG`: every state change and whether it was sent now.
+        if(timingLog!=null && android.util.Log.isLoggable("FightNightPad",android.util.Log.DEBUG))
+            android.util.Log.d("FightNightPad",state+(running && !terminal && !sleeping?" sent":" held running="+running+" sleeping="+sleeping));
         if(timingLog!=null && atRoot() && state.startsWith("PAD ") && state.length()>=6
                 && android.util.Log.isLoggable("FightNightInput",android.util.Log.DEBUG))
             android.util.Log.d("FightNightInput","Root buttons "+state.substring(4,6));
@@ -522,6 +525,9 @@ public final class CornerSession {
         if(timingLog!=null && (line.startsWith("FNR3/1 FRONT ") || line.startsWith("FNR3/1 PLAYLIST ") ||
                 line.equals("FNR3/1 MUSICMENU OPEN") || line.equals("FNR3/1 CABINET OPEN") ||
                 line.startsWith("[Fight Night] Android shared GPU images ") || line.startsWith("[Fight Night] soft targets ") ||
+                line.startsWith("[Fight Night] dropped offscreen ") || line.startsWith("[Fight Night] drop_offscreen ") ||
+                line.startsWith("[Fight Night] offscreen sampled ") || line.startsWith("[Fight Night] dumped offscreen ") ||
+                line.startsWith("[Fight Night] crowd ") || line.startsWith("[Fight Night] pad read ") ||
                 line.startsWith("[Fight Night] Current color target sampled at "))){
             timingLog.accept(line);
         }

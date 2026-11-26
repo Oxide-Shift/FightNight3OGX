@@ -85,14 +85,15 @@ If you upgrade an existing installation, the launcher can still read its install
 
 ## What's new in Alpha 81
 
-- **Damage by region.** During rounds, between rounds and on the pause screen, the lower screen shows where each boxer has been hit: both eyes, nose, mouth, both jaws and both sides of the body, read from the game's own damage data. Each boxer is a silhouette whose regions start green and turn yellow, orange and finally red over a long fight, and hits are shown on the boxer who took them.
+- **Damage by region.** During rounds, between rounds and on the pause screen, the lower screen shows where each boxer has been hit: both eyes, nose, mouth, both jaws and both sides of the body, read from the game's own damage data. Each boxer is a silhouette that starts green and heats through yellow and orange to red as their health falls, with the most-hit area hottest and the colours recovering between rounds as health returns. Under each name: the boxer's health and the area taking the most punishment.
+- **Smoother fights (81.3).** The crowd in the stands is now drawn on the graphics chip instead of the CPU. In testing on the Thor that removed about 5 ms of work from every frame and live rounds held 60 FPS where they had dipped to around 50.
 - **Transitions on both screens.** When the game plays its red and orange transition, the lower screen plays the same bars in step with it, including on the Achievements and Music pages.
 - **Redesigned career, Achievements and Music screens** with a darker Fight Night look and motion throughout (see below).
 - **Music controls** on the lower screen: Back, Play/Pause and Next.
 - **Notifications:** a larger EA Trax now-playing badge, and achievement unlocks that wait while a fight announcement is on screen.
 - **Faster main menu** (60 FPS menus), arena lights behind the lower-screen menus, and the first song after Start comes in quickly.
 
-<p align="center"><img src="docs/screenshots/damage-map-81.png" width="600" alt="Damage this bout mid-fight: two boxer silhouettes in a guard. Gatti, in blue, has an orange jaw and right side and yellow eye; Ward, in red, has a yellow left side and mouth with the rest still green. Head and body totals sit under each name. Rendered on a PC from the app's own drawing code with sample hits."></p>
+<p align="center"><img src="docs/screenshots/damage-map-81.png" width="600" alt="Damage this bout mid-fight: two boxer silhouettes in a guard. Gatti, in blue, at 38 percent health, has an orange jaw and a yellow body side; Ward, in red, at 71 percent, is turning yellow on his left side. Under each name: health percent in its heat colour and the most-hit area. Rendered on a PC from the app's own drawing code with sample hits."></p>
 
 <p align="center"><img src="docs/screenshots/transition-mirror-81.jpg" width="760" alt="Nine frames of the lower screen during a transition: red and orange bars close in from both sides, a LOADING plate opens while the top screen loads, then the bars pull away to reveal the next page. Rendered on a PC from the app's own drawing code with the transition from a retail disc."></p>
 

@@ -88,11 +88,15 @@ public final class FightBroadcastSmoke {
         check(!dm.line("FNR3/1 DAMAGE 2 DAMAGE_AREA_NOSE HEAD 1") && !dm.line("FNR3/1 DAMAGE 0 SOMEWHERE HEAD 1") && !dm.line("FNR3/1 DAMAGE 0 DAMAGE_AREA_NOSE HEAD x"),"Bad damage lines are ignored");
         check(dm.head(1)==3.5f && dm.body(0)==2.25f && dm.head(0)==0f && dm.peak()==3.5f,"Damage lands on the boxer who was hit");
         dm.clear();check(dm.peak()==0f,"Damage resets for a new bout");
-        dm.line("FNR3/1 DAMAGE 0 DAMAGE_AREA_NOSE HEAD 4.00");
-        float oneHit=dm.level(1,2);
-        check(Math.abs(oneHit-1f/13f)<1e-4f && ((DamageMap.heat(oneHit)>>8)&255)>((DamageMap.heat(oneHit)>>16)&255),"One hit is a faint green");
-        for(int i=1;i<12;i++)dm.line("FNR3/1 DAMAGE 0 DAMAGE_AREA_NOSE HEAD 4.00");
-        check(Math.abs(dm.level(1,2)-.5f)<1e-4f,"Twelve average hits reach the middle of the scale");
+        // Each punch arrives as a pair (overall, then body); only the first counts.
+        check(dm.line("FNR3/1 DAMAGE 0 DAMAGE_AREA_LEFT_BODY BODY 1.52 ATTACK_TYPE_STRAIGHT_L") &&
+              !dm.line("FNR3/1 DAMAGE 0 DAMAGE_AREA_LEFT_BODY BODY 2.00 ATTACK_TYPE_STRAIGHT_L") &&
+              dm.line("FNR3/1 DAMAGE 0 DAMAGE_AREA_LEFT_BODY BODY 1.52 ATTACK_TYPE_STRAIGHT_L"),"Paired damage lines count once");
+        check(Math.abs(dm.body(1)-3.04f)<1e-4f,"Two punches, not four");
+        check(dm.level(1,6,100)==0f,"Full health is all green");
+        check(Math.abs(dm.level(1,6,40)-.6f)<1e-4f,"The most-hit area shows the boxer's health loss");
+        dm.line("FNR3/1 DAMAGE 0 DAMAGE_AREA_NOSE HEAD 0.76 ATTACK_TYPE_HOOK_L");
+        check(Math.abs(dm.level(1,2,40)-.6f*(float)Math.sqrt(.25f))<1e-4f && dm.level(1,0,40)==0f && dm.worst(1)==6,"Other areas scale by their share; untouched stays green");
         check(DamageMap.heat(.95f)==0xffff2a14 && DamageMap.heat(0f)==0xff3fae4a,"Healthy starts green; red only at the top");
         TransitionMirror.Tracker tr=new TransitionMirror.Tracker();tr.setup(141,119);
         tr.observe(10,0);check(tr.active() && Math.abs(tr.position(500)-40f)<.01f,"Mirror locks and runs at 60 fps");

@@ -64,6 +64,7 @@ _Static_assert(sizeof(Nv2aCombiner) == offsetof(VkrUniforms, rc_seen), "combiner
 enum {SOFT_FORMAT,SOFT_FRONT,SOFT_CONFLICT,SOFT_DEPTH,SOFT_REASONS};
 static unsigned soft_reason[SOFT_REASONS];
 static struct {uint32_t address,pitch,size;uint8_t bpp,swizzled,reason;unsigned count;} soft_targets[8];
+static uint32_t watch_address,watch_pitch,watch_w,watch_h;   /* busiest refused target (QA diagnostics) */
 static void note_soft(const Nv2aTarget *t,int reason) {
     soft_reason[reason]++;
     uint32_t size=(uint32_t)t->width<<16|t->height;
@@ -80,6 +81,11 @@ static void note_soft(const Nv2aTarget *t,int reason) {
 static void report_soft(void) {
     unsigned total=soft_reason[0]+soft_reason[1]+soft_reason[2]+soft_reason[3];
     if(!total)return;
+    // Watch the busiest refused target (for the sampling count and the pixel dump).
+    unsigned best=0;
+    for(unsigned i=1;i<8;i++)if(soft_targets[i].count>soft_targets[best].count)best=i;
+    if(soft_targets[best].count){watch_address=soft_targets[best].address;watch_pitch=soft_targets[best].pitch;
+        watch_w=soft_targets[best].size>>16;watch_h=soft_targets[best].size&0xffff;}
     char line[640];int n=snprintf(line,sizeof line,"[Fight Night] soft targets format=%u front=%u conflict=%u depth=%u:",
                                   soft_reason[0],soft_reason[1],soft_reason[2],soft_reason[3]);
     for(unsigned i=0;i<8 && n<(int)sizeof line-64;i++)if(soft_targets[i].count)
@@ -89,12 +95,113 @@ static void report_soft(void) {
     fprintf(stderr,"%s\n",line);
     memset(soft_reason,0,sizeof soft_reason);memset(soft_targets,0,sizeof soft_targets);
 }
+/* QA measurement switch: `adb shell setprop debug.fnr3.drop_offscreen 1` makes draws and clears aimed at
+ * off-screen targets (the ones the CPU would rasterise for format reasons) report success without drawing, so
+ * their CPU cost can be compared live in the same scene. Visual result is wrong while on; default off.
+ * Re-read every 60 flips. Android only. */
+#ifdef __ANDROID__
+#include <sys/system_properties.h>
+#include <unistd.h>
+#endif
+static int drop_offscreen;
+static unsigned dropped_draws;
+static void read_drop_switch(void){
+#ifdef __ANDROID__
+    char v[PROP_VALUE_MAX]={0};
+    int now=__system_property_get("debug.fnr3.drop_offscreen",v)>0 && v[0]=='1';
+    if(now!=drop_offscreen)fprintf(stderr,"[Fight Night] drop_offscreen %d\n",now);
+    drop_offscreen=now;
+#endif
+}
+/* QA diagnostics for the busiest CPU-drawn target: how often draws sample it, and its pixels on request
+ * (`setprop debug.fnr3.dump_offscreen 1` writes fn3-offscreen-<address>.raw in the runner's working folder). */
+static unsigned watch_sampled,watch_sampled_main,watch_formats;
+static void note_sampled(uint32_t offset,int main_target,uint32_t format){
+    if(!watch_address)return;
+    uint32_t a=offset&0x0fffffff,b=watch_address&0x0fffffff;
+    if(a>=b && a<b+watch_pitch*watch_h){watch_sampled++;if(main_target)watch_sampled_main++;watch_formats|=1u<<(format&31);}
+}
+static void dump_watch(void){
+#ifdef __ANDROID__
+    char v[PROP_VALUE_MAX]={0};
+    if(!(__system_property_get("debug.fnr3.dump_offscreen",v)>0 && v[0]=='1') || !watch_address)return;
+    static uint32_t dumped;
+    if(dumped==watch_address)return;
+    uint32_t phys=watch_address&0x0fffffff;
+    if((uint64_t)phys+(uint64_t)watch_pitch*watch_h>g_xbox_total_ram)return;
+    char name[64];snprintf(name,sizeof name,"fn3-offscreen-%08x.raw",watch_address);
+    FILE *f=fopen(name,"wb");
+    if(f){fwrite(XBOX_HOST(watch_address),1,(size_t)watch_pitch*watch_h,f);fclose(f);dumped=watch_address;
+        char cwd[256]={0};fprintf(stderr,"[Fight Night] dumped offscreen %s %ux%u pitch %u in %s\n",name,watch_w,watch_h,watch_pitch,getcwd(cwd,sizeof cwd)?cwd:"?");}
+#endif
+}
+/* The crowd: each venue renders its 3D spectators into a 256x256 32-bit sprite sheet (0x83609000 on the Thor
+ * captures), ~17 CPU-rasterised draws a frame, then paints the stands from it once per frame. Measured on the Thor
+ * (Aragon) it costs ~5 ms a frame. Refreshing the sheet every Nth frame keeps the stands animated (60/N updates a
+ * second) and leaves the previous sheet in place in between. A sheet not drawn for a while (new scene) is always
+ * refreshed on its first frame back. N comes from debug.fnr3.crowd_every when set (QA), else CROWD_EVERY. */
+#define CROWD_EVERY 1
+static unsigned crowd_every=CROWD_EVERY,crowd_flip,crowd_last_drawn,crowd_skipped;
+static int crowd_frame_decided,crowd_skip_frame;
+static int crowd_target(const Nv2aTarget *t){
+    return t->width==256 && t->height==256 && t->bpp==4 && t->pitch==1024;
+}
+/* The crowd on the GPU (default): its draws and clears go to an off-screen Vulkan target (vkr_offscreen_use, the
+ * SSX 3 port's render-to-texture path) at CROWD_GPU_SCALE times its size, and the draw that paints the stands samples
+ * that image instead of guest memory, which nothing writes any more (only GPU draws read the sheet: 300 of 300
+ * frames on the Thor). debug.fnr3.gpu_crowd=0 falls back to the CPU rasteriser (QA comparison). */
+#define CROWD_GPU_SCALE 2.0f
+static int gpu_crowd=1;
+static uint32_t crowd_key;
+static unsigned crowd_gpu_draws;
+static void read_gpu_crowd(void){
+#ifdef __ANDROID__
+    char v[PROP_VALUE_MAX]={0};
+    int on=!(__system_property_get("debug.fnr3.gpu_crowd",v)>0 && v[0]=='0');
+    if(on!=gpu_crowd)fprintf(stderr,"[Fight Night] crowd gpu %d\n",on);
+    gpu_crowd=on;
+#endif
+}
+static int crowd_on_gpu(const Nv2aTarget *t){
+    if(!gpu_crowd || !gpu || !crowd_target(t))return 0;
+    uint32_t key=t->color_offset&0x0fffffff;
+    if(!vkr_offscreen_use(gpu,key,256,256,CROWD_GPU_SCALE,(float)t->zmax))return 0;
+    crowd_key=key;crowd_gpu_draws++;
+    vkr_set_scissor(gpu,t->x,t->y,t->width,t->height);
+    return 1;
+}
+static int skip_crowd(const Nv2aTarget *t){
+    if(gpu_crowd || crowd_every<=1 || !crowd_target(t))return 0;
+    if(!crowd_frame_decided){
+        crowd_frame_decided=1;
+        int fresh=crowd_flip-crowd_last_drawn>8;
+        crowd_skip_frame=!fresh && crowd_flip%crowd_every!=0;
+        if(!crowd_skip_frame)crowd_last_drawn=crowd_flip;
+    }
+    if(crowd_skip_frame)crowd_skipped++;
+    return crowd_skip_frame;
+}
+static void read_crowd_switch(void){
+#ifdef __ANDROID__
+    char v[PROP_VALUE_MAX]={0};
+    unsigned n=CROWD_EVERY;
+    if(__system_property_get("debug.fnr3.crowd_every",v)>0){int k=atoi(v);if(k>=1 && k<=8)n=(unsigned)k;}
+    if(n!=crowd_every)fprintf(stderr,"[Fight Night] crowd_every %u\n",n);
+    crowd_every=n;
+#endif
+}
+static int offscreen(const Nv2aTarget *t){
+    return t->swizzled || t->bpp != 4 || t->pitch != 2560 || !t->width || !t->height ||
+           t->x >= 640 || t->width > 640-t->x || t->y >= 480 || t->height > 480-t->y;
+}
+/* 2: the crowd's off-screen GPU target; 1: the main target; 0: the executor draws it in software. */
 static int select_surface(const Nv2aTarget *t) {
-    if (t->swizzled || t->bpp != 4 || t->pitch != 2560 || !t->width || !t->height ||
-        t->x >= 640 || t->width > 640-t->x || t->y >= 480 || t->height > 480-t->y){
+    if (crowd_on_gpu(t)) return 2;
+    if (offscreen(t)){
         note_soft(t,SOFT_FORMAT);
         return 0;
     }
+    vkr_offscreen_done(gpu);           /* main-target draws go back to the main target */
     if (fight_front_index(&fronts,t->color_offset) == fronts.count) {
         ++unknown_surface_calls;
         missed_address=t->color_offset;
@@ -155,12 +262,16 @@ static void state(const Nv2aTarget *t,VkrDrawState *s, int loading_quad) {
         s->addr_u[k]=s->addr_v[k]=3;
         if(!((s->u.stage_program>>(k*5))&31))continue;
         if (!nv2a_exec_tex_info(k,&ti) || !ti.width || !ti.height) continue;
+        note_sampled(ti.offset,1,ti.format);
         /* The CPU mirror is refreshed at flip. A draw reading the current
          * color target before flip must see the draws already submitted. */
         VkrTex *tex=NULL;
         if(dirty && ti.offset==t->color_offset && ti.format==0x12 && !ti.cube &&
            ti.width==640 && ti.height==480)
             tex=fight_feedback_texture(gpu);
+        /* The crowd sheet drawn on the GPU: its image, not guest memory (which nothing writes any more). */
+        if(!tex && crowd_key && gpu_crowd && !ti.cube && (ti.offset&0x0fffffff)==crowd_key)
+            tex=vkr_offscreen_tex(gpu,crowd_key);
         if(!tex)tex=vkr_tex_find(gpu,ti.hash);
         unsigned levels=fight_texture_levels(k);
         if(!tex && !ti.cube && (ti.format==0x0c || ti.format==0x0e || ti.format==0x0f)) {
@@ -218,7 +329,10 @@ static uint16_t *indices(uint32_t prim,uint32_t n,uint32_t *count,uint32_t *topo
 
 static int submit(const Nv2aTarget *t,uint32_t prim,const void *vertices,uint32_t n,const Nv2aVshProgram *p,
                   const uint16_t *order,uint32_t references,uint64_t mesh_token) {
-    if(!select_surface(t))return 0;
+    if(drop_offscreen && offscreen(t)){dropped_draws++;return 1;}
+    if(offscreen(t) && skip_crowd(t))return 1;
+    int sel=select_surface(t);
+    if(!sel)return 0;
     VkrDrawState s={0}; uint32_t count;
     const uint16_t *idx;
     if(prim==1 || prim==2 || prim==5 || prim==6){
@@ -246,7 +360,7 @@ static int submit(const Nv2aTarget *t,uint32_t prim,const void *vertices,uint32_
     state(t,&s,p && p->hash==0x74dadf38u && prim==6 && n==4 && t->blend_enable);
     int ok=p?vkr_draw_mesh(gpu,vertices,n,p->nin,&p->ins[0][0],p->nins,p->hash,p->consts,idx,count,&s,mesh_token)
             :vkr_draw(gpu,vertices,n,idx,count,&s);
-    if(ok){dirty=1;draws++;if(p){refs+=references;verts+=n;}}
+    if(ok){if(sel==1)dirty=1;draws++;if(p){refs+=references;verts+=n;}}
     return ok;
 }
 static int draw(const Nv2aTarget *t,uint32_t prim,const Nv2aVshOutput *v,uint32_t n) {
@@ -265,9 +379,17 @@ int fight_cached_vsh(const Nv2aTarget *t,uint32_t prim,const float *vertices,uin
 }
 extern int fight_clear_load(VkrContext *,const float *,int,float,int,uint32_t);
 static int clear(const Nv2aTarget *t,uint32_t flags,uint32_t argb,float depth) {
-    if(!select_surface(t))return 0;
+    if(drop_offscreen && offscreen(t)){dropped_draws++;return 1;}
+    if(offscreen(t) && skip_crowd(t))return 1;
+    int sel=select_surface(t);
+    if(!sel)return 0;
     float rgba[4];unpack(argb,rgba);
     int z=!!(flags&NV2A_CLEAR_Z),stencil=!!(flags&NV2A_CLEAR_STENCIL);
+    if(sel==2){                       /* the crowd's off-screen target: plain clears, no main-target load op */
+        if(flags&NV2A_CLEAR_COLOR)vkr_clear(gpu,rgba,0,0);
+        vkr_clear_ds(gpu,z,depth,stencil,t->stencil_clear);
+        return 1;
+    }
     if(!fight_clear_load(gpu,(flags&NV2A_CLEAR_COLOR)?rgba:NULL,z,depth,stencil,t->stencil_clear)){
         if(flags&NV2A_CLEAR_COLOR)vkr_clear(gpu,rgba,0,0);
         vkr_clear_ds(gpu,z,depth,stencil,t->stencil_clear);
@@ -320,6 +442,7 @@ static void finish_pending(void) {
     finish_frame(slot,pending.address,pending.match,pending.token,pending.submitted,pending.returned);
 }
 static void flip(const Nv2aTarget *t) {
+    vkr_offscreen_done(gpu);          /* the frame ends on the main target */
     presented_address=t->color_offset;
     if(t->pitch==2560) {
         if(fronts.count==FIGHT_FRONT_LIMIT && fight_front_index(&fronts,t->color_offset)==fronts.count)
@@ -345,8 +468,17 @@ static void flip(const Nv2aTarget *t) {
     }
     static int reported;
     static unsigned flips;
+    crowd_flip++;crowd_frame_decided=0;
+    if(flips%60==0){read_drop_switch();read_crowd_switch();read_gpu_crowd();dump_watch();}
     if(++flips%300==0){
         report_soft();
+        if(dropped_draws){fprintf(stderr,"[Fight Night] dropped offscreen %u\n",dropped_draws);dropped_draws=0;}
+        if(crowd_gpu_draws){fprintf(stderr,"[Fight Night] crowd gpu draws %u\n",crowd_gpu_draws);crowd_gpu_draws=0;}
+        if(crowd_skipped){fprintf(stderr,"[Fight Night] crowd skipped %u every %u\n",crowd_skipped,crowd_every);crowd_skipped=0;}
+        if(watch_address){
+            fprintf(stderr,"[Fight Night] offscreen sampled %08x %u by GPU draws, formats %08x\n",watch_address,watch_sampled_main,watch_formats);
+            watch_sampled=watch_sampled_main=watch_formats=0;
+        }
         if(profile){
             for(unsigned i=0;i<nprofile;i++)if(profiled[i].count){
                 fprintf(stderr,"[VSH profile] %08X %u\n",profiled[i].hash,profiled[i].count);profiled[i].count=0;

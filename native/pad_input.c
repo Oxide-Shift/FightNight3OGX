@@ -107,8 +107,41 @@ int pad_message(const char *line){
    completion can leave that report latched even though PAD messages keep
    arriving. Use the live sample on each successful read of the opened P1
    handle. Leave enumeration, other slots, rumble and physical PC pads alone. */
+/* QA trace (`adb shell setprop debug.fnr3.pad_trace 1`): every read of the controller the title makes through
+ * XInputGetState, whether this hook refreshed it, and the trigger/stick bytes the title ends up with when they
+ * change. Off by default; checked every 256 reads. */
+#ifdef __ANDROID__
+#include <sys/system_properties.h>
+#endif
+static int pad_trace;
+static unsigned trace_reads,trace_skipped_status,trace_skipped_handle;
+static void trace_read(uint32_t status,uint32_t handle,uint32_t player_one,uint32_t output,int refreshed){
+#ifdef __ANDROID__
+    if((trace_reads++&255)==0){
+        char v[PROP_VALUE_MAX]={0};
+        pad_trace=__system_property_get("debug.fnr3.pad_trace",v)>0 && v[0]=='1';
+    }
+    if(!pad_trace)return;
+    if(!refreshed){if(status)trace_skipped_status++;else trace_skipped_handle++;}
+    if(!output)return;
+    static uint8_t last[22];static int have;
+    const uint8_t *s=XBOX_HOST(output);
+    if(!have || memcmp(last+12,s+12,10) || last[4]!=s[4]){
+        have=1;memcpy(last,s,22);
+        int16_t lx,ly,rx,ry;memcpy(&lx,s+14,2);memcpy(&ly,s+16,2);memcpy(&rx,s+18,2);memcpy(&ry,s+20,2);
+        fprintf(stderr,"[Fight Night] pad read %s status=%u handle=%s btn=%02x LT=%u RT=%u L=(%d,%d) R=(%d,%d) skipped=%u/%u\n",
+                refreshed?"live":"STALE",status,handle==player_one?"p1":"other",s[4],s[12],s[13],lx,ly,rx,ry,
+                trace_skipped_status,trace_skipped_handle);
+    }
+#else
+    (void)status;(void)handle;(void)player_one;(void)output;(void)refreshed;
+#endif
+}
 void fight_pad_read_player_one(uint32_t status,uint32_t handle,uint32_t player_one,uint32_t output){
-    if(status || !handle || handle!=player_one || !output || !atomic_load(&connected))return;
+    if(status || !handle || handle!=player_one || !output || !atomic_load(&connected)){
+        trace_read(status,handle,player_one,output,0);
+        return;
+    }
 #ifdef __ANDROID__
     extern void fight_service_menu_cancel(void);
     fight_service_menu_cancel();
@@ -127,6 +160,7 @@ void fight_pad_read_player_one(uint32_t status,uint32_t handle,uint32_t player_o
         atomic_store_explicit(&player_one_packet,latest.dwPacketNumber,memory_order_relaxed);
     }
     atomic_flag_clear(&lock);
+    trace_read(status,handle,player_one,output,1);
 }
 DWORD xbox_InputGetState(DWORD port,XBOX_INPUT_STATE *state){
     if(!state||port!=0)return 1167;
