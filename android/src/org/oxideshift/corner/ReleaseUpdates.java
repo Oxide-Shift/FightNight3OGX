@@ -110,7 +110,7 @@ final class ReleaseUpdates {
     }
     private void offer(){
         final ReleaseAsset next=pending;offered=next.tag;
-        new AlertDialog.Builder(activity).setTitle("A new version is available")
+        new GameDialog(activity).setTitle("A new version is available")
                 .setMessage("Fight Night "+next.version.name+" is ready to download. Your career and settings carry over.")
                 .setNegativeButton("Later",null).setPositiveButton("Download",(d,w)->transfer.download(next)).show();
     }

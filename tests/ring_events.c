@@ -15,6 +15,8 @@ static int record_line(const char *s){return record("%s\n",s);}
 #include "../native/fight_data.c"
 #undef printf
 #undef puts
+void fight_pad_playlist(int enabled){(void)enabled;}
+void fight_pad_menu(int enabled){(void)enabled;}
 void fight_trax_init(const char *root){(void)root;}
 RECOMP_TLS uint32_t g_ecx;
 static uint8_t ram[0x600000];
@@ -22,13 +24,24 @@ size_t g_xbox_total_ram=sizeof ram,g_xbox_map_size=sizeof ram;
 ptrdiff_t xbox_GetMemoryOffset(void){return (ptrdiff_t)(uintptr_t)ram;}
 static void set(uint32_t a,uint32_t v){memcpy(ram+a,&v,4);}
 int main(void){
+    sample_playlist();assert(!events[0]);
+    set(0x5ad9c8,1);
+    set(0x5aca08,0xffff8007u);
+    sample_playlist();assert(!strcmp(events,"FNR3/1 TRACKMASK 0\n"));events[0]=0;
+    for(unsigned row=0;row<12;row++){
+        set(0x5aca08,0xffff8007u | (8u<<row));
+        sample_playlist();sample_playlist();
+        char expected[64];snprintf(expected,sizeof expected,"FNR3/1 TRACKMASK %u\n",1u<<row);
+        assert(!strcmp(events,expected));events[0]=0;
+    }
     g_ecx=0x62000;
     set(g_ecx+0x48,1);set(g_ecx+0x4c,3);set(g_ecx+0x40,0x63000);set(0x63000,0x01707473);
     set(0x63008,300);set(0x594da0,0x64000);set(0x6400c,0x65000);set(0x650e0,2);
     fight_cinematic(60);assert(fight_present_interval()==2);
     set(0x650e0,1);assert(fight_present_interval()==1);set(0x650e0,2);
     set(g_ecx+0x54,300);assert(fight_present_interval()==1);set(g_ecx+0x54,0);
-    for(unsigned shot=0;shot<=16;shot++){
+    for(unsigned shot=0;shot<=136;shot++){
+        if((shot>=17 && shot<=56) || shot==113)continue;
         fight_cinematic(shot);assert(fight_present_interval()==2);
         set(0x650e0,1);assert(fight_present_interval()==1);set(0x650e0,2);
     }
@@ -37,7 +50,8 @@ int main(void){
     for(unsigned shot=137;shot<=143;shot++){fight_cinematic(shot);assert(fight_present_interval()==2);}
     set(g_ecx+0x54,300);assert(fight_present_interval()==1);set(g_ecx+0x54,0);
     set(0x650e0,2);
-    fight_cinematic(124);assert(fight_present_interval()==1);
+    fight_cinematic(113);assert(fight_present_interval()==1);
+    fight_cinematic(124);assert(fight_present_interval()==2);
     fight_cinematic(0);set(g_ecx+0x54,300);assert(fight_present_interval()==1);set(g_ecx+0x54,0);
     music_scene(1);assert(fight_present_interval()==1);
     fight_cinematic(100);assert(fight_present_interval()==2);
@@ -67,7 +81,13 @@ int main(void){
     fight_arm_playlist(1);
     assert(fight_career_property(key,value)==0 && !strcmp(events,"FNR3/1 PLAYLIST OPENING\n"));events[0]=0;
     assert(fight_career_property(key,value)==1 && !strcmp(events,"FNR3/1 MUSICMENU OPEN\n"));events[0]=0;
-    fight_arm_playlist(1);fight_arm_playlist(0);
+    // The handler consumed Open. A late cancellation must not restore the parent.
+    fight_cancel_playlist();assert(!*events);
+    strcpy((char *)ram+string+8,"5screengroups/options/options");fight_career_property(key,value);events[0]=0;
+    strcpy((char *)ram+string+8,"2screengroups/mainmenu/mainmenu");fight_career_property(key,value);events[0]=0;
+    strcpy((char *)ram+string+8,"fnr3/trax?");
+    fight_arm_playlist(1);fight_cancel_playlist();
+    assert(!strcmp(events,"FNR3/1 PLAYLIST CANCELLED\n"));events[0]=0;
     assert(fight_career_property(key,value)==1 && !strcmp(events,"FNR3/1 MUSICMENU OPEN\n"));events[0]=0;
     strcpy((char *)ram+string+8,"fnr3/open?");
     assert(fight_career_property(key,value)==0 && !strcmp(events,"FNR3/1 MUSICMENU OPEN\n"));events[0]=0;
@@ -101,9 +121,9 @@ int main(void){
     strcpy((char *)ram+string+8,"Ascreengroups/cac/cac");
     fight_career_property(key,value);assert(!strcmp(events,"FNR3/1 CAREERPAGE cac 10\n"));events[0]=0;
     strcpy((char *)ram+string+8,"1screengroups/playnow/playnow");
-    fight_career_property(key,value);assert(!strcmp(events,"FNR3/1 MUSICSCENE 1\nFNR3/1 CAREERPAGE -\n"));events[0]=0;
+    fight_career_property(key,value);assert(!strcmp(events,"FNR3/1 FRONT 3\nFNR3/1 MUSICSCENE 1\nFNR3/1 CAREERPAGE -\n"));events[0]=0;
     strcpy((char *)ram+string+8,"3screengroups/train/train");
-    fight_career_property(key,value);assert(!events[0]);
+    fight_career_property(key,value);assert(!strcmp(events,"FNR3/1 FRONT 0\n"));events[0]=0;
     set(manager+0x190,4);
     for(unsigned i=0;i<14;i++)fight_trophy_status(i,i==0 || i==13);
     assert(!strcmp(events,"FNR3/1 CASE 8193\n"));events[0]=0;
@@ -152,6 +172,12 @@ int main(void){
     sample_bout(NULL,NULL,0);set(clock+0x18,1);sample_bout(ram+root,ram+clock,1);
     assert(strstr(events,"BOUT 1 29 "));events[0]=0;
     sample_knockdowns(ram+root,1);sample_winner(ram+clock);events[0]=0;
+    ram[boxer+0x25c]=1;sample_knockdowns(ram+root,1);sample_knockdowns(ram+root,1);
+    assert(!strcmp(events,"FNR3/1 CALLOUT ROCKED\n"));events[0]=0;
+    ram[boxer+0x25c]=0;sample_knockdowns(ram+root,1);assert(!events[0]);
+    ram[boxer+0x25c]=1;sample_knockdowns(ram+root,1);
+    assert(!strcmp(events,"FNR3/1 CALLOUT ROCKED\n"));events[0]=0;
+    ram[boxer+0x25c]=0;sample_knockdowns(ram+root,1);
     set(stats+0x1c24+0x34*4,1);sample_knockdowns(ram+root,1);assert(!events[0]);
     set(stats+0x1c24+0x35*4,1);set(stats+0x1c28,1);sample_knockdowns(ram+root,1);
     assert(!strcmp(events,"FNR3/1 CALLOUT HAYMAKER\n"));events[0]=0;
@@ -162,6 +188,14 @@ int main(void){
     assert(!strcmp(events,"FNR3/1 COUNT 1\nFNR3/1 COUNT 2\nFNR3/1 COUNT 3\nFNR3/1 COUNT 4\nFNR3/1 COUNT 5\nFNR3/1 COUNT 6\nFNR3/1 COUNT 7\nFNR3/1 COUNT 8\nFNR3/1 COUNT 9\nFNR3/1 COUNT 10\n"));
     events[0]=0;fight_cinematic(100);fight_ref_count(1);set(clock+0x24,1);sample_winner(ram+clock);sample_winner(ram+clock);
     assert(!strcmp(events,"FNR3/1 CALLOUT KO\nFNR3/1 CALLOUT LOST\n"));
+    /* The observed Play Now decision shot begins before GetWinner has a value. */
+    sample_knockdowns(NULL,0);sample_knockdowns(ram+root,4);set(clock+0x24,UINT32_MAX);
+    events[0]=0;fight_cinematic(58);fight_cinematic(60);sample_winner(ram+clock);
+    assert(!strcmp(events,"FNR3/1 CALLOUT FINAL\n"));
+    events[0]=0;set(clock+0x24,1);sample_winner(ram+clock);
+    assert(!strcmp(events,"FNR3/1 CALLOUT LOST\n"));
+    events[0]=0;fight_cinematic(86);fight_cinematic(100);fight_cinematic(58);
+    assert(!strcmp(events,"FNR3/1 CALLOUT KO\n"));
     sample_knockdowns(NULL,0);set(0x59dcbc,UINT32_MAX);set(0x59dcc0,0);sample_knockdowns(ram+root,1);
     events[0]=0;sample_winner(ram+clock);assert(!strcmp(events,"FNR3/1 CALLOUT WON\n"));
     /* Play Now, losses, draws and ambiguous controllers cannot earn event medals. */

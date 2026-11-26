@@ -36,10 +36,12 @@ final class GameUpdate {
         File dir=new File(c.getFilesDir(),"launcher-update");
         apk=new File(dir,"release.apk");part=new File(dir,"release.part");
         ReleaseAsset saved=ReleaseAsset.parse(prefs.getString("tag",""),prefs.getLong("bytes",0),prefs.getString("digest",""));
-        if(saved==null || !ReleaseAsset.REPO.equals(prefs.getString("release-repo","")))return;
+        // Downloads restart from byte zero. Only a complete, identified APK can be resumed.
+        part.delete();
+        if(saved==null || !ReleaseAsset.REPO.equals(prefs.getString("release-repo",""))){apk.delete();return;}
         try{
             ReleaseVersion installed=ReleaseVersion.parse(c.getPackageManager().getPackageInfo(c.getPackageName(),0).versionName);
-            if(installed==null || saved.version.compareTo(installed)<=0){apk.delete();part.delete();return;}
+            if(installed==null || saved.version.compareTo(installed)<=0){apk.delete();return;}
             asset=saved;
             if(apk.length()!=saved.bytes){stage=Stage.RETRY;return;}
             stage=Stage.VERIFYING;

@@ -14,7 +14,7 @@ import static org.oxideshift.corner.LiveFrame.Scene;
 /** A second-screen corner desk fed by the same published Xbox frame as the upper display. */
 final class RingsideView extends LinearLayout {
     static final int INK=0xff171310, PAPER=GameInk.TEXT, GOLD=GameInk.GOLD;
-    private static final int PANEL=0xff302720,RULE=0xff514239, RED=0xff932f23, BLUE=0xff345672;
+    private static final int PANEL=0xff302720,RULE=0xff514239, RED=GameInk.RED_CORNER, BLUE=GameInk.BLUE_CORNER;
     private Typeface headline=DiscFonts.FALLBACK.stencil;
     private DiscFonts usedFonts;
     private final CornerControls.Output pad;
@@ -52,6 +52,11 @@ final class RingsideView extends LinearLayout {
         "Check the scorecard between rounds. Each judge can see a close round differently."
     };
     private TextView menuHint,menuLead;
+    private RootIllustration rootIllustration;
+    private Bitmap[] rootArt;
+    void setRootArt(Bitmap[] value){
+        rootArt=value;if(rootIllustration!=null)rootIllustration.setPlates(value);
+    }
     private CareerScouting scouting;
     private ContractReport contract;
     private TrainingSheet training;
@@ -107,7 +112,8 @@ final class RingsideView extends LinearLayout {
     };
     private long lastMenuRead;
     private int lastMenuSequence;
-    private long nextFooterRead;
+    private long nextFooterRead,rootSettleUntil;
+    private boolean followingRootMotion(long now){return now<rootSettleUntil;}
     private boolean wasAtRoot,cabinetCovered;
     private long lastRecognizedAt;
     private String resultHeading="";
@@ -117,9 +123,12 @@ final class RingsideView extends LinearLayout {
     private int footerMask;
     private final LinearLayout fightPanel;
     private TextView roundLabel,roundValue;
+    private ClockFlank clockFlank;
+    private FightBroadcast.Card flankCard;
     private FightBroadcast.Bout bout;
     private final Paint backdropPaint=new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Rect backdropSrc=new Rect(),backdropDst=new Rect();
+    private final Rect rockedArea=new Rect();
     private final Runnable tick=this::refreshFrame;
     private Scene scene;
     private GameScreen screen;
@@ -129,6 +138,7 @@ final class RingsideView extends LinearLayout {
     private CornerSession session;
     private FightBroadcast.Card lastCard;
     private LinearLayout judgePanel,punchPanel;
+    private TextView scoreHeading;
     private final TextView[] numbers=new TextView[4];
     private final ProgressBar[] meters=new ProgressBar[4];
     private final int[] levels={-1,-1,-1,-1};
@@ -176,8 +186,9 @@ final class RingsideView extends LinearLayout {
     private LayoutParams cell(int height){
         LayoutParams lp=new LayoutParams(0,height,1);lp.setMargins(dp(2),dp(3),dp(2),dp(2));return lp;
     }
-    private void label(String s){
+    private TextView label(String s){
         TextView v=type(s,15,GOLD);v.setTypeface(headline);v.setLetterSpacing(.045f);v.setPadding(dp(2),dp(6),0,dp(3));content.addView(v);
+        return v;
     }
     private void fighter(LinearLayout pair,String name,int color,int index){
         LinearLayout card=new LinearLayout(getContext());card.setOrientation(VERTICAL);card.setBackground(field(PANEL,RULE));
@@ -193,7 +204,7 @@ final class RingsideView extends LinearLayout {
         records[index]=type("",14,GOLD);records[index].setPadding(dp(8),0,dp(6),dp(3));
         card.addView(records[index]);
         drawNames();
-        meter(card,index*2,"Health",index==0?0xff6faedb:0xffe98170);
+        meter(card,index*2,"Health",index==0?BLUE:RED);
         meter(card,index*2+1,"Stamina",GOLD);
     }
     private void drawNames(){
@@ -212,11 +223,22 @@ final class RingsideView extends LinearLayout {
     }
     private void makeFighters(){
         fightPanel.removeAllViews();
-        LinearLayout clock=new LinearLayout(getContext());clock.setGravity(Gravity.CENTER_VERTICAL);
-        fightPanel.addView(clock);
-        roundLabel=type("",14,GOLD);roundLabel.setTypeface(headline);clock.addView(roundLabel,cell(dp(36)));
-        roundValue=type("",29,PAPER);roundValue.setTypeface(headline);roundValue.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
-        clock.addView(roundValue,cell(dp(36)));
+        FrameLayout clock=new FrameLayout(getContext());
+        fightPanel.addView(clock,new LayoutParams(-1,-2));
+        // One centered timekeeper line: [TIME] | [R#]. The round shares the clock's baseline area at a quieter size.
+        LinearLayout line=new LinearLayout(getContext());line.setGravity(Gravity.CENTER);
+        clock.addView(line,new FrameLayout.LayoutParams(-2,-2,Gravity.CENTER));
+        roundValue=type("",40,PAPER);roundValue.setSingleLine(true);roundValue.setGravity(Gravity.CENTER);
+        roundValue.setMinHeight(dp(50));
+        line.addView(roundValue,new LinearLayout.LayoutParams(-2,-2));
+        View rule=new View(getContext());rule.setBackgroundColor(GameInk.ORANGE);
+        LinearLayout.LayoutParams ruleSize=new LinearLayout.LayoutParams(dp(3),dp(30));ruleSize.setMargins(dp(12),0,dp(12),0);
+        line.addView(rule,ruleSize);
+        roundLabel=type("",30,GOLD);roundLabel.setSingleLine(true);
+        line.addView(roundLabel,new LinearLayout.LayoutParams(-2,-2));
+        ClockFlank flank=new ClockFlank(getContext(),line);clockFlank=flank;flankCard=null;
+        clock.addView(flank,0,new FrameLayout.LayoutParams(-1,dp(50),Gravity.CENTER_VERTICAL));   // = clock row minimum height
+        line.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->flank.invalidate());
         LinearLayout pair=new LinearLayout(getContext());fightPanel.addView(pair);
         fighter(pair,"BLUE CORNER",BLUE,0);fighter(pair,"RED CORNER",RED,1);
         drawBout();
@@ -226,15 +248,20 @@ final class RingsideView extends LinearLayout {
         boolean show=screen!=null && bout!=null &&
             (scene==Scene.ROUND || scene==Scene.PAUSE || scene==Scene.TOTALS ||
              (scene==Scene.RINGSIDE && (bout.seconds>0 && session!=null && session.judging()!=null &&
-                 session.judging().last()<bout.round)));
+                 session.judging().last()<bout.round)) ||
+             // Between rounds the cards carry names, records and both meters (Alpha 80 between-round screen).
+             ((scene==Scene.CORNER || scene==Scene.RINGSIDE) && inBout() && bout.round>0));
         fightPanel.setVisibility(show?VISIBLE:GONE);
     }
     private void drawBout(){
         if(bout==null)return;
-        String round="ROUND "+bout.round;
+        String round="R"+bout.round;
         if(!round.contentEquals(roundLabel.getText()))roundLabel.setText(round);
         String time=FightBroadcast.Bout.time(bout.seconds);
-        if(!time.contentEquals(roundValue.getText()))roundValue.setText(time);
+        if(!time.contentEquals(roundValue.getText())){
+            roundValue.setText(ClockDigits.format(time,roundValue.getPaint()));
+            ((View)roundValue.getParent()).setContentDescription("Round "+bout.round+", "+time);
+        }
         for(int i=0;i<4;i++)updateLevel(i,bout.levels[i]);
         drawPunches();
     }
@@ -257,10 +284,11 @@ final class RingsideView extends LinearLayout {
     private void scoreRow(String[] values,boolean heading){
         LinearLayout row=new LinearLayout(getContext());judgePanel.addView(row);
         for(int i=0;i<values.length;i++){
-            TextView v=type(values[i],heading?15:20,heading?GOLD:PAPER);
+            TextView v=type(values[i],heading?15:20,heading?GameInk.NAME_RED:GameInk.DARK);
             v.setGravity((i==0?Gravity.START:Gravity.CENTER_HORIZONTAL)|Gravity.CENTER_VERTICAL);
             int height=dp(heading?25:31);
             if(!heading && i>0){
+                v.setTypeface(headline);
                 v.setPadding(dp(3),0,dp(3),0);
                 v.setMaxLines(1);
                 v.setAutoSizeTextTypeUniformWithConfiguration(11,20,1,android.util.TypedValue.COMPLEX_UNIT_SP);
@@ -277,10 +305,9 @@ final class RingsideView extends LinearLayout {
         judgePanel.removeAllViews();
         FightBroadcast.Card card=scorecard();lastCard=card;
         int last=card==null?-1:card.last();
-        if(last<0){
-            judgePanel.addView(type("Awaiting the judges’ first round scores",15,PAPER));
-            return;
-        }
+        scoreHeading.setVisibility(last<0?GONE:VISIBLE);
+        judgePanel.setVisibility(last<0?GONE:VISIBLE);
+        if(last<0)return;
         scoreRow(new String[]{"Blue – Red","Judge 1","Judge 2","Judge 3"},true);
         String[] total={"Total","","",""};
         for(int j=0;j<3;j++)total[j+1]=card.total(j,0)+"–"+card.total(j,1);
@@ -324,11 +351,51 @@ final class RingsideView extends LinearLayout {
         java.util.Arrays.fill(lastPunches,-1);
         drawPunches();
     }
+    /** Between rounds (corner and ringside scenes of a live bout): the next round and up to two rule-based tips. */
+    private void addBetweenRounds(){
+        int next=BetweenRounds.upcoming(bout);
+        if(next>0)hero.title="Round "+next+" next";
+        if(next>0)desk.setBackground(new RoundMark(next,headline));
+        // On the Thor the judges' card fills the lower half; keep these lines above it so they are visible without scrolling.
+        int before=content.getChildCount();
+        if(bout!=null && bout.punches!=null){
+            if(punchPanel==null)addPunches();
+            int[] p=bout.punches;
+            String accuracy="ACCURACY   Blue "+(p[1]>0?p[0]*100/p[1]+"%":"—")+"   ·   Red "+(p[3]>0?p[2]*100/p[3]+"%":"—");
+            TextView stat=type(accuracy,17,PAPER);stat.setTypeface(headline);stat.setPadding(dp(4),dp(8),dp(4),dp(2));
+            content.addView(stat,new LayoutParams(-1,-2));
+        }
+        int[] downs=session==null?null:session.playerKnockdowns();
+        if(downs!=null){
+            TextView kd=type("KNOCKDOWNS   You scored "+downs[0]+"   ·   You took "+downs[1],17,PAPER);
+            kd.setTypeface(headline);kd.setPadding(dp(4),dp(2),dp(4),dp(4));content.addView(kd,new LayoutParams(-1,-2));
+        }
+        java.util.List<String> tips=BetweenRounds.tips(bout==null?null:bout.levels,bout==null?null:bout.punches,
+                session==null?-1:session.playerSide());
+        if(!tips.isEmpty()){
+            label("CORNER TIPS");
+            for(String tip:tips){
+                TextView v=type("TIP  ·  "+tip,16,PAPER);
+                v.setTypeface(usedFonts==null?headline:usedFonts.body);v.setLineSpacing(dp(2),1f);
+                v.setPadding(dp(8),dp(4),dp(8),dp(4));content.addView(v,new LayoutParams(-1,-2));
+            }
+        }
+        // Move what was just added (punches if new, accuracy, knockdowns, tips) ahead of the judges' card.
+        int card=scoreHeading!=null && scoreHeading.getParent()==content?content.indexOfChild(scoreHeading):-1;
+        if(card>=0 && card<before){
+            java.util.List<View> added=new java.util.ArrayList<>();
+            while(content.getChildCount()>before){
+                int last=content.getChildCount()-1;
+                added.add(0,content.getChildAt(last));content.removeViewAt(last);
+            }
+            for(int i=0;i<added.size();i++)content.addView(added.get(i),card+i);
+        }
+    }
     private void addScorecard(){
         addPunches();
-        label("OFFICIAL SCORECARD");
+        scoreHeading=label("OFFICIAL SCORECARD");
         judgePanel=new LinearLayout(getContext());judgePanel.setOrientation(VERTICAL);
-        judgePanel.setPadding(dp(8),dp(5),dp(8),dp(7));judgePanel.setBackground(field(PANEL,RULE));
+        judgePanel.setPadding(dp(8),dp(5),dp(8),dp(7));judgePanel.setBackground(field(GameInk.PAPER,0xff8f785d));
         content.addView(judgePanel);drawScorecard();
     }
     void useFonts(DiscFonts fonts){
@@ -368,6 +435,8 @@ final class RingsideView extends LinearLayout {
             currentPage=null;missingPageReads=0;tips.leave();
         }
         wasAtRoot=root;nextFooterRead=0;
+        // The scroll callback can precede the caption's first visible changed frame.
+        rootSettleUntil=root?SystemClock.uptimeMillis()+350:0;
         forceCapture=true;schedule();
     }
     private void schedule(){
@@ -386,7 +455,7 @@ final class RingsideView extends LinearLayout {
         scroll.setVisibility(VISIBLE);
         if(cutman!=null){cutman.release();removeView(cutman);cutman=null;}
         menuDock.removeAllViews();menuDock.setVisibility(scene==Scene.MENU && screen!=null?VISIBLE:GONE);
-        content.removeAllViews();scroll.scrollTo(0,0);menuHint=null;menuLead=null;scouting=null;contract=null;training=null;ledger=null;judgePanel=null;punchPanel=null;java.util.Arrays.fill(punchCounts,null);
+        content.removeAllViews();rootIllustration=null;scroll.scrollTo(0,0);menuHint=null;menuLead=null;scouting=null;contract=null;training=null;ledger=null;judgePanel=null;punchPanel=null;java.util.Arrays.fill(punchCounts,null);
         resultHeading="";hero.career=false;careerActions.removeAllViews();careerActions.setVisibility(GONE);compactCareer=false;careerPage=null;careerDetails=false;careerRevision=-1;
         boolean showingHome=screen==null;
         launchHint.setVisibility(showingHome?VISIBLE:GONE);
@@ -437,7 +506,7 @@ final class RingsideView extends LinearLayout {
         }else if(scene==Scene.FINAL || scene==Scene.TOTALS){
             boolean end=scene==Scene.FINAL;
             resultHeading=session.result()+session.finish();
-            hero.title=end?(session.result().isEmpty()?"Final bell":session.result()):"Fight totals";
+            hero.title=end?finalHeading():"Fight totals";
             FightBroadcast.Fighters names=end?session.lastNames():session.fighters();
             TextView matchup=type(names==null?"Blue corner  /  Red corner":names.blue+"  /  "+names.red,20,PAPER);
             matchup.setTypeface(headline);matchup.setPadding(dp(5),dp(6),dp(5),dp(4));content.addView(matchup);
@@ -450,16 +519,19 @@ final class RingsideView extends LinearLayout {
             boolean menu=scene==Scene.MENU;
             hero.title=menu?((footerMask&4)!=0?"Boxer options":"Menu options"):"Ringside";
             if(!menu && session!=null && session.judging()!=null && session.judging().round>0)addScorecard();
+            if(!menu && inBout())addBetweenRounds();
             if(menu || !inBout()){
                 careerGuide=false;
                 menuLead=type("",23,PAPER);
                 menuLead.setPadding(dp(10),dp(14),dp(10),dp(2));
                 menuLead.setVisibility(GONE);content.addView(menuLead,new LayoutParams(-1,-2));
                 menuHint=type("",18,GameInk.MUTED);
-                menuHint.setTypeface(headline);
+                menuHint.setTypeface(usedFonts==null?headline:usedFonts.body);
                 menuHint.setMaxWidth(dp(570));menuHint.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
                 menuHint.setLineSpacing(dp(2),1f);menuHint.setPadding(dp(10),dp(8),dp(10),dp(8));
                 content.addView(menuHint,new LayoutParams(-1,-2));
+                rootIllustration=new RootIllustration(getContext());rootIllustration.setPlates(rootArt);
+                content.addView(rootIllustration,new LayoutParams(-1,0,1));
                 describeMenu();
             }
             if(menu)buildMenuDock();
@@ -502,6 +574,7 @@ final class RingsideView extends LinearLayout {
         FightBroadcast.Camp camp=session==null?null:session.camp();
         CareerDesk desk=session==null?null:session.career;
         boolean root=MenuContext.isMain(currentPage);
+        if(rootIllustration!=null)rootIllustration.select(root?currentPage:null);
         CareerDesk.Page page=desk==null || root?null:desk.page;
         boolean central=(page!=null && page.is("careercentral") && page.index==1) ||
                 (page==null && currentPage!=null && "Career Central".equals(currentPage.title));
@@ -649,7 +722,8 @@ final class RingsideView extends LinearLayout {
         boolean changedPage=session!=null && editorPage!=session.career.page &&
                 (editorPage!=null || CareerDesk.editingBoxer(session.career.page) && careerRevision!=session.career.revision);
         if(f!=null && (f.sequence!=sequence || forceCapture || deskScene.settling() || checkResult || changedPage || readSettledMenu))sample(f);
-        postDelayed(tick,scene==Scene.MENU?(session!=null && session.atRoot()?50:80):110);
+        if(scene==Scene.MENU && followingRootMotion(SystemClock.uptimeMillis()))postOnAnimation(tick);
+        else postDelayed(tick,scene==Scene.MENU?(session!=null && session.atRoot()?50:80):110);
     }
     private void updateLevel(int i,int v){if(levels[i]!=v){levels[i]=v;drawMeter(i);}}
     private boolean inBout(){return session!=null && session.inLiveBout();}
@@ -680,7 +754,28 @@ final class RingsideView extends LinearLayout {
             if(SystemClock.uptimeMillis()-lastSeen>1800)cutman.release();
         }
         if(judgePanel!=null && lastCard!=scorecard())drawScorecard();
-        if(scene==Scene.FINAL && !resultHeading.equals(session.result()+session.finish()))build();
+        FightBroadcast.Card judged=session.judging();
+        if(clockFlank!=null && judged!=flankCard){
+            flankCard=judged;
+            int[] won=judged==null?new int[2]:judged.roundsWon();
+            clockFlank.setWins(won[0],won[1]);
+        }
+        if(scene==Scene.FINAL){
+            if(!resultHeading.equals(session.result()+session.finish()))build();
+            else {
+                String heading=finalHeading();
+                if(!heading.equals(hero.title)){hero.title=heading;hero.invalidate();}
+            }
+        }
+    }
+    private String finalHeading(){
+        BoutAnnouncements.Notice cue=session.callout();
+        if(cue!=null && cue.words.equals(session.result()) && session.fightCueVisible())return "Fight result";
+        switch(session.result()){
+            case "WON!!":return "Victory";
+            case "LOST!!":return "Defeat";
+            default:return session.result().isEmpty()?"Final bell":session.result();
+        }
     }
     private void sample(LiveFrame f){
         CareerDesk.Page activePage=session==null?null:session.career.page;
@@ -692,7 +787,7 @@ final class RingsideView extends LinearLayout {
         int front=session==null?CornerSession.FRONT_OTHER:session.frontPage;
         boolean root=!live && session!=null && session.atRoot();
         boolean playlist=front==CornerSession.FRONT_TRAX;
-        Scene next=root || editor!=null?Scene.MENU:f.scene(live);
+        Scene next=root || playlist || editor!=null?Scene.MENU:f.scene(live);
         boolean showingMenu=next==Scene.MENU || (next==Scene.RINGSIDE && !live);
         int mask=0;
         long sampled=SystemClock.uptimeMillis();
@@ -704,11 +799,11 @@ final class RingsideView extends LinearLayout {
             mask=cues.mask;
         }else nextFooterRead=0;
         boolean readMenu=showingMenu && editor==null && !playlist &&
-                (forceCapture || (f.sequence!=lastMenuSequence && sampled-lastMenuRead>=(root?45:80)));
+                (forceCapture || (f.sequence!=lastMenuSequence && sampled-lastMenuRead>=(root?(followingRootMotion(sampled)?12:45):80)));
         MenuContext.Page page=currentPage;
         int focus=-1;
         if(readMenu){
-            page=menuContext.identify(f);
+            page=menuContext.identify(f,root);
             if(root)page=MenuContext.rootSelection(page,currentPage,front);
             if(page!=null && "Career Central".equals(page.title))focus=menuContext.careerRow(f);
         }
@@ -716,7 +811,9 @@ final class RingsideView extends LinearLayout {
         boolean editorChanged=editorPage!=editor;
         editorPage=editor;
 
-        if(readMenu){
+        if(playlist && currentPage!=MenuContext.PLAYLIST){
+            currentPage=MenuContext.PLAYLIST;careerFocus=-1;careerBranch=false;missingPageReads=0;describeMenu();
+        }else if(readMenu){
             lastMenuRead=sampled;lastMenuSequence=f.sequence;
             MenuContext.Page previous=currentPage;
             int previousFocus=careerFocus;
@@ -725,8 +822,10 @@ final class RingsideView extends LinearLayout {
 
             if(page!=null){
                 currentPage=page;missingPageReads=0;lastRecognizedAt=sampled;
-            }else if(currentPage!=null && ++missingPageReads>=2 &&
-                    (!MenuContext.isMain(currentPage) || sampled-lastRecognizedAt>=900)){
+            }else if(currentPage!=null && ++missingPageReads>=3 &&
+                    // Title reads can miss on transition/highlight frames; dropping a submenu after two 80 ms misses
+                    // flashed the generic "From your corner" card over Play Now and other pages.
+                    sampled-lastRecognizedAt>=(MenuContext.isMain(currentPage)?900:700)){
                 currentPage=null;
             }
             if(currentPage!=previous || careerFocus!=previousFocus)describeMenu();
@@ -767,7 +866,18 @@ final class RingsideView extends LinearLayout {
 
     @Override protected void dispatchDraw(Canvas canvas){
         super.dispatchDraw(canvas);
-        if(announcement.draw(canvas,getWidth(),getHeight(),headline,SystemClock.uptimeMillis()))postInvalidateOnAnimation();
+        if(announcement.isRocked() && fightPanel.getVisibility()==VISIBLE){
+            int top=fightPanel.getBottom();
+            if(punchPanel!=null && punchPanel.isShown()){
+                punchPanel.getDrawingRect(rockedArea);
+                offsetDescendantRectToMyCoords(punchPanel,rockedArea);
+                top=Math.max(top,rockedArea.bottom);
+            }
+            top+=dp(3);
+            if(getHeight()-top>=dp(48))rockedArea.set(0,top,getWidth(),getHeight());
+            else rockedArea.set(Math.max(getWidth()/2,hero.titleRight+dp(6)),hero.getTop(),getWidth(),hero.getBottom());
+        }else rockedArea.setEmpty();
+        if(announcement.draw(canvas,getWidth(),getHeight(),headline,SystemClock.uptimeMillis(),rockedArea))postInvalidateOnAnimation();
     }
     @Override protected void onDraw(Canvas canvas){
         super.onDraw(canvas);
@@ -778,12 +888,13 @@ final class RingsideView extends LinearLayout {
         int sw=Math.min(w,Math.max(1,Math.round(getWidth()/scale)));
         int sh=Math.min(h,Math.max(1,Math.round(getHeight()/scale)));
         backdropSrc.set((w-sw)/2,(h-sh)/2,(w-sw)/2+sw,(h-sh)/2+sh);
-        backdropDst.set(0,0,getWidth(),getHeight());backdropPaint.setAlpha(154);
+        backdropDst.set(0,0,getWidth(),getHeight());backdropPaint.setAlpha(scene==Scene.ROUND || scene==Scene.PAUSE?34:scene==Scene.FINAL?60:130);
         canvas.drawBitmap(cornerArt,backdropSrc,backdropDst,backdropPaint);
     }
 
     private final class Hero extends View {
         String title="";boolean career;
+        int titleRight;
         final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG);
         final Path stripe=new Path(),cornerRules=new Path();
         long titleStarted;
@@ -817,7 +928,9 @@ final class RingsideView extends LinearLayout {
             float space=Math.max(1,getWidth()-dp(67)),width=ink.measureText(text);
             if(width>space)ink.setTextSize(ink.getTextSize()*space/width);
             float baseline=career?h-dp(6):(h-ink.ascent()-ink.descent())*.5f;
-            c.drawText(text,dp(23)+dp(10)*(1-progress)*(1-progress),baseline,ink);
+            float left=dp(23)+dp(10)*(1-progress)*(1-progress);
+            titleRight=(int)Math.ceil(left+Math.min(width,space));
+            c.drawText(text,left,baseline,ink);
         }
     }
 }

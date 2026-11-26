@@ -12,7 +12,7 @@ import java.io.IOException;
 
 /** Retail title artwork beside the player's disc and bout settings. */
 final class FightMenu extends LinearLayout {
-    static final int INK=0xff17120f, PAPER=0xfff5ebd5, MUTED=0xffd2bfa1;
+    static final int INK=GameInk.DARK, PAPER=GameInk.TEXT, MUTED=GameInk.MUTED;
     static final int[] HEIGHTS={480,720,1080,0,900};
     private static final int GOLD=GameInk.GOLD, LINE=0xff71604a, TILE=0xff302821, RED=0xff873a2c;
     private final SharedPreferences prefs;
@@ -30,26 +30,29 @@ final class FightMenu extends LinearLayout {
     final TextView backupStatus;
     final Button saveFolder;
     final Spinner rumble;
-    final Spinner renderer,resolution,aspect;
+    final Spinner renderer,resolution,aspect,displayRoute;
+    Runnable displayRouteChanged;
     final PresetStrip quality,pacing;
     final Switch antiAlias;
     final ToggleButton vsync;
     private GraphicsPreset preset;
     private boolean sessionActive;
-    private DiscFonts faces=DiscFonts.FALLBACK;
+    private DiscFonts faces;
     private boolean landscape,requestedArt;
     private Bitmap cornerArt;
     private Bitmap[] mainMenuArt;
     Bitmap[] mainMenuArt(){return mainMenuArt;}
+    private Bitmap[] rootArt;
+    Bitmap[] rootArt(){return rootArt;}
     private Bitmap[] trainingArt;
     private CareerArt careerArt;
     CareerArt careerArt(){return careerArt;}
     private Bitmap[] traxArt;
     Bitmap[] traxArt(){return traxArt;}
 
-    FightMenu(Context c,SharedPreferences prefs,String version,Runnable pick,Runnable importSave,Runnable writeSave,Runnable launch,
+    FightMenu(Context c,SharedPreferences prefs,DiscFonts initialFonts,String version,Runnable pick,Runnable importSave,Runnable writeSave,Runnable launch,
               Runnable onCard,Runnable useDefault,Runnable checkUpdates){
-        super(c);this.prefs=prefs;setBackgroundColor(INK);
+        super(c);this.prefs=prefs;faces=initialFonts;setBackgroundColor(INK);
         poster=new Poster(c);addView(poster);
         settingsPane=new ScrollView(c);settingsPane.setFillViewport(true);addView(settingsPane);
         panel=column();panel.setGravity(Gravity.CENTER_VERTICAL);
@@ -66,7 +69,7 @@ final class FightMenu extends LinearLayout {
           progressDetail=label("",13,MUTED);progressDetail.setPadding(0,dp(4),0,dp(8));
           progressDetail.setVisibility(GONE);panel.addView(progressDetail);
         play=button("Enter the ring",launch,true);panel.addView(play);
-        disc=button("Choose Xbox ISO or ZIP",pick,true);panel.addView(disc);
+        disc=button("Choose original Xbox ISO or ZIP",pick,true);panel.addView(disc);
         updates=button("Check for updates",checkUpdates,false);panel.addView(updates);
 
         LinearLayout rateHeader=row();rateHeader.setGravity(Gravity.CENTER_VERTICAL);
@@ -78,7 +81,7 @@ final class FightMenu extends LinearLayout {
         vsync.setPadding(dp(10),0,dp(10),0);vsync.setBackground(states(TILE,0xff4c3c2c));
         vsync.setChecked(prefs.getBoolean("vsync",true));vsync.setText(vsync.isChecked()?vsync.getTextOn():vsync.getTextOff());
         vsync.setOnCheckedChangeListener((button,on)->prefs.edit().putBoolean("vsync",on).apply());
-        LayoutParams syncSlot=new LayoutParams(dp(94),dp(40));syncSlot.setMargins(0,dp(4),0,dp(3));
+        LayoutParams syncSlot=new LayoutParams(dp(100),dp(48));syncSlot.setMargins(0,dp(4),0,dp(3));
         rateHeader.addView(vsync,syncSlot);
         int savedTarget=prefs.getInt("frameTargetIndex",DisplayCadence.legacyIndex(prefs.getInt("pacing",0)));
         pacing=new PresetStrip(c,"Frame rate",new String[]{"30 FPS","45 FPS","60 FPS"},
@@ -97,7 +100,9 @@ final class FightMenu extends LinearLayout {
 
         graphicsDetails=column();advanced=disclosure("Advanced graphics",graphicsDetails);
         LinearLayout backend=new LinearLayout(c);graphicsDetails.addView(backend);
-        renderer=choice(backend,"Renderer",new String[]{"Vulkan","Software (480p)"},"renderer",0);
+        renderer=choice(backend,"Renderer",new String[]{"Vulkan","Software (480p)","Vulkan (general shaders)","Vulkan (shared GPU frames)"},"renderer",0);
+        LinearLayout route=new LinearLayout(c);graphicsDetails.addView(route);
+        displayRoute=choice(route,"Companion display",new String[]{"Use second screen when available","Use main screen only"},"displayRoute",0);
         antiAlias=new Switch(c);antiAlias.setText("Edge smoothing (2\u00d7 MSAA)");antiAlias.setTextColor(PAPER);
         antiAlias.setPadding(dp(9),0,dp(6),0);antiAlias.setMinHeight(dp(48));graphicsDetails.addView(antiAlias);
         antiAlias.setOnCheckedChangeListener((v,on)->{
@@ -109,6 +114,14 @@ final class FightMenu extends LinearLayout {
         counter.setChecked(prefs.getBoolean("showFpsCounter",false));
         counter.setOnCheckedChangeListener((button,on)->prefs.edit().putBoolean("showFpsCounter",on).apply());
         graphicsDetails.addView(counter);
+        // Alpha 80: GPU renders one frame while the game builds the next. Higher mean FPS on the Thor, one extra
+        // frame (~17 ms) before a frame is shown, and a worse single worst frame at Palace, so it is opt-in.
+        Switch pipelined=new Switch(c);
+        pipelined.setText("Pipelined frames (smoother, +1 frame delay)");pipelined.setTextColor(PAPER);pipelined.setTypeface(faces.body);
+        pipelined.setPadding(dp(9),0,dp(6),0);pipelined.setMinHeight(dp(48));
+        pipelined.setChecked(prefs.getBoolean("pipelinedFrames",false));
+        pipelined.setOnCheckedChangeListener((button,on)->prefs.edit().putBoolean("pipelinedFrames",on).apply());
+        graphicsDetails.addView(pipelined);
         updateGraphics();
 
         details=column();settings=disclosure("Save & sound",details);
@@ -124,6 +137,7 @@ final class FightMenu extends LinearLayout {
         rumble=choice(strength,"Controller rumble",new String[]{"Off","Light","Medium","Full"},
                 "rumbleLevel",prefs.getBoolean("rumble",true)?3:0);
         card=button("Open scorecard",onCard,false);panel.addView(card);
+        applyFonts(panel);
         arrange(c.getResources().getConfiguration().orientation==2);
     }
 
@@ -182,6 +196,7 @@ final class FightMenu extends LinearLayout {
         else if(preset==GraphicsPreset.LOW)hint="Nearest-neighbor scaling \u00b7 edge smoothing off";
         else hint=(preset.tier==2?"Sharpened image \u00b7 4\u00d7 filtering":"Linear scaling \u00b7 2\u00d7 filtering")
                 +(preset.samples==2?" \u00b7 2\u00d7 MSAA":" \u00b7 edge smoothing off");
+        if(renderer.getSelectedItemPosition()==3)hint+=" \u00b7 Experimental shared presentation";
         if(!hint.contentEquals(qualityHint.getText()))qualityHint.setText(hint);
     }
     private GradientDrawable surface(int fill,int outline){
@@ -198,11 +213,11 @@ final class FightMenu extends LinearLayout {
     private Button button(String text,Runnable action,boolean primary){
         Button b=new Button(getContext(),null,android.R.attr.borderlessButtonStyle);
         b.setBackground(new RippleDrawable(ColorStateList.valueOf(0x44f8d58a),
-                states(primary?RED:0xff2a231e,primary?0xffb25039:0xff59452f),null));
+                new BillSelect(getResources().getDisplayMetrics().density,primary),null));
         b.setText(text);b.setAllCaps(false);b.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
         b.setMinHeight(dp(48));b.setMinimumHeight(dp(48));
         b.setTextSize(primary?20:16);b.setTypeface(primary?faces.stencil:faces.body);
-        b.setPadding(dp(13),dp(3),dp(12),dp(4));b.setTextColor(PAPER);
+        b.setPadding(dp(19),dp(3),dp(12),dp(4));b.setTextColor(PAPER);
         if(action!=null)b.setOnClickListener(v->action.run());return b;
     }
     private void arrange(boolean wide){
@@ -245,7 +260,9 @@ final class FightMenu extends LinearLayout {
         picker.setSelection(Math.max(0,Math.min(options.length-1,prefs.getInt(key,initial))));
         picker.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
             public void onItemSelected(AdapterView<?> p,View v,int index,long id){
+                boolean changed=prefs.getInt(key,initial)!=index;
                 prefs.edit().putInt(key,index).apply();
+                if(changed && "displayRoute".equals(key) && displayRouteChanged!=null)displayRouteChanged.run();
                 if("renderer".equals(key) && antiAlias!=null)updateGraphics();
             }
             public void onNothingSelected(AdapterView<?> p){}
@@ -283,12 +300,12 @@ final class FightMenu extends LinearLayout {
     }
 
     void showState(String message,boolean ready,boolean busy,boolean active,boolean canPlay,
-                   boolean customSave,boolean hasLower,boolean needsBuild){
+                   boolean customSave,boolean hasLower,boolean needsBuild,boolean startupFailed,boolean repair){
         if(!message.contentEquals(state.getText()))state.setText(message);
-        play.setVisibility(ready||active?VISIBLE:GONE);play.setEnabled(active||(ready&&!busy&&canPlay));
-        String action=active?"Resume bout":needsBuild?"Prepare game":"Enter the ring";if(!action.contentEquals(play.getText()))play.setText(action);
-        disc.setVisibility(active||!ready?VISIBLE:GONE);disc.setEnabled(active||!busy);
-        String pick=active?"End session":"Choose Xbox ISO or ZIP";
+        play.setVisibility((ready&&!repair)||active||startupFailed?VISIBLE:GONE);play.setEnabled(active||((ready||startupFailed)&&!busy&&canPlay));
+        String action=startupFailed?"Startup details":active?"Resume bout":needsBuild?"Prepare game":"Enter the ring";if(!action.contentEquals(play.getText()))play.setText(action);
+        disc.setVisibility(active||!ready||repair?VISIBLE:GONE);disc.setEnabled(active||!busy);
+        String pick=active?"End session":repair?"Repair disc installation":"Choose original Xbox ISO or ZIP";
         if(!pick.contentEquals(disc.getText()))disc.setText(pick);
         if(active!=disc.isSelected()){
             disc.setSelected(active);disc.setBackground(new RippleDrawable(ColorStateList.valueOf(0x44f8d58a),
@@ -301,6 +318,9 @@ final class FightMenu extends LinearLayout {
         card.setVisibility(hasLower?GONE:VISIBLE);
     }
     DiscFonts fonts(){return faces;}
+    void openAdvancedGraphics(){
+        if(graphicsDetails.getVisibility()!=VISIBLE)advanced.performClick();
+    }
     Bitmap cornerArt(){return cornerArt;}
     Bitmap[] trainingArt(){return trainingArt;}
 
@@ -319,8 +339,14 @@ final class FightMenu extends LinearLayout {
     void loadDiscPoster(File game){
         if(requestedArt)return;
         requestedArt=true;
+        DiscFonts current=faces;
         new Thread(()->{
-            DiscFonts fonts=DiscFonts.load(game);
+            DiscFonts fonts=current==DiscFonts.FALLBACK?DiscFonts.load(game):current;
+            post(()->{
+                faces=fonts;applyFonts(panel);
+                for(Spinner picker:new Spinner[]{renderer,resolution,aspect,rumble,displayRoute})
+                    ((ArrayAdapter<?>)picker.getAdapter()).notifyDataSetChanged();
+            });
             Bitmap title=art(game,"xldstr.bin"),photo=art(game,"xldout.bin"),portrait=art(game,"xpreload.bin");
             Bitmap[] photos=null;
             try{
@@ -343,11 +369,10 @@ final class FightMenu extends LinearLayout {
                         TraxArt.MENU_WIDTH[i],TraxArt.MENU_HEIGHT[i],Bitmap.Config.ARGB_8888);
             }catch(IOException ignored){}
             final Bitmap[] importedMenu=mainSprites;
+            Bitmap[] bills=RootIllustration.load(game,camp,importedMenu);
             post(()->{
-                mainMenuArt=importedMenu;
-                careerArt=career;trainingArt=camp;traxArt=sprites;faces=fonts;cornerArt=photo;poster.setArt(title);setupArt.portrait=portrait;setupArt.invalidateSelf();applyFonts(panel);
-                for(Spinner picker:new Spinner[]{renderer,resolution,aspect,rumble})
-                    ((ArrayAdapter<?>)picker.getAdapter()).notifyDataSetChanged();
+                mainMenuArt=importedMenu;rootArt=bills;
+                careerArt=career;trainingArt=camp;traxArt=sprites;cornerArt=photo;poster.setArt(title);setupArt.portrait=portrait;setupArt.invalidateSelf();
             });
         },"fight-artwork").start();
     }

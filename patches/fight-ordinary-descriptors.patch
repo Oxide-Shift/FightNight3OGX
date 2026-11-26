@@ -1,0 +1,245 @@
+--- a/vkr.c
++++ b/vkr.c
+@@ -19,6 +19,7 @@
+ #include <vulkan/vulkan.h>
+ #ifdef __ANDROID__
+ #include "fight_device_probe.h"
++#include "fight_descriptor_sets.h"
+ #endif
+ 
+ #include "xbox_vert_spv.h"
+@@ -164,6 +165,8 @@
+     unsigned fight_image_next;
+     struct FightResident { uint64_t token; uint32_t serial; } resident[VKR_FRAMES][256];
+     int has_mesh_room[VKR_FRAMES];
++    FightFrameSets descriptor_sets[VKR_FRAMES];
++    int use_push;
+     VkrFrame fr[VKR_FRAMES];
+     int cur;                        /* the frame being recorded */
+     pthread_mutex_t lock;           /* fr[].busy */
+@@ -361,6 +364,7 @@
+  * and result. */
+ static void vk_failed(const char *call, VkResult r, const char *file, int line)
+ {
++    if (r == VK_ERROR_DEVICE_LOST) { fprintf(stderr,"FNR3/1 GPU_DEVICE_LOST\n"); _Exit(75); }
+     log_msg(r == VK_ERROR_DEVICE_LOST ? LOG_CRITICAL : LOG_ERROR, "VKR", "%s failed: %d%s (%s:%d)", call,
+             (int)r, r == VK_ERROR_DEVICE_LOST ? ", device lost (GPU driver reset or crashed)"
+                     : r == VK_ERROR_OUT_OF_DEVICE_MEMORY ? ", out of GPU memory"
+@@ -378,11 +382,8 @@
+ 
+ static int find_mem(VkrContext *c, uint32_t bits, VkMemoryPropertyFlags want)
+ {
+-    uint32_t i;
+-    for (i = 0; i < c->mem.memoryTypeCount; i++)
+-        if ((bits & (1u << i)) && (c->mem.memoryTypes[i].propertyFlags & want) == want)
+-            return (int)i;
+-    return -1;
++    uint32_t i = fight_memory_type(&c->mem, bits, want, want);
++    return i == UINT32_MAX ? -1 : (int)i;
+ }
+ 
+ /* readback: the CPU reads it back. Host-visible coherent memory is write-
+@@ -571,6 +572,21 @@
+     }
+ }
+ 
++static void bind_draw_descriptors(VkrContext *c, VkPipelineLayout layout, VkDescriptorSetLayout set_layout,
++                                  uint32_t count, const VkWriteDescriptorSet *writes)
++{
++    if (c->use_push) {
++        vkCmdPushDescriptorSet(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, count, writes);
++        return;
++    }
++    VkResult r = fight_bind_sets(&c->descriptor_sets[c->cur], c->dev, c->cmd, layout, set_layout, writes, count);
++    if (r != VK_SUCCESS) {
++        fprintf(stderr, "FNR3/1 GPU_BIND_FAILED %d\n", (int)r);
++        fflush(stderr);
++        _Exit(75);
++    }
++}
++
+ static int make_layout(VkrContext *c)
+ {
+     VkDescriptorSetLayoutBinding b[3] = {
+@@ -608,7 +624,7 @@
+         c->fs_tags[1] = shader(c, xbox_frag_wdepth_tags_spv, xbox_frag_wdepth_tags_spv_len);
+         if (!c->fs_tags[0] || !c->fs_tags[1]) c->dual_src = 0;
+     }
+-    di.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT;
++    di.flags = c->use_push ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT : 0;
+     di.bindingCount = 3; di.pBindings = b;
+     CK(vkCreateDescriptorSetLayout(c->dev, &di, NULL, &c->dsl));
+     li.setLayoutCount = 1; li.pSetLayouts = &c->dsl;
+@@ -671,7 +687,7 @@
+     c->crt_vs = shader(c, crt_vert_spv, crt_vert_spv_len);
+     c->crt_fs = shader(c, crt_frag_spv, crt_frag_spv_len);
+     if (!c->crt_vs || !c->crt_fs) { fprintf(stderr, "[VKR] CRT shader module failed\n"); return 0; }
+-    di.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT;
++    di.flags = c->use_push ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT : 0;
+     di.bindingCount = 1; di.pBindings = &b;
+     CK(vkCreateDescriptorSetLayout(c->dev, &di, NULL, &c->crt_dsl));
+     li.setLayoutCount = 1; li.pSetLayouts = &c->crt_dsl;
+@@ -777,7 +793,7 @@
+     CK(vkCreateSampler(c->dev, &si, NULL, &c->sc_near));
+     si.magFilter = si.minFilter = VK_FILTER_LINEAR;
+     CK(vkCreateSampler(c->dev, &si, NULL, &c->sc_lin));
+-    di.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT;
++    di.flags = c->use_push ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT : 0;
+     di.bindingCount = 3; di.pBindings = b;
+     CK(vkCreateDescriptorSetLayout(c->dev, &di, NULL, &c->sc_dsl));
+     li.setLayoutCount = 1; li.pSetLayouts = &c->sc_dsl;
+@@ -1178,8 +1194,8 @@
+     VkrContext *c = (VkrContext *)calloc(1, sizeof *c);
+     VkApplicationInfo app = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
+     VkInstanceCreateInfo ii = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+-    VkPhysicalDevice devs[8];
+-    uint32_t n = 8, i, nq = 0;
++    VkPhysicalDevice devs[128];
++    uint32_t n = 0, i, nq = 0;
+     VkQueueFamilyProperties qp[16];
+     float prio = 1.0f;
+     VkDeviceQueueCreateInfo qi = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+@@ -1210,7 +1226,14 @@
+ #endif
+     ii.pApplicationInfo = &app;
+     if (vkCreateInstance(&ii, NULL, &c->inst) != VK_SUCCESS) goto fail;
+-    if (vkEnumeratePhysicalDevices(c->inst, &n, devs) < 0 || !n) goto fail;
++    VkResult enumeration;
++    for (int attempt = 0; attempt < 3; ++attempt) {
++        enumeration = vkEnumeratePhysicalDevices(c->inst, &n, NULL);
++        if (enumeration != VK_SUCCESS || !n || n > sizeof(devs)/sizeof(devs[0])) goto fail;
++        enumeration = vkEnumeratePhysicalDevices(c->inst, &n, devs);
++        if (enumeration != VK_INCOMPLETE) break;
++    }
++    if (enumeration != VK_SUCCESS || !n) goto fail;
+ #ifdef __ANDROID__
+     c->phys = VK_NULL_HANDLE;
+     for (i=0; i<n; ++i) {
+@@ -1222,10 +1245,11 @@
+                      || candidate.props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+             c->phys = candidate.physical;
+             c->qfam = candidate.queue;
++            c->use_push = candidate.push && !getenv("FNR3_ORDINARY_SETS");
+             if(candidate.props.deviceType != VK_PHYSICAL_DEVICE_TYPE_CPU) break;
+         }
+     }
+-    if (!c->phys) goto fail;
++    if (!c->phys) { fprintf(stderr,"FNR3/1 GPU_NO_ADAPTER\n"); goto fail; }
+ #else
+     /* Prefer a real GPU over llvmpipe. */
+     c->phys = devs[0];
+@@ -1313,7 +1337,7 @@
+     f13.dynamicRendering = VK_TRUE; f13.synchronization2 = VK_TRUE;
+ #ifdef SSX3_VK_PUSH_DESC_EXT
+     /* Push descriptors through VK_KHR_push_descriptor (Android, Vulkan 1.3). */
+-    di.enabledExtensionCount   = 1;
++    di.enabledExtensionCount   = c->use_push ? 1 : 0;
+     di.ppEnabledExtensionNames = s_push_ext;
+ #else
+     f14.pushDescriptor = VK_TRUE;
+@@ -1336,12 +1360,10 @@
+     }
+     c->fight_cache=fight_open_cache(c->dev,c->phys);
+ #ifdef SSX3_VK_PUSH_DESC_EXT
+-    ssx3_push_desc = (PFN_vkCmdPushDescriptorSetKHR)
+-        vkGetDeviceProcAddr(c->dev, "vkCmdPushDescriptorSetKHR");
+-    if (!ssx3_push_desc) {
+-        fprintf(stderr, "[VKR] VK_KHR_push_descriptor is not available\n");
+-        goto fail;
+-    }
++    ssx3_push_desc = c->use_push ? (PFN_vkCmdPushDescriptorSetKHR)
++        vkGetDeviceProcAddr(c->dev, "vkCmdPushDescriptorSetKHR") : NULL;
++    c->use_push = ssx3_push_desc != NULL;
++    fprintf(stderr, "FNR3/1 GPU_DESCRIPTORS %s\n", c->use_push ? "push" : "ordinary");
+ #endif
+     vkGetDeviceQueue(c->dev, c->qfam, 0, &c->queue);
+     pci.queueFamilyIndex = c->qfam;
+@@ -1699,6 +1721,7 @@
+     for (int i = 0; i < VKR_FRAMES; i++) {
+         vkDestroyBuffer(c->dev, c->fr[i].buf, NULL);
+         vkFreeMemory(c->dev, c->fr[i].buf_mem, NULL);
++        fight_destroy_sets(&c->descriptor_sets[i], c->dev);
+         vkDestroyFence(c->dev, c->fr[i].fence, NULL);
+     }
+     vkDestroyCommandPool(c->dev, c->pool, NULL);
+@@ -1922,6 +1945,15 @@
+     while (c->fr[c->cur].busy)
+         pthread_cond_wait(&c->freed, &c->lock);
+     pthread_mutex_unlock(&c->lock);
++    if (c->descriptor_sets[c->cur].count) {
++        // Completion precedes both slot release and synchronous upload-buffer reuse.
++        VkResult done = vkGetFenceStatus(c->dev, c->fence);
++        VkResult reset = done == VK_SUCCESS ? fight_recycle_sets(&c->descriptor_sets[c->cur], c->dev) : done;
++        if (reset != VK_SUCCESS) {
++            fprintf(stderr, "FNR3/1 GPU_RECYCLE_FAILED %d\n", (int)reset);
++            _Exit(75);
++        }
++    }
+     CK(vkResetFences(c->dev, 1, &c->fence));
+     CK(vkResetCommandBuffer(c->cmd, 0));
+     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+@@ -2678,7 +2710,7 @@
+     w[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w[0].pImageInfo = di;
+     w[1].dstBinding = 4; w[1].descriptorCount = 1;
+     w[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; w[1].pBufferInfo = &bi;
+-    vkCmdPushDescriptorSet(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, c->layout, 0, 2, w);
++    bind_draw_descriptors(c, c->layout, c->dsl, 2, w);
+ 
+     fight_raster_state(c, st);
+     vkCmdBindVertexBuffers(c->cmd, 0, 1, &c->buf, &off);
+@@ -2889,19 +2921,24 @@
+     w[2].dstBinding = 5; w[2].descriptorCount = 1;
+     w[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; w[2].pBufferInfo = &sb;
+     /* A push descriptor retains bindings that a subsequent push omits. */
+-    unsigned writes = 0;
+-    int same_images = c->fight_bindings_valid;
+-    for (k = 0; k < 4 && same_images; ++k)
+-        same_images = di[k].imageView == c->fight_images[k].imageView &&
+-                      di[k].sampler == c->fight_images[k].sampler;
+-    if (!same_images) {
+-        memcpy(c->fight_images, di, sizeof di);
+-        ++writes;
+-    }
+-    if (!same_uniform) w[writes++] = w[1];
+-    if (!c->fight_bindings_valid) w[writes++] = w[2];
+-    if (writes)
+-        vkCmdPushDescriptorSet(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, c->layout, 0, writes, w);
++    if (!c->use_push) {
++        // An allocated set starts empty, including after a push-style uniform cache hit.
++        bind_draw_descriptors(c, c->layout, c->dsl, 3, w);
++    } else {
++        unsigned writes = 0;
++        int same_images = c->fight_bindings_valid;
++        for (k = 0; k < 4 && same_images; ++k)
++            same_images = di[k].imageView == c->fight_images[k].imageView &&
++                          di[k].sampler == c->fight_images[k].sampler;
++        if (!same_images) {
++            memcpy(c->fight_images, di, sizeof di);
++            ++writes;
++        }
++        if (!same_uniform) w[writes++] = w[1];
++        if (!c->fight_bindings_valid) w[writes++] = w[2];
++        if (writes)
++            bind_draw_descriptors(c, c->layout, c->dsl, writes, w);
++    }
+     c->fight_bindings_valid = 1;
+ 
+     fight_raster_state(c, st);
+@@ -3029,7 +3066,7 @@
+     vkCmdBindPipeline(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, c->crt_pipe);
+     w.dstBinding = 0; w.descriptorCount = 1;
+     w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w.pImageInfo = &dii;
+-    vkCmdPushDescriptorSet(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, c->crt_layout, 0, 1, &w);
++    bind_draw_descriptors(c, c->crt_layout, c->crt_dsl, 1, &w);
+     vkCmdPushConstants(c->cmd, c->crt_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof pc, &pc);
+     vkCmdDraw(c->cmd, 3, 1, 0, 0);
+     vkCmdEndRendering(c->cmd);
+@@ -3136,7 +3173,7 @@
+     vkCmdSetViewport(c->cmd, 0, 1, &vp);
+     vkCmdSetScissor(c->cmd, 0, 1, &sc);
+     vkCmdBindPipeline(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, c->sc_pipe);
+-    vkCmdPushDescriptorSet(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, c->sc_layout, 0, 3, wr);
++    bind_draw_descriptors(c, c->sc_layout, c->sc_dsl, 3, wr);
+     vkCmdDraw(c->cmd, 3, 1, 0, 0);
+     vkCmdEndRendering(c->cmd);
+ 

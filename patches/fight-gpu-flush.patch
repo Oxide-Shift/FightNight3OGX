@@ -1,0 +1,22 @@
+--- a/xbox_memory_layout.c
++++ b/xbox_memory_layout.c
+@@ -1047,6 +1047,8 @@
+                 (volatile uint32_t *)((char *)regs + NV2A_ACK[0].offset);
+             if (*r & NV2A_ACK[0].busy_mask) {
+                 *r &= ~NV2A_ACK[0].busy_mask;
++                extern void fight_gpu_flush_ack(void);
++                fight_gpu_flush_ack();
+                 QueryPerformanceCounter(&last);
+             }
+         }
+@@ -1075,6 +1077,10 @@
+                 (volatile uint32_t *)((char *)regs + NV2A_ACK[i].offset);
+             if (*r & NV2A_ACK[i].busy_mask) {
+                 *r &= ~NV2A_ACK[i].busy_mask;
++                if (NV2A_ACK[i].offset == 0x100410) {
++                    extern void fight_gpu_flush_ack(void);
++                    fight_gpu_flush_ack();
++                }
+             }
+         }
+         for (size_t i = 0; i < sizeof(NV2A_IDLE) / sizeof(NV2A_IDLE[0]); i++) {

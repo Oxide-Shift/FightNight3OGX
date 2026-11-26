@@ -15,7 +15,41 @@ final class DiscBuild {
     final boolean benchmark;
     private static volatile String completedBenchmark;
     File playableModule(){return preparedModule(folder);}
-    boolean needsPreparation(){return !playableModule().isFile() || (benchmark && !folder.getName().equals(completedBenchmark));}
+    private File inspected;
+    private long inspectedLength,inspectedTime;
+    private boolean loadableLayout;
+    synchronized boolean needsPreparation(){
+        File module=playableModule();
+        long length=module.length(),time=module.lastModified();
+        if(!module.equals(inspected) || length!=inspectedLength || time!=inspectedTime){
+            inspected=module;inspectedLength=length;inspectedTime=time;loadableLayout=arm64Module(module);
+        }
+        return !loadableLayout || (module.getParentFile().equals(folder) && seal(module).length()!=32) ||
+                (benchmark && !folder.getName().equals(completedBenchmark));
+    }
+
+    static boolean arm64Module(File module){
+        if(!module.isFile())return false;
+        try(RandomAccessFile file=new RandomAccessFile(module,"r")){
+            long size=file.length();
+            byte[] h=new byte[64];file.readFully(h);
+            java.nio.ByteBuffer b=java.nio.ByteBuffer.wrap(h).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+            if(b.getInt(0)!=0x464c457f || h[4]!=2 || h[5]!=1 || b.getShort(16)!=3 || b.getShort(18)!=183)return false;
+            long table=b.getLong(32);
+            int stride=b.getShort(54)&65535,count=b.getShort(56)&65535;
+            if(table<64 || stride!=56 || count==0 || table>size-(long)stride*count)return false;
+            file.seek(table);
+            boolean text=false;
+            for(int i=0;i<count;i++){
+                file.readFully(h,0,stride);
+                if(b.getInt(0)!=1)continue;
+                long offset=b.getLong(8),bytes=b.getLong(32);
+                if(offset<0 || bytes<0 || bytes>b.getLong(40) || offset>size-bytes)return false;
+                if((b.getInt(4)&1)!=0 && bytes>0)text=true;
+            }
+            return text;
+        }catch(IOException e){return false;}
+    }
 
     DiscBuild(Context context) throws IOException {
         app=context.getApplicationContext();
@@ -94,13 +128,17 @@ final class DiscBuild {
         }
     }
 
-    synchronized String prepare(File xbe, GameLibrary.Status status)throws Exception{
+    String prepare(File xbe, GameLibrary.Status status)throws Exception{
+        synchronized(DiscBuild.class){return prepareLocked(xbe,status);}
+    }
+
+    private String prepareLocked(File xbe, GameLibrary.Status status)throws Exception{
         if(!needsPreparation())return "Xbox game ready";
         final long started=android.os.SystemClock.elapsedRealtime();
         long translating=0,compiling=0;
         File trial=new File(folder,"timed-build");
         File module=new File(folder,"libfightnight_game.so");
-        File output=module;
+        File output=new File(folder,"libfightnight_candidate.so");
         if(benchmark){
             GameLibrary.clearStage(trial.toPath());
             output=new File(new File(trial,"output"),module.getName());
@@ -124,11 +162,16 @@ final class DiscBuild {
         env.put("LIBCAPSTONE_PATH",nativeDir.getAbsolutePath());env.put("LD_LIBRARY_PATH",nativeDir.getAbsolutePath());
         File temp=new File(folder,"tmp");Files.createDirectories(temp.toPath());env.put("TMPDIR",temp.getAbsolutePath());
         status.update("Reading Xbox executable");
-        Process p=builder.start();
+        Process p;
+        try{p=builder.start();}
+        catch(IOException e){throw new DiscImport.Failure(DiscImport.Reason.COMPILER,
+                "Android could not start the bundled ARM64 compiler. Install the complete APK over this app, then tap Prepare game.");}
+        boolean outOfSpace=false;
         try(BufferedReader in=new BufferedReader(new InputStreamReader(p.getInputStream(),"UTF-8"));
             PrintWriter log=new PrintWriter(new File(folder,"build.log"),"UTF-8")){
             for(String line;(line=in.readLine())!=null;){
                 log.println(line);
+                if(line.contains("No space left on device") || line.contains("ENOSPC"))outOfSpace=true;
                 if(translating==0 && line.startsWith("Translating Xbox functions:"))translating=android.os.SystemClock.elapsedRealtime();
                 if(compiling==0 && (line.startsWith("Preparing shared") || line.startsWith("Compiling Xbox game:")))compiling=android.os.SystemClock.elapsedRealtime();
                 if(line.startsWith("Compiling Xbox game") || line.startsWith("Preparing shared") ||
@@ -145,13 +188,22 @@ final class DiscBuild {
             int result=p.waitFor();
             if(result!=0 || !output.isFile()){
                 android.util.Log.e("FightNightDiscBuild","Compiler exited "+result);
-                throw new IOException("Game preparation stopped. Tap Prepare game to retry.");
+                if(outOfSpace)throw new DiscImport.Failure(DiscImport.Reason.SPACE,
+                        "Compilation ran out of internal storage. Free space on this device, then tap Prepare game to resume.");
+                String message=result==137 || result==143
+                        ?"Android stopped the compiler. Close other apps, keep Fight Setup open and tap Prepare game to resume."
+                        :"The compiler stopped (exit "+result+"). Tap Prepare game to retry with the installed disc.";
+                throw new DiscImport.Failure(DiscImport.Reason.COMPILER,message);
             }
         }finally{p.destroy();}
-        if(benchmark){
-            Files.move(output.toPath(),module.toPath(),StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
-            completedBenchmark=folder.getName();
-        }
+        status.update("Checking prepared game");
+        verifyAndPublish(output,module,candidate->{
+            Process probe=new ProcessBuilder(runner.getAbsolutePath(),"--check-module",candidate.getAbsolutePath())
+                    .redirectErrorStream(true).redirectOutput(new File(folder,"module-check.log")).start();
+            try{return probe.waitFor(30,java.util.concurrent.TimeUnit.SECONDS) && probe.exitValue()==0;}
+            finally{probe.destroyForcibly();}
+        });
+        if(benchmark)completedBenchmark=folder.getName();
         final long finished=android.os.SystemClock.elapsedRealtime();
         // The module lives under files/, so Android clearing cache cannot require another disc build.
         // Remove only compiler files in the game's dedicated private build directory.
@@ -166,6 +218,7 @@ final class DiscBuild {
                 }
                 GameLibrary.clearStage(trial.toPath());
             }else GameLibrary.clearStage(kit.toPath());
+            GameLibrary.clearStage(temp.toPath());
             File[] prior=folder.getParentFile().listFiles();
             if(prior!=null)for(File old:prior)
                 if(!old.equals(folder) && old.getName().matches("[0-9a-f]{64}"))GameLibrary.clearStage(old.toPath());
@@ -174,6 +227,45 @@ final class DiscBuild {
             return "Game ready  ·  Translation "+duration(compiling-translating)+"  ·  Compile and link "+duration(finished-compiling)+"  ·  Total "+duration(finished-started);
         }
         return "Xbox game ready";
+    }
+    private static File seal(File module){return new File(module.getParentFile(),module.getName()+".sha256");}
+    private static byte[] moduleDigest(File module)throws IOException{
+        java.security.MessageDigest hash;
+        try{hash=java.security.MessageDigest.getInstance("SHA-256");}
+        catch(java.security.NoSuchAlgorithmException impossible){throw new AssertionError(impossible);}
+        try(InputStream input=new FileInputStream(module)){
+            byte[] block=new byte[128*1024];
+            for(int n;(n=input.read(block))!=-1;)hash.update(block,0,n);
+        }
+        return hash.digest();
+    }
+    // Called off the UI thread immediately before spawning the game child. A damaged
+    // payload can retain both its ELF load segments and its original file length.
+    static synchronized boolean verifyPayload(File module)throws IOException{
+        File receipt=seal(module);
+        if(receipt.length()==32 && java.security.MessageDigest.isEqual(
+                Files.readAllBytes(receipt.toPath()),moduleDigest(module)))return true;
+        Files.deleteIfExists(receipt.toPath());
+        return false;
+    }
+    File sealedModule(){
+        File module=playableModule();
+        return module.getParentFile().equals(folder)?module:null;
+    }
+    interface ModuleCheck {boolean canLoad(File module)throws Exception;}
+    static void verifyAndPublish(File candidate,File destination,ModuleCheck check)throws Exception{
+        if(!check.canLoad(candidate)){
+            Files.deleteIfExists(candidate.toPath());
+            throw new DiscImport.Failure(DiscImport.Reason.COMPILER,"Android could not load the compiled ARM64 game. Tap Prepare game to retry. If it repeats, send the report from Fight Setup.");
+        }
+        Path temp=Files.createTempFile(destination.getAbsoluteFile().getParentFile().toPath(),"module-receipt-",".tmp");
+        try{
+            try(FileOutputStream stream=new FileOutputStream(temp.toFile())){
+                stream.write(moduleDigest(candidate));stream.getFD().sync();
+            }
+            Files.move(candidate.toPath(),destination.toPath(),StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
+            Files.move(temp,seal(destination).toPath(),StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
+        }finally{Files.deleteIfExists(temp);}
     }
     static String duration(long ms){
         long seconds=(ms+500)/1000;

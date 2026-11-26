@@ -75,7 +75,18 @@ static void stalled_poll(void){
     assert(poll_handle()==0x48f && rd32(POLL_OUT)==17);
     ram[POLL_DEVICE+4]=0;ram[POLL_TYPE_DESC+0x28]=0x10;
     assert(poll_handle()==0x57 && rd32(POLL_OUT)==0xcccccccc);
-    ram[POLL_TYPE_DESC+0x28]=0;assert(pad_message("PAD off"));
+    ram[POLL_TYPE_DESC+0x28]=0;
+    extern void fight_pad_menu(int),fight_pad_playlist(int);
+    fight_pad_menu(1);
+    assert(pad_message("PAD 200000000000000000000000000000000000"));
+    assert(!poll_handle() && !(ram[POLL_OUT+4]&32));
+    fight_pad_playlist(1);assert(!poll_handle() && (ram[POLL_OUT+4]&32));
+    assert(pad_message("PAD 000000000000000000000000000000000000"));
+    assert(!poll_handle() && (ram[POLL_OUT+4]&32));
+    fight_pad_menu(0);assert(!poll_handle() && !(ram[POLL_OUT+4]&32));
+    assert(pad_message("PAD 200000000000000000000000000000000000"));
+    assert(!poll_handle() && (ram[POLL_OUT+4]&32));
+    assert(pad_message("PAD off"));
     assert(!poll_handle() && rd32(POLL_OUT)==17 && ram[POLL_OUT+4+9]==255);
     puts("Retail poll recovered block, release and direction reversal with the USB report frozen");
 }

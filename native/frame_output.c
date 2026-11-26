@@ -28,6 +28,12 @@ static atomic_flag busy = ATOMIC_FLAG_INIT;
 static unsigned slot_bytes, published;
 static uint32_t pending_address;
 static int pending,published_high;
+#ifdef __ANDROID__
+extern void fight_shared_finish(unsigned,uint32_t);
+#else
+static void fight_shared_finish(unsigned token,uint32_t serial){(void)token;(void)serial;}
+#endif
+static unsigned pending_gpu;
 /* Owned by a Vulkan readback slot until frame_output_forget_native returns. */
 static const uint8_t *native_reference;
 
@@ -95,14 +101,23 @@ static int stage(const uint8_t *src, unsigned w, unsigned h, unsigned bpp) {
     }
     return 1;
 }
-int frame_output_high(const uint8_t *bgra,unsigned w,unsigned h,uint32_t address,const uint8_t *native_pixels) {
+int frame_output_high_token(const uint8_t *bgra,unsigned w,unsigned h,uint32_t address,const uint8_t *native_pixels,unsigned gpu_token) {
     if(!slot_bytes || atomic_flag_test_and_set_explicit(&busy,memory_order_acquire))return 0;
+    fight_shared_finish(pending_gpu,0);pending_gpu=0;
     int staged=stage(bgra,w,h,4);
+    if(staged && gpu_token){
+        unsigned next=published+1;if(!next)next=1;
+        uint32_t *slot=(uint32_t*)((uint8_t*)surface+16+(size_t)(next%3)*slot_bytes);
+        slot[0]=w|(gpu_token<<16);pending_gpu=gpu_token;
+    }
     pending=staged;published_high=0;
     pending_address=physical_address(address);
     native_reference=staged?native_pixels:NULL;
     atomic_flag_clear_explicit(&busy,memory_order_release);
     return staged;
+}
+int frame_output_high(const uint8_t *pixels,unsigned w,unsigned h,uint32_t address,const uint8_t *native) {
+    return frame_output_high_token(pixels,w,h,address,native,0);
 }
 void frame_output_forget_native(void) {
     while(atomic_flag_test_and_set_explicit(&busy,memory_order_acquire)){}
@@ -126,6 +141,7 @@ void frame_output_present(uint32_t address, uint32_t pitch) {
         if(high || stage(XBOX_HOST(address),WIDTH,HEIGHT,pitch/WIDTH)){
             published_high=high;
             if(++published==0)published=1;
+            fight_shared_finish(pending_gpu,high?published:0);pending_gpu=0;
             atomic_store_explicit((_Atomic uint32_t*)surface,published,memory_order_release);
 #ifdef __ANDROID__
             syscall(SYS_futex,surface,FUTEX_WAKE,INT_MAX,NULL,NULL,0);

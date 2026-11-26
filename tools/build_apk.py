@@ -8,12 +8,13 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
-from expanded_tracks import EXPANDED
+from expanded_tracks import EXPANDED, verify as verify_expanded_tracks
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("private_dir", type=Path)
+    parser.add_argument("--output", type=Path, help="Write the APK under a separate private candidate filename")
     parser.add_argument("--jdk", type=Path, required=True)
     parser.add_argument("--build-tools", type=Path, required=True)
     parser.add_argument("--platform", type=Path, required=True, help="Path to android.jar")
@@ -26,11 +27,25 @@ def main():
     parser.add_argument("--emulator", action="store_true", help="Package a private x86-64 Android test host")
     parser.add_argument("--benchmark", action="store_true", help="Time a full uncached disc preparation on each new app process")
     parser.add_argument("--profile", action="store_true", help="Allow Android shell CPU profiling on a private disc build")
+    parser.add_argument("--offline-qa", action="store_true", help="Build a private USB test APK without the Android internet permission")
+    parser.add_argument("--usb-sweep", action="store_true", help="Build a separately installed, offline hardware QA app")
+    parser.add_argument("--usb-startup", action="store_true", help="Add the shell-only startup test to the offline APK")
+    parser.add_argument("--offline-debug", action="store_true", help="Allow app-scoped native debugging on the private offline build")
     args = parser.parse_args()
+    if not args.setup:
+        verify_expanded_tracks()
     if args.benchmark and not args.disc_kit:
         parser.error("--benchmark requires --disc-kit")
     if args.profile and not args.disc_kit:
         parser.error("--profile requires --disc-kit")
+    if args.offline_qa and not args.disc_kit:
+        parser.error("--offline-qa requires --disc-kit")
+    if args.usb_sweep and not (args.offline_qa and args.offline_debug):
+        parser.error("--usb-sweep requires --offline-qa and --offline-debug")
+    if args.usb_startup and not args.offline_qa:
+        parser.error("--usb-startup requires --offline-qa")
+    if args.offline_debug and not args.offline_qa:
+        parser.error("--offline-debug requires --offline-qa")
     project = Path(__file__).resolve().parents[1]
     sdk, jar, jdk = args.build_tools.resolve(), args.platform.resolve(), args.jdk.resolve() / "bin"
     private = args.private_dir.resolve()
@@ -52,7 +67,7 @@ def main():
             parser.error("The on-device compiler requires ARM64")
         from xml.etree import ElementTree
         version = ElementTree.parse(app / "AndroidManifest.xml").getroot().get("{http://schemas.android.com/apk/res/android}versionName")
-        suffix = "-profile.apk" if args.profile else ".apk"
+        suffix = ("-offline" if args.offline_qa else "") + ("-profile" if args.profile else "") + ("-debug" if args.offline_debug else "") + ".apk"
         output = private / ("FightNight3OGX-" + version + suffix)
     else:
         with args.host.open("rb") as f:
@@ -61,6 +76,8 @@ def main():
             parser.error(f"Expected a little-endian {abi} ELF PIE")
     if args.emulator:
         output = private / "FightNight3OGX-Emulator-test.apk"
+    if args.output:
+        output = args.output.resolve()
     with tempfile.TemporaryDirectory(dir=private) as tmp:
         work = Path(tmp)
         classes, dex = work / "classes", work / "dex"
@@ -68,6 +85,10 @@ def main():
         def run(*cmd, **opts):
             subprocess.run(cmd, cwd=work, check=True, **opts)
         source = sorted((app / "src").rglob("*.java"))
+        if args.usb_sweep:
+            source.append(project / "tests/android/UsbSweepCheck.java")
+        if args.usb_startup:
+            source.append(project / "tests/android/UsbStartupCheck.java")
         if args.setup:
             shared = project / "android/src/org/oxideshift/corner"
             source.extend(shared / name for name in ("PrivateFeed.java", "ReleaseAsset.java", "ReleaseVersion.java"))
@@ -81,13 +102,40 @@ def main():
             "--lib", jar, "--output", dex, compiled)
         unsigned = work / "unsigned.apk"
         manifest = app / "AndroidManifest.xml"
-        if args.profile:
+        if args.profile or args.offline_qa:
             android_ns = "http://schemas.android.com/apk/res/android"
             ElementTree.register_namespace("android", android_ns)
             tree = ElementTree.parse(manifest)
-            ElementTree.SubElement(tree.getroot().find("application"), "profileable",
-                                   {f"{{{android_ns}}}shell": "true"})
-            manifest = work / "profile-manifest.xml"
+            if args.profile:
+                ElementTree.SubElement(tree.getroot().find("application"), "profileable",
+                                       {f"{{{android_ns}}}shell": "true"})
+            if args.usb_sweep:
+                root = tree.getroot()
+                original = root.get("package")
+                root.set("package", original + ".usbqa")
+                app_element = root.find("application")
+                app_element.set(f"{{{android_ns}}}label", "Fight Night USB QA")
+                for component in app_element:
+                    name = component.get(f"{{{android_ns}}}name", "")
+                    if name.startswith("."):
+                        component.set(f"{{{android_ns}}}name", original + name)
+                attrs = {f"{{{android_ns}}}exported": "true", f"{{{android_ns}}}permission": "android.permission.DUMP"}
+                ElementTree.SubElement(app_element, "activity", {**attrs, f"{{{android_ns}}}name": original + ".UsbSweepCheck", f"{{{android_ns}}}launchMode": "singleTop",
+                    f"{{{android_ns}}}screenOrientation": "sensorLandscape", f"{{{android_ns}}}resizeableActivity": "true"})
+                ElementTree.SubElement(app_element, "receiver", {**attrs, f"{{{android_ns}}}name": original + ".UsbSweepCheck$Inspect"})
+            if args.usb_startup:
+                activity = tree.getroot().find("application/activity")
+                attrs = dict(activity.attrib)
+                attrs[f"{{{android_ns}}}name"] = ".UsbStartupCheck"
+                attrs[f"{{{android_ns}}}permission"] = "android.permission.DUMP"
+                ElementTree.SubElement(tree.getroot().find("application"), "activity", attrs)
+            if args.offline_qa:
+                if args.offline_debug:
+                    tree.getroot().find("application").set(f"{{{android_ns}}}debuggable","true")
+                for node in tree.getroot().findall("uses-permission"):
+                    if node.get(f"{{{android_ns}}}name")=="android.permission.INTERNET":
+                        tree.getroot().remove(node)
+            manifest = work / "qa-manifest.xml"
             tree.write(manifest, encoding="utf-8", xml_declaration=True)
         link = [sdk / "aapt2.exe", "link", "-I", jar, "--manifest", manifest, "-o", unsigned]
         if not args.setup:

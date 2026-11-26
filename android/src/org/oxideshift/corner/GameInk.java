@@ -1,8 +1,9 @@
 package org.oxideshift.corner;
 
-/** Front-end letter colors sampled from the original contract and main-menu screens. */
+/** Shared inks for fight bills, printed scorecards and the ringside desk. */
 final class GameInk {
-    static final int TEXT=0xffd9d9d7, MUTED=0xffbfb9aa, GOLD=0xffefb535, ORANGE=0xffe25717;
-    static final int NAME_RED=0xff8d1e1e, DARK=0xff251c12, PAPER=0xffc5ad65;
+    static final int TEXT=0xfffff8e9, MUTED=0xffbaafa0, GOLD=0xfff6bf55, ORANGE=0xffaf3927;
+    static final int NAME_RED=0xff882b20, DARK=0xff191715, PAPER=0xfff2e6ca;
+    static final int BLUE_CORNER=0xff89bced, RED_CORNER=0xffff7865;
     private GameInk(){}
 }

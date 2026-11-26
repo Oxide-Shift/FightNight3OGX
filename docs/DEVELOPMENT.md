@@ -38,3 +38,11 @@ On AYN Thor, the launcher rebuilds the six controller-configuration loading movi
 For the Alpha 47 release, attach a byte-identical copy named `FightNight-Round3-Thor-0.4.0-alpha.47.apk` alongside the primary APK. Alpha 46 matches that exact legacy filename. Alpha 47 and later look for the FightNight3OGX filename.
 
 To measure a full retail setup, start with a fresh install and select the disc. **Disc to ready** covers extraction and compilation, which overlap.
+
+## Unattended Thor testing
+
+From the Windows `Recomps` workspace, run `& .\FightNight3OGX\tools\Start-Thor-Sweep.ps1` with the authorized Thor connected over USB. The script uses the Android SDK under the current Windows account, the local signed QA kit, and the original Xbox ISO. Pass `-Iso` to select another local path. The separately installed `org.oxideshift.corner.usbqa` package owns the test import, boxer profile, achievements and settings.
+
+The runner verifies the disc checksum before import and can resume an interrupted copy. It checks the default launcher, then selects High, 1080p and 60 FPS for the six venue tests. Each run writes its case results, captures and device timing to a new folder under `Thor-Stutter-Captures/Hardware-Sweep`. An unobserved treatment gesture or a fight without an ending remains visible in the results.
+
+The SDK server listens on Windows loopback at `127.0.0.1:5037`. If regular PowerShell lists the Thor and another execution environment receives Windows error 10013 when connecting to this address, live control needs loopback access in that environment. The one-shot sweep can also run directly from regular PowerShell.

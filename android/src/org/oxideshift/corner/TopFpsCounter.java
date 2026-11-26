@@ -14,11 +14,11 @@ final class TopFpsCounter extends TextView implements Runnable {
     private boolean running,pausedMenu;
     private int previous=-1;
 
-    TopFpsCounter(Context context,GameScreen screen,CornerSession session){
+    TopFpsCounter(Context context,GameScreen screen,CornerSession session,Typeface face){
         super(context);
         this.screen=screen;this.session=session;
         setTextSize(TypedValue.COMPLEX_UNIT_DIP,12);
-        setTypeface(Typeface.MONOSPACE,Typeface.BOLD);
+        setTypeface(face);
         setTextColor(0xff39ff14);setBackgroundColor(Color.TRANSPARENT);
         setIncludeFontPadding(false);setSingleLine(true);
         setFocusable(false);setClickable(false);

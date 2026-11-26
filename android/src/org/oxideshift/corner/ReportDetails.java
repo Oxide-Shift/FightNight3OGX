@@ -30,6 +30,8 @@ final class ReportDetails {
         if(Build.SUPPORTED_ABIS.length>0)label(d,"preferred_abi",Build.SUPPORTED_ABIS[0]);
         if(Build.VERSION.SDK_INT>=31){label(d,"soc_vendor",Build.SOC_MANUFACTURER);label(d,"soc_model",Build.SOC_MODEL);}
         d.put("cpu_cores",Runtime.getRuntime().availableProcessors());
+        long pageBytes=android.system.Os.sysconf(android.system.OsConstants._SC_PAGESIZE);
+        if(pageBytes>0)d.put("host_page_bytes",pageBytes);
         try{
             ActivityManager am=activity.getSystemService(ActivityManager.class);
             if(am!=null){
@@ -40,6 +42,7 @@ final class ReportDetails {
         }catch(RuntimeException ignored){}
         try{
             DisplayManager dm=activity.getSystemService(DisplayManager.class);
+            if(dm!=null)d.put("presentation_displays",dm.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION).length);
             Display display=dm==null?null:dm.getDisplay(Display.DEFAULT_DISPLAY);
             if(display!=null){
                 Display.Mode mode=display.getMode();d.put("display_width",mode.getPhysicalWidth());
@@ -72,7 +75,9 @@ final class ReportDetails {
             if(item.length()==0)continue;
             text.append("\n\n").append(group.equals("device")?"Device at report time":group.equals("rom")?"Game disc details":"Failure details");
             if(item.has("disc_files_sha256"))text.append(USA_FILES.equals(item.getString("disc_files_sha256"))?
-                    "\nGame files match the tested USA disc.":"\nGame files differ from the tested USA disc.");
+                    "\nGame files match the tested USA disc.":"installed_only".equals(item.optString("origin"))?
+                    "\nInstalled files differ from the original USA disc. In-game menu and control artwork can change this fingerprint.":
+                    "\nImported files differ from the tested USA disc.");
             if("installed_only".equals(item.optString("origin")))text.append(item.has("disc_files_sha256")?
                     "\nFingerprint measured from the installed game folder.":"\nExisting installation. The installed executable was checked.");
             List<String> keys=new ArrayList<>();for(Iterator<String> i=item.keys();i.hasNext();)keys.add(i.next());

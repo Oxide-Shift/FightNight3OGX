@@ -30,9 +30,23 @@ static atomic_flag lock=ATOMIC_FLAG_INIT;
 static atomic_int connected;
 #include "menu_dpad.h"
 static MenuDpad root_dpad;
+enum { ROOT_PLAYLIST_BUTTON=0x20 };
+static int playlist_down;
+static void set_playlist_button(int down){
+    if(playlist_down==down)return;
+    playlist_down=down;
+    latest.Gamepad.wButtons=(latest.Gamepad.wButtons & ~ROOT_PLAYLIST_BUTTON) | (down?ROOT_PLAYLIST_BUTTON:0);
+    latest.dwPacketNumber++;
+}
+void fight_pad_playlist(int down){
+    while(atomic_flag_test_and_set(&lock)){}
+    set_playlist_button(down && root_dpad.enabled);
+    atomic_flag_clear(&lock);
+}
 
 void fight_pad_menu(int enabled){
     while(atomic_flag_test_and_set(&lock)){}
+    set_playlist_button(0);
     menu_dpad_reset(&root_dpad,enabled,latest.Gamepad.wButtons);
     atomic_flag_clear(&lock);
 }
@@ -64,6 +78,7 @@ int pad_message(const char *line){
     const char *p=line+4;
     if(strcspn(p,"\r\n")==3&&!strncmp(p,"off",3)){
         while(atomic_flag_test_and_set(&lock)){}
+        set_playlist_button(0);
         atomic_store(&connected,0);
         menu_dpad_reset(&root_dpad,root_dpad.enabled,0);
         atomic_flag_clear(&lock);return 1;
@@ -77,6 +92,7 @@ int pad_message(const char *line){
     while(atomic_flag_test_and_set(&lock)){}
     _Static_assert(sizeof(XBOX_GAMEPAD)==18,"XID wire layout");
     if(root_dpad.enabled){
+        bytes[0]=(bytes[0]&~ROOT_PLAYLIST_BUTTON)|(playlist_down?ROOT_PLAYLIST_BUTTON:0);
         const uint8_t *last=(const uint8_t *)&latest.Gamepad;
         // Never replay navigation across an accept, back, start or stick input.
         if(((last[0]^bytes[0])&0xf0) || memcmp(last+1,bytes+1,17))

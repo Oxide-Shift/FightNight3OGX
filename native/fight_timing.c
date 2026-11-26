@@ -57,6 +57,10 @@ static void report(void){
 }
 void fight_timing_flip(int64_t before,int64_t after,int64_t end) {
     static int64_t previous;
+#ifdef FNR3_FRAME_PROFILE
+    if (!previous) fprintf(stderr,"[QATID] render %lu\n",(unsigned long)GetCurrentThreadId());
+    int64_t submit = submit_ns, copy = copy_ns;
+#endif
     int64_t work=before-previous+end-after,interval=end-previous,wait=fence_ns;
 #ifdef __ANDROID__
     static int64_t last_warning,previous_cpu;
@@ -98,6 +102,11 @@ void fight_timing_flip(int64_t before,int64_t after,int64_t end) {
     }else quiet_ticks=0;
     last_tick=tick;
     if(interval<=0 || interval>2000000000LL || work<0)return;
+#ifdef FNR3_FRAME_PROFILE
+    fprintf(stderr,"[FRAMEQA] %u %u %u %u %lld %lld %lld %lld %lld\n",bout,tick,thrown,landed,
+            (long long)(interval/1000),(long long)(work/1000),(long long)(wait/1000),
+            (long long)(submit/1000),(long long)(copy/1000));
+#endif
     if(event){
         for(unsigned k=1;k<=3 && k<=count;k++)samples[(pos+WINDOW-k)%WINDOW].exchange=1;
         tail=6;

@@ -1,0 +1,103 @@
+--- a/vkr.c
++++ b/vkr.c
+@@ -2326,6 +2326,8 @@
+     return t;
+ }
+ 
++#include "fight_texture_resource.h"
++
+ /* mips: also build the mip chain on the GPU (linear blits, level by level).
+  * The backend decodes only a texture's base level, and without smaller
+  * levels distant surfaces shimmer and anisotropic filtering has nothing to
+@@ -2337,14 +2339,12 @@
+     VkrTex *t = (VkrTex *)calloc(1, sizeof *t);
+     uint32_t levels = 1, l;
+     VkImageCreateInfo ii = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+-    VkMemoryRequirements mr;
+-    VkMemoryAllocateInfo ai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+-    VkImageViewCreateInfo vi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+     VkBufferImageCopy cp = {0};
+-    uint32_t off = (c->buf_used + 15) & ~15u, bytes = w * h * 4;
+-    int m;
+-
+-    if (!t || !w || !h || off + bytes > VKR_BUF_BYTES) { free(t); return NULL; }
++    uint32_t off = (c->buf_used + 15) & ~15u;
++    uint64_t texels = (uint64_t)w * h;
++
++    if (!t || !texels || off > VKR_BUF_BYTES || texels > (VKR_BUF_BYTES - off) / 4) { free(t); return NULL; }
++    uint32_t bytes = (uint32_t)texels * 4;
+     if (c->tex_mips < 0) {
+         const char *e = getenv("RECOMP_TEX_MIPS");
+         c->tex_mips = !(e && *e == '0');
+@@ -2359,21 +2359,10 @@
+     ii.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT
+              | (levels > 1 ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
+     ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+-    if (vkCreateImage(c->dev, &ii, NULL, &t->img) != VK_SUCCESS) { free(t); return NULL; }
+-    vkGetImageMemoryRequirements(c->dev, t->img, &mr);
+-    m = find_mem(c, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+-    ai.allocationSize = mr.size; ai.memoryTypeIndex = (uint32_t)(m < 0 ? 0 : m);
+-    if (vkAllocateMemory(c->dev, &ai, NULL, &t->mem) != VK_SUCCESS) {
+-        vkDestroyImage(c->dev, t->img, NULL); free(t); return NULL;
+-    }
+-    vkBindImageMemory(c->dev, t->img, t->mem, 0);
+-    vi.image = t->img; vi.viewType = VK_IMAGE_VIEW_TYPE_2D; vi.format = ii.format;
+-    vi.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+-    vi.subresourceRange.levelCount = levels; vi.subresourceRange.layerCount = 1;
+-    vkCreateImageView(c->dev, &vi, NULL, &t->view);
++    if (!fight_create_texture_image(c, t, &ii)) { free(t); return NULL; }
+     t->key = key; t->w = w; t->h = h;
+ 
+-    if (!begin_cmd(c)) return NULL;
++    if (!begin_cmd(c)) { tex_free_one(c, t); return NULL; }
+     VkCommandBuffer upload = fight_upload_cmd(c, 1);
+     memcpy(c->buf_map + off, pixels, bytes);
+     c->buf_used = off + bytes;
+@@ -2449,15 +2438,11 @@
+ {
+     VkrTex *t;
+     VkImageCreateInfo ii = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+-    VkMemoryRequirements mr;
+-    VkMemoryAllocateInfo ai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+-    VkImageViewCreateInfo vi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+     VkBufferImageCopy cp[16];
+     uint32_t off = (c->buf_used + 15) & ~15u, l, lw, lh;
+     size_t pos = 0;
+-    int m;
+-
+-    if(!w || !h || !mips || mips>16 || size>VKR_BUF_BYTES-off)return NULL;
++
++    if(!w || !h || !mips || mips>16 || off>VKR_BUF_BYTES || size>VKR_BUF_BYTES-off)return NULL;
+     for (l = 0, lw = w, lh = h; l < mips; l++) {       /* the levels fit in data */
+         pos += (size_t)((lw + 3) / 4) * ((lh + 3) / 4) * block;
+         lw = lw > 1 ? lw / 2 : 1; lh = lh > 1 ? lh / 2 : 1;
+@@ -2470,19 +2455,8 @@
+     ii.tiling = VK_IMAGE_TILING_OPTIMAL;
+     ii.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+     ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+-    if (vkCreateImage(c->dev, &ii, NULL, &t->img) != VK_SUCCESS) { free(t); return NULL; }
+-    vkGetImageMemoryRequirements(c->dev, t->img, &mr);
+-    m = find_mem(c, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+-    ai.allocationSize = mr.size; ai.memoryTypeIndex = (uint32_t)(m < 0 ? 0 : m);
+-    if (vkAllocateMemory(c->dev, &ai, NULL, &t->mem) != VK_SUCCESS) {
+-        vkDestroyImage(c->dev, t->img, NULL); free(t); return NULL;
+-    }
+-    vkBindImageMemory(c->dev, t->img, t->mem, 0);
+-    vi.image = t->img; vi.viewType = VK_IMAGE_VIEW_TYPE_2D; vi.format = ii.format;
+-    vi.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+-    vi.subresourceRange.levelCount = mips; vi.subresourceRange.layerCount = 1;
+-    vkCreateImageView(c->dev, &vi, NULL, &t->view);
+-    t->key = key; t->w = w; t->h = h; t->bytes = pos; t->flags = flags;
++    if (!fight_create_texture_image(c, t, &ii)) { free(t); return NULL; }
++    t->key = key; t->w = w; t->h = h; t->flags = flags;
+ 
+     if (!begin_cmd(c)) { tex_free_one(c, t); return NULL; }
+     VkCommandBuffer upload = fight_upload_cmd(c, 1);
+@@ -2507,6 +2481,7 @@
+                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                  VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+     t->last_use = c->flip_serial;
++    t->bytes = pos;
+     c->tex_bytes += t->bytes;
+     tex_index_add(c, t);
+     return t;

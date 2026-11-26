@@ -44,3 +44,5 @@ JNIEXPORT void JNICALL Java_org_oxideshift_corner_GameScreen_measureCamera(JNIEn
     jfloat correction[]={c->x/256.f,c->y/144.f};
     (*env)->SetFloatArrayRegion(env,out,0,2,correction);
 }
+
+#include "android_gpu_reader.h"

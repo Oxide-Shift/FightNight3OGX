@@ -12,6 +12,16 @@ public class ControllerInputSmoke {
 
         FightPad pad=new FightPad();String neutral=pad.report();
         int gamepad=InputDevice.SOURCE_GAMEPAD;
+        pad.axes(7,0,0,0,0,-1,1,0,0);
+        check(value(pad.report(),0)==6 && pad.report().substring(24).equals(neutral.substring(24)));
+        pad.axes(7,.75f,-.5f,-1,0,1,0,0,.8f);
+        pad.key(7,gamepad,KeyEvent.KEYCODE_BUTTON_X,true);
+        String held=pad.report();
+        check(pad.cancelMotion(7,false) && value(pad.report(),0)==0);
+        check(pad.report().substring(6).equals(held.substring(6)));
+        check(pad.cancelMotion(7,true) && value(pad.report(),4)==255);
+        check(pad.report().substring(16).equals(neutral.substring(16)));
+        check(pad.remove(7) && pad.report().equals(neutral));
         for(int i=0;i<10000;i++){
             pad.axes(1,1,-1,0,0,-1,0,.5f,0);
             pad.axes(2,0,0,.01f,.01f,0,0,0,0);

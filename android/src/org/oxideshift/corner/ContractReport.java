@@ -20,7 +20,7 @@ final class ContractReport extends LinearLayout {
 
     private static final int PAPER=GameInk.PAPER, INK=GameInk.DARK;
     private static final int OWN=0xff3c513b, RIVAL=GameInk.NAME_RED;
-    private final CareerBackdrop stock=new CareerBackdrop(PAPER,0xdde6d49c,0x91d7bd7d);
+    private final CareerBackdrop stock=new CareerBackdrop(PAPER,0xeef2e6ca,0xc0e5d6bc);
     void setArt(CareerArt art){stock.setArt(art==null?null:art.contract);}
     private final Browse browse;
     private final TextView opponent, record, purse, plan, gesture;
@@ -49,12 +49,12 @@ final class ContractReport extends LinearLayout {
         top.setGravity(Gravity.CENTER_VERTICAL);
         mast.addView(top);
         top.addView(label,new LayoutParams(0,-2,1));
-        gesture=type("Swipe for offers\nTap for full report",fonts.stencil,13,0xffffe2b1);
+        gesture=type("Swipe for offers\nTap for full report",fonts.body,13,GameInk.TEXT);
         gesture.setGravity(Gravity.END);gesture.setPadding(dp(8),0,0,0);
         top.addView(gesture);
         opponent=type("",fonts.stencil,33,GameInk.NAME_RED);
         opponent.setPadding(dp(12),dp(5),dp(12),0);addView(opponent);
-        record=type("",fonts.stencil,16,INK);
+        record=type("",fonts.body,16,INK);
         record.setPadding(dp(12),0,dp(12),dp(4));addView(record);
         View rule=new View(context);rule.setBackgroundColor(0xff8e713d);
         LayoutParams ruleSize=new LayoutParams(-1,dp(1));ruleSize.setMargins(dp(12),0,dp(12),0);addView(rule,ruleSize);
@@ -62,11 +62,11 @@ final class ContractReport extends LinearLayout {
         figures.setOrientation(VERTICAL);
         figures.setPadding(dp(12),dp(6),dp(12),dp(6));
         addView(figures);
-        purse=type("",fonts.stencil,14,INK);
+        purse=type("",fonts.body,14,INK);
         figures.addView(purse);
         tape=new Tape(context,fonts);
         figures.addView(tape,new LayoutParams(-1,-2));
-        plan=type("",fonts.stencil,15,INK);
+        plan=type("",fonts.body,15,INK);
         plan.setPadding(0,dp(3),0,dp(3));
         figures.addView(plan);
         setVisibility(GONE);
@@ -95,13 +95,14 @@ final class ContractReport extends LinearLayout {
             opponent.animate().cancel();opponent.setTranslationX(dp(8));
             opponent.animate().translationX(0).setDuration(200).start();
         }
-        opponent.setText(offer==null?"Reading contract\u2026":offer.name);
-        record.setVisibility(offer!=null && offer.rival!=null?VISIBLE:GONE);
-        if(offer!=null && offer.rival!=null)record.setText(recordLine(offer.rival));
+        opponent.setText(offer==null?"NO OFFER YET":offer.name);
+        record.setVisibility(offer==null || offer.rival!=null?VISIBLE:GONE);
+        if(offer==null)record.setText("Review your career options while the next opponent is pending.");
+        else if(offer.rival!=null)record.setText(recordLine(offer.rival));
         figures.setVisibility(offer==null?GONE:VISIBLE);
         if(offer==null){tape.bind(null);return;}
         String details=offer.own==null?"":"Your record   "+recordLine(offer.own);
-        if(offer.purse>=0)details+=(details.isEmpty()?"":"     /     ")+"Purse   "+CareerDesk.money(offer.purse);
+        if(offer.purse>=0)details+=(details.isEmpty()?"":"\n" )+"Total Earnings for the Fight   "+CareerDesk.money(offer.purse);
         purse.setText(details);purse.setVisibility(details.isEmpty()?GONE:VISIBLE);
         tape.bind(offer);
         String experience=offer.experience();

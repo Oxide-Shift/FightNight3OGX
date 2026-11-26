@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdint.h>
 #include "../native/fight_data.c"
+void fight_pad_playlist(int enabled){(void)enabled;}
+void fight_pad_menu(int enabled){(void)enabled;}
 void fight_trax_init(const char *root){(void)root;}
 RECOMP_TLS uint32_t g_ecx;
 size_t g_xbox_total_ram,g_xbox_map_size;

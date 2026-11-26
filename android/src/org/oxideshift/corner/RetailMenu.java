@@ -17,6 +17,12 @@ final class RetailMenu {
     // Fixed-width revision markers also locate the adjacent Thor guide marker.
     private static final byte[] STARTUP_FIXED=ascii("FNR3-ACHIEVEMENTS-A");
     private static final byte[] EXPLICIT_PLAYLIST=ascii("FNR3-ACHIEVEMENTS-B");
+    private static final byte[] MUSIC_PARENT=ascii("FNR3-ACHIEVEMENTS-C");
+    private static final String RETAIL_PARENT_ACTIONS="2d95c08c8fe01a05a238afd34f59d82710442ae7bd68965e5a6654d9e793979d";
+    private static final String ALPHA78_PARENT_ACTIONS="b839b6709319f6434ff0d09cb2849f18b3cca145fcca33c1f76f274ef05ecfcd";
+    private static final String RESPONSIVE_PARENT_ACTIONS="f76a8a7a6ef1b2712d23156ccb9f9085a7dec417948df7884b4c05d2663adf57";
+    private static final String ALIGNED_PARENT_ACTIONS="1c6136e59ad2b5de302f6500dd951a843c764be1008c2e093f15fe422824da06";
+    private static final String LEGACY_MUSIC_ACTIONS="7001601928db0f175becadb74e3e323974dff543f39ffd5d75f82df43a560656";
     private static final int ALIGN=128;
 
     private static byte[] ascii(String s){return s.getBytes(StandardCharsets.US_ASCII);}
@@ -119,8 +125,7 @@ final class RetailMenu {
     }
     static synchronized void installThorGuide(Path game,byte[] artwork)throws IOException{
         if(artwork.length!=ThorLoadingGuide.ART_BYTES)throw new IOException("Invalid Thor guide backdrop");
-        Path archive=game.resolve("GUI/overlay.viv");
-        if(!Files.isRegularFile(archive))archive=game.resolve("gui/overlay.viv");
+        Path archive=TraxArt.guiFile(game.toFile(),"overlay.viv").toPath();
         byte[] stamp=ascii("FNR3-THOR-CONTROLS-4");
         boolean priorGuide,v3;
         try(RandomAccessFile file=new RandomAccessFile(archive.toFile(),"r")){
@@ -132,7 +137,7 @@ final class RetailMenu {
         }
         byte[] outer=Files.readAllBytes(archive);
         byte[] menuStamp=Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length);
-        if(!Arrays.equals(menuStamp,VERSION) && !Arrays.equals(menuStamp,MUSIC_ROUTE) && !Arrays.equals(menuStamp,NAVIGATION) && !Arrays.equals(menuStamp,MUSIC_CHILD) && !Arrays.equals(menuStamp,STARTUP_FIXED) && !Arrays.equals(menuStamp,EXPLICIT_PLAYLIST))
+        if(!Arrays.equals(menuStamp,VERSION) && !Arrays.equals(menuStamp,MUSIC_ROUTE) && !Arrays.equals(menuStamp,NAVIGATION) && !Arrays.equals(menuStamp,MUSIC_CHILD) && !Arrays.equals(menuStamp,STARTUP_FIXED) && !Arrays.equals(menuStamp,EXPLICIT_PLAYLIST) && !Arrays.equals(menuStamp,MUSIC_PARENT))
             throw new IOException("Install the retail menu first");
         for(String variant:new String[]{"CM","CR","HH","PN","Training","Tutorial"}){
             String stem="lp-"+variant+"-ContConfig",group="screengroups/load/"+stem+".big",bankName=stem+".xsh";
@@ -198,15 +203,39 @@ final class RetailMenu {
         return replace(outer,parts,replace(group,texture,bank));
     }
     static synchronized void install(Path game,byte[] tag)throws IOException{
-        Path archive=game.resolve("GUI/overlay.viv");
-        if(!Files.isRegularFile(archive))archive=game.resolve("gui/overlay.viv");
+        Path archive=TraxArt.guiFile(game.toFile(),"overlay.viv").toPath();
+        byte[] installed=new byte[VERSION.length];
         try(RandomAccessFile f=new RandomAccessFile(archive.toFile(),"r")){
             if(f.length()<VERSION.length || f.length()>48L*1024*1024)throw new IOException("Unrecognized overlay archive");
-            byte[] tail=new byte[VERSION.length];f.seek(f.length()-tail.length);f.readFully(tail);
-            if(Arrays.equals(tail,EXPLICIT_PLAYLIST))return;
+            f.seek(f.length()-installed.length);f.readFully(installed);
+        }
+        if(Arrays.equals(installed,MUSIC_PARENT)){
+            byte[] script=TraxArt.textureBank(game.toFile(),"overlay.viv",GROUP,"mainmenu.apt",2*1024*1024);
+            String hash=digest(script);
+            if(hash.equals(ALIGNED_PARENT_ACTIONS))return;
+            if(hash.equals(RETAIL_PARENT_ACTIONS) || hash.equals(ALPHA78_PARENT_ACTIONS) || hash.equals(RESPONSIVE_PARENT_ACTIONS)){
+                byte[] outer=Files.readAllBytes(archive);
+                byte[] group=TraxArt.inflate(member(outer,GROUP),2*1024*1024);
+                if(!hash.equals(RETAIL_PARENT_ACTIONS)){
+                    script[0xce54]=0;
+                    verify(script,ALIGNED_PARENT_ACTIONS);
+                    group=replace(group,"mainmenu.apt",script);
+                }else group=responsiveCarousel(group);
+                writeArchive(archive,replace(outer,GROUP,group));
+                return;
+            }
+            // Migrate the executed menu program even when a newer footer was retained.
+            if(hash.equals(LEGACY_MUSIC_ACTIONS) || hash.equals("fcbc7ae286895fa8e4ffd58ad9e9bd585dc6fd532e1112428eee7368d78856f4"))installed=MUSIC_ROUTE;
+            else if(hash.equals("5df8292a36610671e3e1131b173e0c4dbc1de7f5bfbb58cc80415b4bffae3e6d"))installed=NAVIGATION;
+            else if(hash.equals("6d547eb7c01d531cfdf02054f228c932b59a47030aae27946d4b603a962c82d9"))installed=MUSIC_CHILD;
+            else installed=EXPLICIT_PLAYLIST; // storeMainMenu validates both supported action bodies.
         }
         byte[] outer=Files.readAllBytes(archive);
-        byte[] installed=Arrays.copyOfRange(outer,outer.length-VERSION.length,outer.length);
+        if(Arrays.equals(installed,EXPLICIT_PLAYLIST)){
+            byte[] packed=member(outer,GROUP),group=TraxArt.inflate(packed,2*1024*1024);
+            writeArchive(archive,storeMainMenu(outer,packed,group,group));
+            return;
+        }
         if(Arrays.equals(installed,MUSIC_CHILD) || Arrays.equals(installed,STARTUP_FIXED)){
             byte[] packed=member(outer,GROUP),group=TraxArt.inflate(packed,2*1024*1024);
             byte[] updated=group;
@@ -229,6 +258,7 @@ final class RetailMenu {
             outer=Arrays.copyOf(outer,outer.length-LEGACY.length);
             little(outer).putInt(4,outer.length);
         }else verify(outer,"e6dfe436df6e50f788b792f69ea2bdfef6026aa636357a0ab1aeac186b923647");
+        if(tag==null)tag=DiscFonts.ogxStencil(game.toFile());
         byte[] group=TraxArt.inflate(member(outer,GROUP),2*1024*1024);
         if(!current){
             byte[] apt=actions(member(group,"mainmenu.apt"),legacy),pool=constants(member(group,"mainmenu.const"),legacy);
@@ -358,21 +388,67 @@ final class RetailMenu {
 
     private static byte[] storeMainMenu(byte[] outer,byte[] packed,byte[] group,byte[] updated)throws IOException{
         byte[] apt=member(updated,"mainmenu.apt"),pool=member(updated,"mainmenu.const");
+        boolean alpha73=apt[0xce82]==(byte)0xb8;
+        if(alpha73)apt[0xce82]=(byte)0x9d;
         verify(apt,"0f7364997724cba7100e9cb9d269bd7942699c8016a946e315c10279ddc38611");
         ByteBuffer table=little(pool);
         int offset=table.getInt(table.getInt(28)+312*8+4);
-        byte[] old=ascii("fnr3/trax?");
+        byte[] old=ascii(alpha73?"fnr3/open?":"fnr3/trax?");
         if(offset<0 || offset>=pool.length-old.length || pool[offset+old.length]!=0 ||
                 !Arrays.equals(old,Arrays.copyOfRange(pool,offset,offset+old.length)))
             throw new IOException("Unexpected EA Trax menu marker");
-        System.arraycopy(ascii("fnr3/open?"),0,pool,offset,old.length);
-        // An ordinary Select stores this member and returns to the carousel.
-        // Only the Open row arms the native hook to skip that store once.
-        apt[0xce82]=(byte)0xb8; // EA branch-if-false to the retail playlist
+        System.arraycopy(ascii("fnr3/music"),0,pool,offset,old.length);
+        // The Music row emits the same extension request as Achievements, then returns.
+        // The separate SELECT action was a no-op on the root carousel. Only the
+        // playlist command supplies it; no second A press reaches the game.
+        Arrays.fill(apt,0xce70,0xce8c,(byte)0x04);
+        ByteBuffer code=little(apt);code.position(0xce70);
+        code.put((byte)0x59).put((byte)0x43);
+        code.put((byte)0xa3).putShort((short)303).put((byte)0xa3).putShort((short)305);
+        code.put((byte)0x4f).put((byte)0x76).put((byte)0x3e);
+        code.position(0xd0e8);jump(code,0x99,0xd075);
         updated=replace(replace(updated,"mainmenu.apt",apt),"mainmenu.const",pool);
-        byte[] result=replace(outer,GROUP,packed==group?updated:repack(packed,updated));
-        System.arraycopy(EXPLICIT_PLAYLIST,0,result,result.length-EXPLICIT_PLAYLIST.length,EXPLICIT_PLAYLIST.length);
+        byte[] result=replace(outer,GROUP,responsiveCarousel(updated));
+        System.arraycopy(MUSIC_PARENT,0,result,result.length-MUSIC_PARENT.length,MUSIC_PARENT.length);
         return result;
+    }
+
+    private static byte[] responsiveCarousel(byte[] group)throws IOException{
+        byte[] movie=member(group,"mainmenu.apt"),constants=member(group,"mainmenu.const");
+        verify(movie,RETAIL_PARENT_ACTIONS);
+        // Append a new property name without changing any original ActionScript strings.
+        ByteBuffer original=little(constants);
+        int count=original.getInt(24),table=original.getInt(28);
+        if(count!=835 || table!=32 || table+count*8>constants.length)throw new IOException("Unexpected menu constants");
+        byte[] timer=ascii("timer");
+        int newTable=(constants.length+timer.length+4)&~3;
+        byte[] pool=Arrays.copyOf(constants,newTable+(count+1)*8);
+        System.arraycopy(timer,0,pool,constants.length,timer.length);
+        System.arraycopy(constants,table,pool,newTable,count*8);
+        little(pool).putInt(24,count+1).putInt(28,newTable).putInt(newTable+count*8,1).putInt(newTable+count*8+4,constants.length);
+
+        int dictionary=0xaf00,slots=little(movie).getInt(dictionary),indices=little(movie).getInt(dictionary+4);
+        int newIndices=(movie.length+3)&~3;
+        byte[] apt=Arrays.copyOf(movie,newIndices+(slots+1)*4);
+        System.arraycopy(movie,indices,apt,newIndices,slots*4);
+        ByteBuffer code=little(apt);
+        code.putInt(newIndices+slots*4,count).putInt(dictionary,slots+1).putInt(dictionary+4,newIndices);
+        // The guest adds row displacement on each tick. Starting halfway through
+        // leaves the caption between rows even after the transition ends.
+        for(int edge:new int[]{0xcd05,0xcd19}){code.position(edge);jump(code,0x99,0xce7b);}
+        Arrays.fill(apt,0xce50,0xce70,(byte)4);
+        Arrays.fill(apt,0xce7b,0xce99,(byte)4);
+        code.position(0xce7b);
+        code.put(movie,0xcd51,8).put((byte)0x4c); // menu, duplicate for assignment
+        code.put((byte)0xa3).putShort((short)slots).put((byte)0x4e).put((byte)0x12);
+        jump(code,0x9d,0xce50); // only a newly started scroll has a zero timer
+        code.put((byte)0x17);jump(code,0x99,0xce56);
+        code.position(0xce50);
+        code.put((byte)0xa3).putShort((short)slots).put((byte)0xb5).put((byte)0).put((byte)0x4f);
+        code.put(movie,0xce50,20); // publish the original selection to the lower display
+        jump(code,0x99,0xd114);
+        verify(apt,ALIGNED_PARENT_ACTIONS);
+        return replace(replace(group,"mainmenu.apt",apt),"mainmenu.const",pool);
     }
 
     private static byte[] navigation(byte[] outer)throws IOException{
@@ -394,6 +470,13 @@ final class RetailMenu {
         String name="screengroups/"+group+"/"+group+".big",script=group+".apt";
         byte[] packed=member(outer,name), unpacked=TraxArt.inflate(packed,2*1024*1024);
         byte[] data=member(unpacked,script);
+        if(group.equals("mainmenu") && digest(data).equals(LEGACY_MUSIC_ACTIONS)){
+            // An early in-place upgrade filled eleven bytes of the action stream with
+            // NOPs. Normalize this exact variant before applying the shared migration.
+            byte[] original={(byte)0xf8,(byte)0xec,0,0,0x18,(byte)0xae,0x6e,(byte)0xaf};
+            System.arraycopy(original,0,data,0xd058,original.length);
+            data[0xd065]=2;data[0xd066]=(byte)0xb5;data[0xd067]=3;
+        }
         verify(data,hash);
         ByteBuffer code=little(data);
         for(int i=0;i<branches.length;i+=2)code.putInt(branches[i],branches[i+1]-branches[i]-4);

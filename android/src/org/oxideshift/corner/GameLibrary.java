@@ -64,7 +64,7 @@ public final class GameLibrary {
                 }
             }finally{source.position(previous);}
             status.stage("verify");
-            return publish(stage,target,extract(new DiscImage(source,offset,length,status,new DiscFacts(),"raw",length),stage,status,prepare));
+            return publish(stage,target,status,extract(new DiscImage(source,offset,length,status,new DiscFacts(),"raw",length),stage,status,prepare));
         }
         finally{clearStage(stage);}
     }
@@ -120,8 +120,9 @@ public final class GameLibrary {
         try(FileChannel channel=FileChannel.open(image,StandardOpenOption.READ)){
             build=extract(new DiscImage(channel,0,channel.size(),status,facts,zipped?"zip":"raw",zipped?length:channel.size()),stage,status,prepare);
         }
-        if(zipped)Files.delete(image);
-        return publish(stage,target,build);
+        // Streaming providers need a seekable copy only until extraction completes.
+        Files.delete(image);
+        return publish(stage,target,status,build);
     }
 
     private static void copyImage(InputStream input,long length,Path path,String action,Status status,CRC32 checksum,java.security.MessageDigest digest)throws IOException{
@@ -178,25 +179,44 @@ public final class GameLibrary {
             else clearStage(old);
         }
     }
+    static synchronized void clearInterruptedImport(Path root)throws IOException{
+        clearStage(root.resolve("disc-copy.tmp"));
+    }
+    static boolean needsDiscRepair(Path game)throws IOException{
+        if(!Files.isRegularFile(game.resolve("default.xbe"),LinkOption.NOFOLLOW_LINKS))return false;
+        try{DiscImage.checkInstalledMenu(game);}
+        catch(DiscImport.Failure failure){
+            if(failure.reason==DiscImport.Reason.MENU_ASSET)return true;
+            throw failure;
+        }
+        return false;
+    }
+
     private static void checkInstallTarget(Path root,Path target)throws IOException{
         recoverDisc(root);
-        if(!Files.exists(target))return;
-        if(!Files.isRegularFile(target.resolve("game/default.xbe"),LinkOption.NOFOLLOW_LINKS))return;
-        try{DiscImage.checkInstalledMenu(target.resolve("game"));}
-        catch(DiscImport.Failure failure){if(failure.reason==DiscImport.Reason.MENU_ASSET)return;throw failure;}
-        throw new DiscImport.Failure(DiscImport.Reason.INSTALLED,"Disc already installed");
+        Path game=target.resolve("game");
+        if(Files.isRegularFile(game.resolve("default.xbe"),LinkOption.NOFOLLOW_LINKS) && !needsDiscRepair(game))
+            throw new DiscImport.Failure(DiscImport.Reason.INSTALLED,"Disc already installed");
     }
-    private static String publish(Path stage,Path target,java.util.concurrent.FutureTask<String> job)throws Exception{
+    private static String publish(Path stage,Path target,Status status,java.util.concurrent.FutureTask<String> job)throws Exception{
         if(Files.exists(target)){
+            String result=buildResult(job,status);
             Path old=target.resolveSibling("disc-repair.previous");
             clearStage(old);
             Files.move(target,old,StandardCopyOption.ATOMIC_MOVE);
             try{Files.move(stage,target,StandardCopyOption.ATOMIC_MOVE);}
             catch(IOException e){Files.move(old,target,StandardCopyOption.ATOMIC_MOVE);throw e;}
             try{clearStage(old);}catch(IOException ignored){/* The complete repair is live. Recover leftovers on the next launch. */}
-        }else Files.move(stage,target,StandardCopyOption.ATOMIC_MOVE);
+            return result;
+        }
+        // On a first install the verified assets remain available for a compiler retry.
+        Files.move(stage,target,StandardCopyOption.ATOMIC_MOVE);
+        return buildResult(job,status);
+    }
+    private static String buildResult(java.util.concurrent.FutureTask<String> job,Status status)throws Exception{
         try{return job.get();}
         catch(java.util.concurrent.ExecutionException e){
+            status.stage("prepare");
             if(e.getCause() instanceof Exception)throw (Exception)e.getCause();
             throw new IOException("Compiler stopped",e.getCause());
         }

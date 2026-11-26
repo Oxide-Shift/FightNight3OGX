@@ -25,6 +25,7 @@ def audit(apk):
             raise ValueError("Invalid build kit identifier")
         with zipfile.ZipFile(io.BytesIO(app.read("assets/disc-kit.zip"))) as kit:
             exact = {"runtime.a", "guest-build.id", "tools/device_build.py", "tools/bringup.py", "tools/compile_objects.py",
+                     "tools/compact_dispatch.py", "tools/guest_hotpaths.py", "native/matrix_stream.h",
                      "native/texel_offset.h", "native/title_hooks.c", "native/observed_functions.json",
                      "native/disc_layout.json", "tools/translate_disc.py"}
             entries = set(kit.namelist())

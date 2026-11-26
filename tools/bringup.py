@@ -1,4 +1,5 @@
 """Generate Fight Night's private C translation from a verified original Xbox disc."""
+import shutil
 import argparse
 import hashlib
 import json
@@ -135,12 +136,17 @@ def route_voice_stop(directory):
     # DirectSound polls this method from several contexts. Only its synchronous
     # stop waiter may complete early, using the existing locked cleanup branch.
     anchor = "loc_0046CDF3: ;\n    ecx = MEM32(esi + 0x78);"
-    guarded = anchor.replace("    ecx =", "    extern int fight_voice_stopped(uint32_t);\n"
-        "    if (MEM32(ebp + 4) == 0x0046D78Fu && fight_voice_stopped(esi)) goto loc_0046CE12;\n    ecx =")
+    old_guard = "    extern int fight_voice_stopped(uint32_t);\n" \
+        "    if (MEM32(ebp + 4) == 0x0046D78Fu && fight_voice_stopped(esi)) goto loc_0046CE12;\n"
+    guard = "    extern int fight_voice_stop_ready(uint32_t, uint64_t);\n" \
+        "    if (MEM32(ebp + 4) == 0x0046D78Fu && fight_voice_stop_ready(esi, " \
+        "((uint64_t)MEM32(ebp - 4) << 32) | MEM32(ebp - 8))) goto loc_0046CE12;\n"
+    guarded = anchor.replace("    ecx =", guard + "    ecx =")
     for path in patch_candidates(directory, "recomp_0*.c", ("0247",)):
         source = path.read_text(encoding="utf-8")
         if guarded in source:
             return path
+        source = source.replace(old_guard, "")
         if source.count(anchor) == 1 and "loc_0046CE12: ;" in source and "void sub_0046CDD3(void)" in source:
             path.write_text(source.replace(anchor, guarded), encoding="utf-8")
             return path
@@ -330,6 +336,12 @@ def main():
             "--disasm-dir", disasm, "--func-id-dir", symbols, "--abi-dir", abi,
             "--split", "160", "--gen-dir", work / "gen", "-o", work / "translation")
     print("Applying game fixes and checking generated functions", flush=True)
+    from compact_dispatch import compact_dispatch
+    from guest_hotpaths import gpu_flush, matrix_blend
+    compact_dispatch(work / "gen")
+    gpu_flush(work / "gen")
+    shutil.copyfile(Path(__file__).resolve().parents[1] / "native/matrix_stream.h", work / "gen/matrix_stream.h")
+    matrix_blend(work / "gen")
     preserve_stream_cursor(work / "gen")
     route_voice_completion(work / "gen")
     route_voice_stop(work / "gen")

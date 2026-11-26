@@ -76,9 +76,32 @@ public class DiscInstallSmoke {
                 if(!Files.isRegularFile(failed.resolve("retail/game/default.xbe")) || Files.exists(failed.resolve("disc-copy.tmp")))
                     throw new AssertionError("Cannot retry preparation");
             }
+            Path module=temp.resolve("installed.so"),candidate=temp.resolve("candidate.so");
+            ByteBuffer elf=ByteBuffer.allocate(128).order(ByteOrder.LITTLE_ENDIAN);
+            elf.putInt(0,0x464c457f).put(4,(byte)2).put(5,(byte)1).putShort(16,(short)3).putShort(18,(short)183);
+            elf.putLong(32,64).putShort(54,(short)56).putShort(56,(short)1);
+            elf.putInt(64,1).putInt(68,5).putLong(72,120).putLong(96,8).putLong(104,8);
+            Files.write(module,elf.array());
+            if(!DiscBuild.arm64Module(module.toFile()))throw new AssertionError("Valid prepared module refused");
+            Files.write(module,Arrays.copyOf(elf.array(),126));
+            if(DiscBuild.arm64Module(module.toFile()))throw new AssertionError("Truncated executable segment accepted");
+            elf.putShort(18,(short)62);Files.write(module,elf.array());
+            if(DiscBuild.arm64Module(module.toFile()))throw new AssertionError("Wrong prepared ABI accepted");
+            Files.write(module,new byte[]{1});
+            Files.write(candidate,new byte[]{2});
+            try{DiscBuild.verifyAndPublish(candidate.toFile(),module.toFile(),f->false);throw new AssertionError("Bad module accepted");}
+            catch(IOException expected){}
+            if(Files.exists(candidate) || Files.readAllBytes(module)[0]!=1)throw new AssertionError("Failed build displaced installed game");
+            Files.write(candidate,new byte[]{3});
+            DiscBuild.verifyAndPublish(candidate.toFile(),module.toFile(),f->Files.readAllBytes(f.toPath())[0]==3);
+            if(Files.exists(candidate) || Files.readAllBytes(module)[0]!=3)throw new AssertionError("Verified replacement missing");
+            if(!DiscBuild.verifyPayload(module.toFile()))throw new AssertionError("Published module receipt missing");
+            Files.write(module,new byte[]{4});
+            if(DiscBuild.verifyPayload(module.toFile()))throw new AssertionError("Same-length mutation reached the game child");
+            if(Files.exists(module.resolveSibling("installed.so.sha256")))throw new AssertionError("Damaged receipt survived");
             Path pipe=Files.createDirectory(temp.resolve("pipe"));
             GameLibrary.importDisc(new ByteArrayInputStream(bytes),bytes.length,pipe,s->{});
-            if(!Arrays.equals(Files.readAllBytes(pipe.resolve("retail/game/default.xbe")),xbe))throw new AssertionError("Stream fallback");
+            if(Files.exists(pipe.resolve("retail/source.iso")) || !Arrays.equals(Files.readAllBytes(pipe.resolve("retail/game/default.xbe")),xbe))throw new AssertionError("Stream fallback");
             int exe=exeSector*SECTOR;
             int cert=exe+disc.getInt(exe+0x118)-disc.getInt(exe+0x104);
             byte[] packed=zip(bytes,"docs/readme.txt","My Disc/BOXER.XISO.ISO");
@@ -120,17 +143,39 @@ public class DiscInstallSmoke {
             reject(rejectedZip,incomplete,"GUI/overlay.viv","missing");
             byte[] truncatedMenu=bytes.clone();ByteBuffer.wrap(truncatedMenu).order(ByteOrder.LITTLE_ENDIAN).putInt(63*SECTOR+8,32);
             reject(rejectedZip,truncatedMenu,"GUI/overlay.viv","incomplete");
+            Path lowSpace=Files.createDirectory(temp.resolve("first-compile-space"));
+            DiscImport diagnosis=new DiscImport(message->{});
+            try{GameLibrary.importDisc(new ByteArrayInputStream(bytes),bytes.length,lowSpace,diagnosis,
+                    (gameExe,status)->{throw new DiscImport.Failure(DiscImport.Reason.SPACE,"Compilation ran out of internal storage");});
+                throw new AssertionError("Fresh compilation failure lost");}
+            catch(DiscImport.Failure failure){
+                if(diagnosis.explain(failure).reason!=DiscImport.Reason.SPACE || !"prepare".equals(diagnosis.stage)
+                        || !Files.isRegularFile(lowSpace.resolve("retail/game/default.xbe")))
+                    throw new AssertionError("Fresh install lost the compiler reason, stage, or verified disc");
+            }
             Path saved=Files.createDirectory(pipe.resolve("saves")).resolve("career");
             Files.write(saved,new byte[]{77});
             Path overlay=pipe.resolve("retail/game/GUI/overlay.viv");
+            Path installedGame=pipe.resolve("retail/game");
+            if(GameLibrary.needsDiscRepair(installedGame))throw new AssertionError("Healthy disc offered repair");
             Files.delete(overlay);
+            if(!GameLibrary.needsDiscRepair(installedGame))throw new AssertionError("Repair action hidden for missing menu");
             try{GameLibrary.importDisc(new ByteArrayInputStream(incomplete),incomplete.length,pipe,s->{});throw new AssertionError();}
             catch(DiscImport.Failure failure){if(failure.reason!=DiscImport.Reason.MENU_ASSET)throw failure;}
             if(!Files.exists(pipe.resolve("retail/game/default.xbe")))throw new AssertionError("Failed repair removed existing game");
+            try{GameLibrary.importDisc(new ByteArrayInputStream(bytes),bytes.length,pipe,s->{},
+                    (gameExe,status)->{throw new IOException("repair compiler failed");});throw new AssertionError();}
+            catch(IOException expected){if(!"repair compiler failed".equals(expected.getMessage()))throw expected;}
+            if(Files.exists(overlay) || Files.readAllBytes(saved)[0]!=77)throw new AssertionError("Failed build displaced repair target");
+            Files.createDirectories(pipe.resolve("disc-copy.tmp/game"));
+            Files.write(pipe.resolve("disc-copy.tmp/source.iso"),new byte[]{42});
+            GameLibrary.clearInterruptedImport(pipe);
+            if(Files.exists(pipe.resolve("disc-copy.tmp")) || !Files.exists(saved))throw new AssertionError("Orphan staging cleanup");
             Files.move(pipe.resolve("retail"),pipe.resolve("disc-repair.previous"));
             GameLibrary.recoverDisc(pipe);
             GameLibrary.importDisc(new ByteArrayInputStream(bytes),bytes.length,pipe,s->{});
             if(Files.size(overlay)!=64 || Files.readAllBytes(saved)[0]!=77 || Files.exists(pipe.resolve("disc-repair.previous")))throw new AssertionError("Disc repair");
+            if(GameLibrary.needsDiscRepair(installedGame))throw new AssertionError("Repair action persisted after successful repair");
             reject(rejectedZip,zip(bytes,"one.iso","two.iso"),"multiple disc images");
             reject(rejectedZip,zip(bytes,"readme.txt"),"no Xbox ISO");
             byte[] wrongCrc=packed.clone();
@@ -147,6 +192,19 @@ public class DiscInstallSmoke {
             byte[] otherPlatform=bytes.clone();
             System.arraycopy("DEFAULT.XEX".getBytes(StandardCharsets.US_ASCII),0,otherPlatform,64*SECTOR+14,11);
             reject(rejectedZip,otherPlatform,"Xbox 360","default.xex");
+            byte[] xgd3=new byte[0x2080000+otherPlatform.length];
+            System.arraycopy(otherPlatform,0,xgd3,0x2080000,otherPlatform.length);
+            reject(rejectedZip,xgd3,"Xbox 360","default.xex");
+            // A refused executable must always carry its SHA-256 into Copy details.
+            byte[] otherTitle=bytes.clone();
+            ByteBuffer.wrap(otherTitle).order(ByteOrder.LITTLE_ENDIAN).putInt(cert+8,0x4d530004);
+            try{
+                GameLibrary.importDisc(new ByteArrayInputStream(otherTitle),otherTitle.length,rejectedZip,s->{});
+                throw new AssertionError("Accepted another Xbox title");
+            }catch(DiscImport.Failure e){
+                if(!e.getMessage().startsWith("Different game") || e.hash==null || !e.hash.matches("[0-9a-f]{64}"))
+                    throw new AssertionError("Wrong-title refusal without label or default.xbe SHA-256: "+e.getMessage()+" / "+e.hash);
+            }
             byte[] renamed=bytes.clone();
             Arrays.fill(renamed,cert+12,cert+0x5c,(byte)0);
             byte[] label="Fight Night Round 3".getBytes(StandardCharsets.UTF_16LE);

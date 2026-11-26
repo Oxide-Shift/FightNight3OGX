@@ -50,8 +50,8 @@ final class DiscImport implements GameLibrary.Status {
         if(e instanceof Failure){
             Failure failure=(Failure)e;
             if(failure.reason==Reason.FILESYSTEM || failure.reason==Reason.TRUNCATED){
-                if(format.equals("split"))return new Failure(Reason.SPLIT,"This looks like part of a split disc. Join all parts into one Xbox ISO, then select it.");
-                if(format.equals("zar"))return new Failure(Reason.COMPRESSED,"Convert this ZAR game archive to a single Xbox XISO, then select the result.");
+                if(format.equals("split"))return new Failure(Reason.SPLIT,"Unsupported container: this looks like part of a split disc. Join all parts into one Xbox ISO, then select it.");
+                if(format.equals("zar"))return new Failure(Reason.COMPRESSED,"Unsupported container: convert this ZAR game archive to a single Xbox XISO, then select the result.");
                 if(format.equals("xbe") || format.equals("xex"))return new Failure(Reason.FILESYSTEM,"You selected an executable. Choose the complete original Xbox disc image with its game assets.");
             }
             return failure;

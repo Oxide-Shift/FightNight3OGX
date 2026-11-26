@@ -29,7 +29,7 @@ def build(ndk, reference, clang, out, objects=None):
     native = Path(__file__).resolve().parents[1] / "native"
     subprocess.run([clang.with_name("clang++.exe"), "--target=aarch64-linux-android30",
                     "-ffile-prefix-map="+str(native)+"=native", "-ffile-prefix-map="+native.as_posix()+"=native",
-                    "-shared", "-O2", "-fvisibility=hidden", "-fno-exceptions", "-fno-rtti",
+                    "-shared", "-fPIC", "-O2", "-fvisibility=hidden", "-fno-exceptions", "-fno-rtti",
                     "-static-libstdc++", "-Wl,--gc-sections,--exclude-libs,ALL,-z,defs,-z,max-page-size=16384",
                     "-Wl,-soname,libfight_shader.so", "-I", out, "-I", shaderc / "libshaderc/include",
                     "-I", shaderc / "third_party/spirv-tools/include", native / "live_shader.cpp",

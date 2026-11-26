@@ -45,8 +45,8 @@ public final class DiscTraxSmoke {
         RoundMusic.SceneMix mix=new RoundMusic.SceneMix(true);
         mix.selectTrack("DILATEDP");
         if(mix(mix,true,1)!=4400)throw new AssertionError("Disc reference");
-        mix.selectTrack("Body Shots");
-        float boost=(float)Math.pow(10,8.2/20);
+        mix.selectTrack("Make It Two");
+        float boost=(float)Math.pow(10,8.30/20);
         if(Math.abs(mix(mix,true,1)-4400*boost)>1 ||
                 Math.abs(mix(mix,false,RoundMusic.SceneMix.FADE_FRAMES)-2400*boost)>1)
             throw new AssertionError("Expanded loudness across scenes");
@@ -71,8 +71,54 @@ public final class DiscTraxSmoke {
         if(mix(new RoundMusic.SceneMix(false),false,1)!=2400)
             throw new AssertionError("Starting inside a fight");
     }
+    private static void playlist(){
+        RoundMusic.Rotation r=new RoundMusic.Rotation(new RoundMusic.ExpandedStart(),false,-1);
+        if(!r.next("").isEmpty())throw new AssertionError("Uninitialized playlist");
+        for(int mask=0;mask<4096;mask++){
+            r.mask(mask);
+            java.util.Set<String> played=new java.util.HashSet<>();
+            for(int i=0;i<Integer.bitCount(mask);i++)played.add(r.next(""));
+            for(int i=0;i<12;i++)
+                if(played.contains(RoundMusic.Rotation.STOCK[i])!=((mask & 1<<i)!=0))
+                    throw new AssertionError("Wrong stock rotation for "+mask);
+        }
+        for(int row=0;row<12;row++){
+            int mask=0xfff^(1<<row);
+            RoundMusic.Rotation mixed=new RoundMusic.Rotation(new RoundMusic.ExpandedStart(),true,mask);
+            String disabled=RoundMusic.Rotation.STOCK[row],last="";
+            java.util.Set<String> all=new java.util.HashSet<>();
+            for(int i=0;i<11+ExpandedTracks.TITLES.length;i++){
+                mixed.request(disabled,false);
+                last=mixed.next(last);
+                if(i==0 && !last.equals("Still Want the Crown"))throw new AssertionError("Opener");
+                if(last.equals(disabled) || !all.add(last))throw new AssertionError("Mixed shuffle");
+            }
+            mixed.request(disabled,true);
+            if(!mixed.next(last).equals(disabled) || mixed.shouldChange(disabled))throw new AssertionError("Explicit preview");
+            mixed.endPreview();
+            if(!mixed.shouldChange(disabled) || mixed.next(disabled).equals(disabled))throw new AssertionError("Left preview");
+            mixed.mask(0);
+            for(int i=0;i<32;i++)if(ExpandedTracks.index(mixed.next(""))<0)throw new AssertionError("Expanded-only rotation");
+            mixed.expanded(false);
+            if(!mixed.next("").isEmpty())throw new AssertionError("All tracks disabled");
+            mixed.mask(1<<row);
+            if(!mixed.next("").equals(disabled) || !mixed.next(disabled).equals(disabled))throw new AssertionError("One enabled track");
+            mixed.mask(0);
+            if(!mixed.shouldChange(disabled))throw new AssertionError("Audible song was disabled");
+        }
+    }
     public static void main(String[] args)throws Exception{
+        playlist();
         sceneLevels();trackLevels();
+        RoundMusic.ExpandedStart launch=new RoundMusic.ExpandedStart();
+        launch.audible("BRASCO");
+        if(!launch.select().equals("Still Want the Crown") || !launch.select().equals("Still Want the Crown"))
+            throw new AssertionError("The opener was consumed before playback");
+        launch.audible("Still Want the Crown");
+        for(int i=0;i<32;i++)if(ExpandedTracks.index(launch.select())<0)
+            throw new AssertionError("Expansion selection outside the current roster");
+        if(!new RoundMusic.ExpandedStart().select().equals("Still Want the Crown"))
+            throw new AssertionError("Fresh game launch did not reset the opening song");
         Path f=Files.createTempFile("round-trax-test",".big");short[] pcm=new short[64];
         try{
             Files.write(f,archive(false));

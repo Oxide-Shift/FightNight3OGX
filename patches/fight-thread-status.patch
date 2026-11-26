@@ -1,0 +1,203 @@
+--- a/kernel_bridge.c
++++ b/kernel_bridge.c
+@@ -3230,12 +3230,21 @@
+ #define BRIDGE_HANDLE_MAX  16384
+ static HANDLE s_handle_table[BRIDGE_HANDLE_MAX];
+ 
+-static uint32_t bridge_handle_token(HANDLE h)
++static volatile LONG s_handle_lock;
++static void bridge_lock_handles(void)
++{
++    while (InterlockedCompareExchange(&s_handle_lock, 1, 0))
++        SwitchToThread();
++}
++static void bridge_unlock_handles(void)
++{
++    InterlockedExchange(&s_handle_lock, 0);
++}
++
++static uint32_t bridge_insert_handle_locked(HANDLE h)
+ {
+     int i;
+     if (!h || h == INVALID_HANDLE_VALUE) return 0;
+-    for (i = 1; i < BRIDGE_HANDLE_MAX; i++)
+-        if (s_handle_table[i] == h) return BRIDGE_HANDLE_TAG | (uint32_t)i;
+     for (i = 1; i < BRIDGE_HANDLE_MAX; i++)
+         if (s_handle_table[i] == NULL) {
+             s_handle_table[i] = h;
+@@ -3248,8 +3257,12 @@
+ /* Store a native HANDLE into a 32-bit Xbox memory slot (as a token). */
+ static void bridge_write_handle(uint32_t handle_va, HANDLE h)
+ {
+-    if (handle_va)
+-        BRIDGE_MEM32(handle_va) = bridge_handle_token(h);
++    if (handle_va) {
++        bridge_lock_handles();
++        uint32_t token = bridge_insert_handle_locked(h);
++        bridge_unlock_handles();
++        BRIDGE_MEM32(handle_va) = token;
++    }
+ }
+ 
+ /* Resolve a 32-bit Xbox handle slot back to a native HANDLE. */
+@@ -3258,7 +3271,10 @@
+     uint32_t token = BRIDGE_MEM32(va);
+     if ((token & 0xFF000000u) == BRIDGE_HANDLE_TAG) {
+         uint32_t i = token & BRIDGE_HANDLE_MASK;
+-        return (i > 0 && i < BRIDGE_HANDLE_MAX) ? s_handle_table[i] : NULL;
++        bridge_lock_handles();
++        HANDLE h = (i > 0 && i < BRIDGE_HANDLE_MAX) ? s_handle_table[i] : NULL;
++        bridge_unlock_handles();
++        return h;
+     }
+     /* Untagged value: synthetic/dummy handle -- pass through unchanged. */
+     return (HANDLE)(uintptr_t)token;
+@@ -3281,7 +3297,10 @@
+ {
+     if ((token & 0xFF000000u) == BRIDGE_HANDLE_TAG) {
+         uint32_t i = token & BRIDGE_HANDLE_MASK;
+-        return (i > 0 && i < BRIDGE_HANDLE_MAX) ? s_handle_table[i] : NULL;
++        bridge_lock_handles();
++        HANDLE h = (i > 0 && i < BRIDGE_HANDLE_MAX) ? s_handle_table[i] : NULL;
++        bridge_unlock_handles();
++        return h;
+     }
+     /* Pseudo-handles (NtCurrentProcess() = -1, NtCurrentThread() = -2) are
+      * negative. Zero-extending them on a 64-bit host yields 0x00000000FFFFFFFE,
+@@ -3298,8 +3317,10 @@
+     if ((token & 0xFF000000u) == BRIDGE_HANDLE_TAG) {
+         uint32_t i = token & BRIDGE_HANDLE_MASK;
+         if (i > 0 && i < BRIDGE_HANDLE_MAX) {
++            bridge_lock_handles();
+             HANDLE h = s_handle_table[i];
+             s_handle_table[i] = NULL;
++            bridge_unlock_handles();
+             return h;
+         }
+     }
+@@ -4394,6 +4415,38 @@
+ }
+ 
+ /* ── ObReferenceObjectByHandle (ordinal 246) ─────────────── */
++/* The retail GetExitCodeThread immediately reads SignalState and ExitStatus,
++ * then releases the reference in the same guest frame. A snapshot is valid
++ * for this caller only. Other object consumers can require a live dispatcher
++ * object with a different lifetime and layout. */
++static RECOMP_TLS uint32_t s_exit_snapshot;
++
++static uint32_t bridge_reference_exit_snapshot(uint32_t token, uint32_t output)
++{
++    const uint32_t index = token & BRIDGE_HANDLE_MASK;
++    DWORD code = 259u;
++    if (!bridge_va_mapped(output, 4)) return 0xC0000005u;
++    BRIDGE_MEM32(output) = 0;
++    if (s_exit_snapshot) return 0xC0000001u;
++    if (token != 0xFFFFFFFEu) {
++        if ((token & ~BRIDGE_HANDLE_MASK) != BRIDGE_HANDLE_TAG ||
++            !index || index >= BRIDGE_HANDLE_MAX) return 0xC0000008u;
++        bridge_lock_handles();
++        HANDLE h = s_handle_table[index];
++        BOOL valid = h == (HANDLE)(intptr_t)-2 ||
++                     (h && h != INVALID_HANDLE_VALUE && GetExitCodeThread(h, &code));
++        bridge_unlock_handles();
++        if (!valid) return 0xC0000008u;
++    }
++    uint32_t object = xbox_HeapAlloc(0x124u, 16);
++    if (!object) return 0xC000009Au;
++    BRIDGE_MEM32(object + 4) = code != 259u;
++    BRIDGE_MEM32(object + 0x120) = (uint32_t)code;
++    s_exit_snapshot = object;
++    BRIDGE_MEM32(output) = object;
++    return 0;
++}
++
+ static void bridge_ObReferenceObjectByHandle(void)
+ {
+     /* Xbox: NTSTATUS ObReferenceObjectByHandle(HANDLE Handle, PVOID ObjectType, PVOID* Object)
+@@ -4401,6 +4454,11 @@
+     uint32_t handle = STACK_ARG(0);
+     uint32_t obj_type = STACK_ARG(1);
+     uint32_t object_ptr = STACK_ARG(2);
++    if (g_xbox_kernel_caller == 0x002DA2C3u &&
++        obj_type == XBOX_KERNEL_DATA_BASE + KDATA_THREAD_OBJ_TYPE) {
++        g_eax = bridge_reference_exit_snapshot(handle, object_ptr);
++        return;
++    }
+     if (object_ptr) BRIDGE_MEM32(object_ptr) = 0;
+     g_eax = 0;  /* STATUS_SUCCESS */
+ }
+@@ -4750,6 +4808,13 @@
+  * dereference whatever the caller happened to leave there. */
+ static void bridge_ObfDereferenceObject(void)
+ {
++    if (g_xbox_kernel_caller == 0x002DA2E8u && s_exit_snapshot &&
++        g_ecx == s_exit_snapshot) {
++        xbox_HeapFree(s_exit_snapshot);
++        s_exit_snapshot = 0;
++        g_eax = 0;
++        return;
++    }
+     xbox_ObfDereferenceObject(XBOX_TO_NATIVE(g_ecx));
+     g_eax = 0;
+ }
+@@ -5606,37 +5671,33 @@
+  * by-value source token in, a 4-byte guest slot for the duplicated target.
+  * The source resolves through the table, DuplicateHandle produces a real
+  * native handle, and the target lands via bridge_write_handle as a fresh
+- * token -- same shape as NtCreateEvent. DUPLICATE_CLOSE_SOURCE also closes
+- * the native handle behind the source token, which is why the source token is
+- * NOT consumed here (the OS handle it wraps is gone after this call). */
++ * token. POSIX duplicates may share a host pointer and still own distinct references. */
+ static void bridge_NtDuplicateObject(void)
+ {
+-    uint32_t target_va = STACK_ARG(1);
+-    HANDLE src = bridge_resolve_handle(STACK_ARG(0));
+-    HANDLE dup = NULL;
+-    DWORD opts = 0;
+-
+-    if (!target_va) {
+-        g_eax = 0xC000000Du;   /* STATUS_INVALID_PARAMETER */
++    uint32_t token = STACK_ARG(0), target_va = STACK_ARG(1), options = STACK_ARG(2);
++    uint32_t index = token & BRIDGE_HANDLE_MASK;
++    int tagged = (token & ~BRIDGE_HANDLE_MASK) == BRIDGE_HANDLE_TAG
++              && index > 0 && index < BRIDGE_HANDLE_MAX;
++    if (!bridge_va_mapped(target_va, 4)) {
++        g_eax = 0xC000000Du;
+         return;
+     }
+-    if (STACK_ARG(2) & 0x1) opts |= DUPLICATE_CLOSE_SOURCE;
+-    if (STACK_ARG(2) & 0x2) opts |= DUPLICATE_SAME_ACCESS;
+-
+-    if (!DuplicateHandle(GetCurrentProcess(), src, GetCurrentProcess(),
+-                         &dup, 0, FALSE, opts)) {
+-        static int logged = 0;
+-        if (logged++ < 8) {
+-            fprintf(stderr, "  [KERNEL] NtDuplicateObject: token=0x%08X "
+-                    "handle=%p failed (error %lu)\n",
+-                    STACK_ARG(0), src, (unsigned long)GetLastError());
+-            fflush(stderr);
+-        }
+-        g_eax = 0xC0000001u;   /* STATUS_UNSUCCESSFUL */
+-        return;
+-    }
+-    bridge_write_handle(target_va, dup);
+-    g_eax = 0;
++    HANDLE source = NULL, duplicate = NULL;
++    uint32_t result = 0;
++    bridge_lock_handles();
++    if (tagged) source = s_handle_table[index];
++    else if (token == 0xFFFFFFFEu) source = GetCurrentThread();
++    else if (token == 0xFFFFFFFFu) source = GetCurrentProcess();
++    if (source && DuplicateHandle(GetCurrentProcess(), source, GetCurrentProcess(),
++                                  &duplicate, 0, FALSE,
++                                  (options & 2) ? DUPLICATE_SAME_ACCESS : 0))
++        result = bridge_insert_handle_locked(duplicate);
++    if ((options & 1) && tagged) s_handle_table[index] = NULL;
++    bridge_unlock_handles();
++    if ((options & 1) && tagged && source) CloseHandle(source);
++    if (!result && duplicate) CloseHandle(duplicate);
++    BRIDGE_MEM32(target_va) = result;
++    g_eax = result ? 0 : (duplicate ? 0xC000009Au : 0xC0000008u);
+ }
+ 
+ /* ── Dispatch table: ordinal → bridge function + stack arg bytes ── */

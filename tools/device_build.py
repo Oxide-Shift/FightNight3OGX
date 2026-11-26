@@ -10,10 +10,14 @@ import subprocess
 import sys
 
 from bringup import XBE_SHA256
+from compile_objects import object_inventory
 
 
 def workers():
-    count = len(os.sched_getaffinity(0))
+    try:
+        count = max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        count = max(1, os.cpu_count() or 1)
     try:
         fields = Path("/proc/meminfo").read_text()
         available = int(re.search(r"^MemAvailable:\s+(\d+)", fields, re.M)[1])
@@ -22,16 +26,6 @@ def workers():
     # Leave memory and at least one CPU for Android and the foreground launcher.
     limit = 7 if available >= 4 * 1024 * 1024 else 6
     return max(1, min(limit, count-1, (available-640*1024)//(400*1024)))
-
-
-def objects_ready(out):
-    try:
-        entries = json.loads((out/"inventory.json").read_text())
-        return "recomp_dispatch.o" in entries and all(
-            re.fullmatch(r"recomp_(?:\d+|dispatch|stubs_unresolved)\.o", name)
-            and size >= 64 and (out/name).stat().st_size == size for name, size in entries.items())
-    except (ValueError, OSError, TypeError, AttributeError):
-        return False
 
 
 def main():
@@ -53,7 +47,11 @@ def main():
         work = cache / key
         work.mkdir(exist_ok=True)
         out = work / "module-android"
-        complete = objects_ready(out)
+        complete = object_inventory(out) is not None
+        # A sealed cache that failed verification must never be reused by the
+        # partial-compilation fast path, even if translation.ready still exists.
+        if not complete and (out / "inventory.json").exists():
+            shutil.rmtree(out)
         translated = work / "translation.ready"
         if complete:
             print("Reusing compiled Xbox game", flush=True)

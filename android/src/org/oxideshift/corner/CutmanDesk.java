@@ -14,13 +14,13 @@ final class CutmanDesk extends LinearLayout {
     CutmanDesk(Context ctx,DiscFonts fonts,CutmanStroke.Stick stick,BooleanSupplier ready,CornerControls.Output keys){
         super(ctx);
         setOrientation(VERTICAL);
-        setBackground(new CornerInk(0xff211713,0xff7d3927));
-        art=new Artwork(fonts.stencil);
+        setBackground(new CornerInk(GameInk.DARK,0xff513127));
+        art=new Artwork(fonts.stencil,fonts.body);
         sweep=new Sweep(ctx,stick,ready);
         addView(sweep,new LayoutParams(-1,0,1));
         LinearLayout tools=new LinearLayout(ctx);
         tools.setBaselineAligned(false);tools.setGravity(Gravity.CENTER_VERTICAL);
-        tools.setBackgroundColor(0xff310e07);
+        tools.setBackgroundColor(GameInk.DARK);
         addView(tools,new LayoutParams(-1,-2));
         tool(tools,"Left side","Treat the left side",CornerControls.Key.LEFT_SIDE,fonts,ready,keys);
         tool(tools,"Switch tool","Switch between cuts and swelling",CornerControls.Key.Y,fonts,ready,keys);
@@ -48,46 +48,33 @@ final class CutmanDesk extends LinearLayout {
     }
 
     private final class Sweep extends View {
-        private final CutmanStroke stroke;
-        private final BooleanSupplier ready;
+        private final CutmanGesture gesture;
+
         Sweep(Context ctx,CutmanStroke.Stick stick,BooleanSupplier ready){
-            super(ctx);this.stroke=new CutmanStroke(stick);this.ready=ready;
+            super(ctx);
+            gesture=new CutmanGesture((down,x,y)->{
+                stick.set(down,x,y);
+                art.contact=down;art.stickX=x/32767f;art.stickY=y/32767f;
+                postInvalidateOnAnimation();
+            },ready);
             setContentDescription("Manual treatment pad. Touch anywhere and sweep your thumb like the right stick. Lift to recenter.");
             setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
         }
         @Override protected void onDraw(Canvas c){art.draw(c,getWidth(),getHeight());}
-        void release(){
-            stroke.release();
-        }
+        void release(){gesture.release();}
         @Override protected void onDetachedFromWindow(){release();super.onDetachedFromWindow();}
-        @Override public boolean onTouchEvent(MotionEvent e){
-            int action=e.getActionMasked();
-            if(action==MotionEvent.ACTION_DOWN){
-                if(!ready.getAsBoolean())return false;
-                stroke.begin(e.getPointerId(0),e.getX(),e.getY());return true;
-            }
-            if(stroke.finger<0)return false;
-            int index=e.findPointerIndex(stroke.finger);
-            if(action==MotionEvent.ACTION_CANCEL || action==MotionEvent.ACTION_UP || index<0 ||
-                    (action==MotionEvent.ACTION_POINTER_UP && index==e.getActionIndex())){
-                release();return true;
-            }
-            if(action==MotionEvent.ACTION_MOVE){
-                // Preserve the original thumb travel regardless of the size of the printed guide.
-                float travel=Math.min(getWidth()*.15f,getHeight()*.23f);
-                stroke.move(stroke.finger,e.getX(index),e.getY(index),travel);
-            }
-            return true;
-        }
+        @Override public boolean onTouchEvent(MotionEvent event){return gesture.onTouch(this,event);}
     }
 
     static final class Artwork {
-        final Typeface stencil;
+        final Typeface stencil,body;
+        boolean contact;
+        float stickX,stickY;
         final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG);
         final RectF box=new RectF();
         int seconds=-1;
         String time="";
-        Artwork(Typeface stencil){this.stencil=stencil;}
+        Artwork(Typeface stencil,Typeface body){this.stencil=stencil;this.body=body;}
         private void text(Canvas c,String value,float x,float y,float size,Typeface face,int color,Paint.Align align,float maxWidth){
             ink.setTypeface(face);ink.setStyle(Paint.Style.FILL);ink.setTextAlign(align);
             ink.setColor(color);ink.setTextSize(size);
@@ -97,26 +84,34 @@ final class CutmanDesk extends LinearLayout {
         }
         void draw(Canvas c,int w,int h){
             if(w<=0||h<=0)return;
-            float u=Math.min(w/480f,h/240f),m=20*u,cx=w*.5f,cy=h*.5f,r=Math.min(w*.25f,h*.26f);
+            float u=Math.min(w/480f,h/240f),margin=18*u,cx=w*.5f,cy=h*.48f;
+            float radius=Math.min(w*.28f,h*.25f);
             ink.setStyle(Paint.Style.FILL);
-            int save=c.save();c.rotate(-14,w*.82f,h*.43f);ink.setColor(0xff30211a);
-            float a=Math.min(w,h)*.34f, ax=w*.84f,ay=h*.42f;
-            c.drawRect(ax-a,ay-a*.32f,ax+a,ay+a*.32f,ink);c.drawRect(ax-a*.32f,ay-a,ax+a*.32f,ay+a,ink);c.restoreToCount(save);
-            text(c,"CUTMAN",m,h*.17f,38*u,stencil,GameInk.GOLD,Paint.Align.LEFT,w*.58f);
-            text(c,time,w-m,h*.17f,32*u,stencil,GameInk.TEXT,Paint.Align.RIGHT,w*.24f);
-            ink.setStrokeCap(Paint.Cap.ROUND);ink.setStyle(Paint.Style.STROKE);ink.setStrokeWidth(Math.max(1,2*u));
-            ink.setColor(0xff754534);box.set(cx-r,cy-r,cx+r,cy+r);
-            c.drawArc(box,12,156,false,ink);ink.setStrokeWidth(5*u);ink.setColor(0xffc78046);
-            c.drawArc(box,193,154,false,ink);
-            for(int i=0;i<9;i++){
-                double angle=Math.toRadians(195+i*18.75);float dx=(float)Math.cos(angle),dy=(float)Math.sin(angle);
-                ink.setStrokeWidth(1.5f*u);ink.setColor(0xffa0734d);
-                c.drawLine(cx+dx*(r+6*u),cy+dy*(r+6*u),cx+dx*(r+10*u),cy+dy*(r+10*u),ink);
+            ink.setColor(GameInk.PAPER);c.drawRect(0,0,w,h*.19f,ink);
+            ink.setColor(GameInk.ORANGE);c.drawRect(0,0,margin*.4f,h*.19f,ink);
+            text(c,"CUTMAN",margin,h*.144f,32*u,stencil,GameInk.DARK,Paint.Align.LEFT,w*.58f);
+            text(c,time,w-margin,h*.144f,26*u,stencil,GameInk.DARK,Paint.Align.RIGHT,w*.27f);
+            ink.setStrokeCap(Paint.Cap.ROUND);ink.setStyle(Paint.Style.STROKE);
+            box.set(cx-radius,cy-radius,cx+radius,cy+radius);
+            ink.setStrokeWidth(2*u);ink.setColor(0xff8b796c);c.drawArc(box,0,360,false,ink);
+            for(int i=0;i<24;i++){
+                double angle=i*Math.PI/12;float dx=(float)Math.cos(angle),dy=(float)Math.sin(angle);
+                boolean quarter=i%6==0;
+                ink.setColor(quarter?GameInk.GOLD:0xff8b796c);
+                ink.setStrokeWidth((quarter?2:1)*u);
+                float end=radius+(quarter?8:4)*u;
+                c.drawLine(cx+dx*radius,cy+dy*radius,cx+dx*end,cy+dy*end,ink);
             }
-            ink.setStyle(Paint.Style.FILL);ink.setColor(0xffaa774c);
-            c.drawCircle(cx,cy,3*u,ink);
-            text(c,"SWEEP TO TREAT",cx,h*.83f,25*u,stencil,GameInk.TEXT,Paint.Align.CENTER,w*.85f);
-            text(c,"Start anywhere. Lift to recenter.",cx,h*.94f,16*u,stencil,GameInk.MUTED,Paint.Align.CENTER,w*.9f);
+            float x=cx+stickX*radius,y=cy-stickY*radius;
+            ink.setColor(contact?GameInk.GOLD:GameInk.MUTED);
+            if(contact){
+                ink.setStrokeWidth(3*u);c.drawLine(cx,cy,x,y,ink);
+                ink.setColor(GameInk.TEXT);c.drawCircle(x,y,8*u,ink);
+            }
+            ink.setStyle(Paint.Style.FILL);
+            c.drawCircle(x,y,(contact?4:3)*u,ink);
+            text(c,"SWEEP TO TREAT",cx,h*.86f,24*u,stencil,GameInk.TEXT,Paint.Align.CENTER,w*.90f);
+            text(c,"Start anywhere. Lift to recenter.",cx,h*.95f,14*u,body,GameInk.MUTED,Paint.Align.CENTER,w*.92f);
         }
     }
 }

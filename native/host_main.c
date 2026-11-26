@@ -78,6 +78,9 @@ int main(int argc, char **argv) {
     xbox_path_init(argv[2], argv[3]);
     xbox_kernel_set_thunk_address(thunk, 150);
     xbox_kernel_bridge_init();
+#ifdef FNR3_FRAME_PROFILE
+    fprintf(stderr,"[QATID] guest %lu\n",(unsigned long)GetCurrentThreadId());
+#endif
     recomp_dispatch_init();
     if (!pad_start()) return 5;
     g_esp = XBOX_STACK_TOP;

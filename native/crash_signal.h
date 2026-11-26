@@ -6,6 +6,9 @@
 #include <stdint.h>
 #include <ucontext.h>
 #include <unistd.h>
+#include "fight_fault_modules.h"
+
+static FightFaultMap crash_modules;
 
 static uintptr_t crash_base,crash_text_start,crash_text_end;
 static struct sigaction crash_previous[NSIG];
@@ -21,6 +24,10 @@ static int crash_find_text(struct dl_phdr_info *info,size_t size,void *unused){
     }
     return 0;
 }
+static void crash_offset(char *digits,uintptr_t address){
+    uint32_t relative=(uint32_t)(address-crash_base);
+    for(int i=7;i>=0;i--){digits[i]="0123456789abcdef"[relative&15];relative>>=4;}
+}
 static void crash_signal(int sig,siginfo_t *info,void *context){
     uintptr_t pc=0;
 #if defined(__aarch64__)
@@ -28,11 +35,25 @@ static void crash_signal(int sig,siginfo_t *info,void *context){
 #elif defined(__x86_64__)
     pc=((ucontext_t*)context)->uc_mcontext.gregs[REG_RIP];
 #endif
+    if(pc)fight_write_known_pc(&crash_modules,pc);
     if(pc>=crash_text_start && pc<crash_text_end){
         char line[]="FNR3/1 FAULT 00000000\n";
-        uint32_t offset=(uint32_t)(pc-crash_base);
-        for(int i=7;i>=0;i--){line[13+i]="0123456789abcdef"[offset&15];offset>>=4;}
+        crash_offset(line+13,pc);
         (void)write(STDERR_FILENO,line,sizeof(line)-1);
+    }
+    else if(pc && crash_text_end){
+        static const char outside[]="FNR3/1 FAULT EXTERNAL\n";
+        (void)write(STDERR_FILENO,outside,sizeof(outside)-1);
+#if defined(__aarch64__)
+        /* LR may point back into the translated game even when Android faults
+           in an external library. Report a relative return site only. */
+        uintptr_t caller=((ucontext_t*)context)->uc_mcontext.regs[30];
+        if(caller>=crash_text_start && caller<crash_text_end){
+            char line[]="FNR3/1 RETURN 00000000\n";
+            crash_offset(line+14,caller);
+            (void)write(STDERR_FILENO,line,sizeof(line)-1);
+        }
+#endif
     }
     struct sigaction previous=crash_previous[sig];
     if(previous.sa_handler==SIG_IGN)previous.sa_handler=SIG_DFL;
@@ -42,6 +63,7 @@ static void crash_signal(int sig,siginfo_t *info,void *context){
     if(!info || info->si_code<=0 || sig==SIGABRT)raise(sig);
 }
 static void fight_crash_signals(void){
+    dl_iterate_phdr(fight_index_text,&crash_modules);
     dl_iterate_phdr(crash_find_text,NULL);
     const int signals[]={SIGSEGV,SIGBUS,SIGILL,SIGFPE,SIGABRT};
     struct sigaction action={0};action.sa_sigaction=crash_signal;action.sa_flags=SA_SIGINFO|SA_ONSTACK;
