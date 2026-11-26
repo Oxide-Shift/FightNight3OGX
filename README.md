@@ -10,9 +10,9 @@ Play the original Xbox edition of *Fight Night Round 3* on Android. On an AYN Th
 
 > **Bring your own disc.** You’ll need your own North American original Xbox *Fight Night Round 3* ISO. The app recompiles `default.xbe` on your Android device. The APK and this repository omit the retail executable, fighter and arena data, and original EA Trax recordings. FightNight3OGX is an independent fan project. Electronic Arts has no affiliation with the project and does not endorse it.
 
-<p align="center"><img src="docs/screenshots/fight-hud.jpg" width="640" alt="Gatti and Ward trading punches with 30 seconds left in round one. The lower screen shows blue and red health bars, gold stamina bars and both punch counts."></p>
+<p align="center"><img src="docs/screenshots/fight-hud.jpg" width="640" alt="Gatti and Ward in round two with 13 seconds left, captured on an AYN Thor. The lower screen shows a centered 0:13 | R2 timekeeper with round tacks either side, both fighter cards with records, health and stamina, punch counts and the judges' scorecard for round one."></p>
 
-Gatti has landed 9 of 16 punches. Ward has landed 9 of 12. A glance down tells you who’s connecting more often and how much stamina each fighter has left. When the judges turn in a round, their scores appear below the punch totals.
+Round two, 13 seconds left. The lower screen keeps the clock and round on one centered line, flanked by ten round tacks per corner that light up in the fighter's colour for each round the judges give them. Below it: both records, health and stamina, punches landed and thrown, and every filed round on the official scorecard. Ward has landed 135 of 138. Gatti's health is down to 33%.
 
 ## Supported game
 
@@ -88,6 +88,8 @@ If you upgrade an existing installation, the launcher can still read its install
 - **A controller is required.** Fight Setup now says so when no gamepad is connected. There are no touch controls for boxing.
 - **Lower-screen timekeeper:** one centered line, `1:42 | R1`, with a larger clock and tally-mark flanks.
 - **Between rounds** the lower screen shows the next round, both fighters' health and stamina, punches, accuracy, your knockdowns, and up to two corner tips worked out from those numbers.
+
+<p align="center"><img src="docs/screenshots/between-rounds.jpg" width="560" alt="Between rounds two and three on an AYN Thor: Ward in his corner on the top screen; the lower screen reads Round 3 next with both fighter cards, punch totals and the judges' scorecard."></p>
 - **Steadier menu companion:** the lower screen no longer flashes "From your corner" while a submenu such as Play Now is open.
 - **Clearer import messages:** a refused disc is labelled **Wrong platform**, **Different game**, **Unrecognized disc revision** or **Unsupported container**, and **Copy details** includes the `default.xbe` SHA-256.
 - **Graphics driver resets** now return to Fight Setup with a plain message instead of an unexplained crash.
