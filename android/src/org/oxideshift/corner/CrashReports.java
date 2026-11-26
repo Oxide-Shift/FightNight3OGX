@@ -191,7 +191,9 @@ final class CrashReports {
                 if(d.has("context"))context+=crashPreview(d.getJSONObject("context"));
             }
             if(d.has("details"))context+=ReportDetails.preview(d.getJSONObject("details"));
-            String copyDetails=importing?problem+"\n\n"+context:d.has("copyTarget")?context+"\nAttempted Xbox call target "+d.getString("copyTarget"):context;
+            // Local-only: the track log goes to the clipboard copy, never into uploadBody or the dialog text.
+            String copyDetails=(importing?problem+"\n\n"+context:d.has("copyTarget")?context+"\nAttempted Xbox call target "+d.getString("copyTarget"):context)
+                    +(importing?"":TrackLog.text());
             d.remove("copyTarget");
             String uploadBody=d.toString();
             JSONObject rom=d.has("details")?d.getJSONObject("details").getJSONObject("rom"):null;

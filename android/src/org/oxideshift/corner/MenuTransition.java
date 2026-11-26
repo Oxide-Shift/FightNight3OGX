@@ -26,6 +26,9 @@ final class MenuTransition {
     private final ByteBuffer apt;
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
     final int width,height,frames,changeFrame;
+    /** The movie once the front end has read it from the disc, shared with the lower-screen mirror.
+     *  Draw calls on one instance must hold its monitor (the paint and the bars flag are shared). */
+    static volatile MenuTransition loaded;
     private static ByteBuffer buffer(byte[] bytes){return ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);}
     private static String string(ByteBuffer b,int at){
         int end=at;while(b.get(end)!=0)end++;
@@ -60,7 +63,10 @@ final class MenuTransition {
                     if(sprite==null)characters[id]=geometry.shape(model);
                     else{
                         RectF bounds=new RectF(apt.getFloat(at+8),apt.getFloat(at+12),apt.getFloat(at+16),apt.getFloat(at+20));
-                        characters[id]=(c,p,age,alpha)->{p.setColor(0xffffffff);p.setAlpha(alpha);c.drawBitmap(sprite,null,bounds,p);};
+                        characters[id]=(c,p,age,alpha)->{
+                            if(barsOnly)return;
+                            p.setColor(0xffffffff);p.setAlpha(alpha);c.drawBitmap(sprite,null,bounds,p);
+                        };
                     }
                     break;
                 case 2:
@@ -69,6 +75,7 @@ final class MenuTransition {
                     int color=apt.getInt(at+32);
                     float size=apt.getFloat(at+36),x=apt.getFloat(at+8)+2,y=apt.getFloat(at+12)+2;
                     characters[id]=(c,p,age,alpha)->{
+                        if(barsOnly)return;
                         p.setTypeface(stencil);p.setTextSize(size);p.setColor(color);p.setAlpha(alpha);
                         c.drawText(caption,x,y-p.ascent(),p);
                     };
@@ -121,6 +128,12 @@ final class MenuTransition {
     void draw(Canvas canvas,int frame,int w,int h){
         canvas.save();canvas.scale(w/(float)width,h/(float)height);
         characters[0].draw(canvas,paint,Math.max(0,Math.min(frames-1,frame)),255);canvas.restore();
+    }
+    /** Only the vector layers (the orange sweep and red bars): no photo, logo or caption. */
+    private boolean barsOnly;
+    void drawBars(Canvas canvas,int frame,int w,int h){
+        barsOnly=true;
+        try{draw(canvas,frame,w,h);}finally{barsOnly=false;}
     }
 
     /** These ELF objects contain named material groups, indexed strips and Xbox packed positions. */

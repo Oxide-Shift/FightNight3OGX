@@ -93,6 +93,7 @@ public class CornerActivity extends Activity implements DisplayManager.DisplayLi
         super.onCreate(state);
         setVolumeControlStream(AudioManager.STREAM_MUSIC);
         base=getFilesDir();prefs=getSharedPreferences("fight-setup",MODE_PRIVATE);
+        TrackLog.attach(base);
         try{GameLibrary.recoverDisc(base.toPath());}catch(IOException e){engine.note="Could not recover the previous disc installation";}
         refreshDiscRepair();
         File installRoot=base;
@@ -555,6 +556,7 @@ public class CornerActivity extends Activity implements DisplayManager.DisplayLi
             fpsCounter.running(awake);
         }
         achievementDisplay=new AchievementDisplay(this,body,menu.fonts(),menu::mainMenuArt,engine.session,game(),prefs.getInt("aspect",0)==0,this::enterPlaylist,this::neutralPad);
+        achievementDisplay.frames(this::currentFrame);
         CornerSession owner=currentGame();
         owner.onFrontChanged(()->main.post(()->{
             if(!viewingGame || screen==null || owner!=engine.session)return;
@@ -722,6 +724,10 @@ public class CornerActivity extends Activity implements DisplayManager.DisplayLi
             event=new KeyEvent(event.getDownTime(),event.getEventTime(),event.getAction(),code,event.getRepeatCount(),
                     event.getMetaState(),event.getDeviceId(),event.getScanCode(),event.getFlags(),event.getSource());
         }
+        // A release always reaches the pad, whatever handles the event below and even while presses are not
+        // accepted (wake re-check, music cabinet, playlist wait, Fight Setup overlay). Otherwise the last
+        // "held" state was replayed with the next unrelated input, e.g. guard staying up after letting go.
+        if(event.getAction()==KeyEvent.ACTION_UP && pad.release(event.getDeviceId(),event.getSource(),code))sendRelease();
         if(code==KeyEvent.KEYCODE_BACK && (viewingGame || viewingCard)){
             if(event.getAction()==KeyEvent.ACTION_UP && !event.isCanceled())onBackPressed();
             return true;
@@ -751,13 +757,20 @@ public class CornerActivity extends Activity implements DisplayManager.DisplayLi
         return super.dispatchKeyEvent(event);
     }
     @Override public boolean dispatchGenericMotionEvent(MotionEvent event){
-        if(viewingGame && achievementDisplay!=null && achievementDisplay.handleMotion(event))return true;
-        if(viewingGame && engine.session!=null && engine.session.waitingForPlaylist() && FightPad.directionalMotion(event))return true;
+        if(viewingGame && achievementDisplay!=null && achievementDisplay.handleMotion(event)){releaseMotion(event);return true;}
+        if(viewingGame && engine.session!=null && engine.session.waitingForPlaylist() && FightPad.directionalMotion(event)){releaseMotion(event);return true;}
         if(acceptsPad()&&pad.motion(event)){
             if(event.getDeviceId()>=0)rumble.use(event.getDeviceId());
             sendPad();return true;
         }
+        releaseMotion(event);
         return super.dispatchGenericMotionEvent(event);
+    }
+    /** Motion the game does not take may still let go of a held trigger or stick. */
+    private void releaseMotion(MotionEvent event){if(pad.releaseMotion(event))sendRelease();}
+    /** Releases are always safe to deliver, including while the game is behind Fight Setup. */
+    private void sendRelease(){
+        if(engine.session!=null)engine.session.controller(pad.report(touchKey,treating,treatX,treatY));
     }
     private WebView card(Context context){
         WebView view=new WebView(context);WebSettings settings=view.getSettings();

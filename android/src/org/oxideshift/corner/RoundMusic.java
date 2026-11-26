@@ -45,7 +45,10 @@ final class RoundMusic implements AutoCloseable {
     }
     private final Listener listener;
     private boolean playing,closed;
-    private volatile boolean menuScene=true;
+    private volatile int scene=SceneMix.SCENE_MENU;
+    /** Set when output starts or resumes from silence; the stream loop then runs the 7 s entry fade. */
+    private volatile boolean resumed,longEntry;
+    private boolean pausedForFight;
     private String first="";
     synchronized void requested(String stem,boolean audition){
         rotation.request(stem,audition);
@@ -58,8 +61,8 @@ final class RoundMusic implements AutoCloseable {
     }
     private static boolean isExpanded(String stem){return ExpandedTracks.index(stem)>=0;}
     void start(){new Thread(this::run,"fight-ea-trax").start();}
-    synchronized void transport(String stem,boolean play,boolean inMenu){
-        menuScene=inMenu;
+    synchronized void transport(String stem,boolean play,int scene){
+        this.scene=scene;
         if(first.isEmpty() && !stem.isEmpty()){
             first=stem;
             rotation.request(stem,false);
@@ -68,12 +71,31 @@ final class RoundMusic implements AutoCloseable {
         notifyAll();
     }
     @Override public synchronized void close(){closed=true;notifyAll();}
+    /** Player pause from the lower-screen music controls. Resuming uses the short entry ramp. */
+    private boolean userPaused;
+    synchronized void pause(boolean paused){userPaused=paused;notifyAll();}
+    synchronized boolean paused(){return userPaused;}
+    /** Lower-screen Back (-1) and Next (+1). Next cuts to the next track in the rotation; Back returns to the
+     *  previous track, or restarts the current one when nothing earlier was played. */
+    synchronized void skip(int direction){rotation.skip(direction);notifyAll();}
     private synchronized boolean ready(AudioTrack out)throws InterruptedException{
-        while(!closed && (!playing || (first.isEmpty() && rotation.mask!=0))){
-            if(out.getPlayState()==AudioTrack.PLAYSTATE_PLAYING)out.pause();
+        while(!closed && (!playing || userPaused || (first.isEmpty() && rotation.mask!=0))){
+            if(out.getPlayState()==AudioTrack.PLAYSTATE_PLAYING){
+                out.pause();
+                pausedForFight=scene!=SceneMix.SCENE_MENU;
+            }
             wait();
         }
-        if(!closed && out.getPlayState()!=AudioTrack.PLAYSTATE_PLAYING)out.play();
+        if(!closed && out.getPlayState()!=AudioTrack.PLAYSTATE_PLAYING){
+            // The long entry is only for music coming back into or out of a fight. The first song after Start (and
+            // any plain menu resume) comes in over a short ramp instead.
+            longEntry=pausedForFight || scene!=SceneMix.SCENE_MENU;
+            pausedForFight=false;
+            // Player volume also covers audio already buffered at the old level, so nothing leaks at full level.
+            out.setVolume(EntryFade.gain(EntryFade.FLOOR_DB));
+            resumed=true;
+            out.play();
+        }
         return !closed;
     }
     /** Row order from the retail title lookup (sub_00162800), independent of BIG file order. */
@@ -113,11 +135,38 @@ final class RoundMusic implements AutoCloseable {
             if(!audition.isEmpty() && audition.equals(requested))requested=interrupt="";
             audition="";
         }
+        private final java.util.ArrayDeque<String> history=new java.util.ArrayDeque<>();
+        private String forced="";private boolean skipping;
+        private String current="";
+        void skip(int direction){
+            if(direction>0){skipping=true;forced="";return;}
+            String back=history.isEmpty()?current:history.peekLast();
+            if(back.isEmpty())return;
+            if(!history.isEmpty())history.removeLast();
+            forced=back;skipping=true;backing=true;
+        }
+        private boolean backing;
         boolean shouldChange(String current){
-            return (!interrupt.isEmpty() && !interrupt.equals(current))
+            return skipping || (!interrupt.isEmpty() && !interrupt.equals(current))
                     || (!eligible(current) && !current.equals(audition));
         }
+        /** Why shouldChange() cut the current track short, for the track log. */
+        String changeReason(String current){
+            if(skipping)return forced.isEmpty()?"skipped forward by the player":"player went back to "+TrackLog.label(forced);
+            if(!interrupt.isEmpty() && !interrupt.equals(current))
+                return interrupt.equals(audition)?"menu preview of "+TrackLog.label(interrupt):"playlist restart";
+            return "removed from the playlist";
+        }
         String next(String last){
+            String chosen=choose(last);
+            // Back steps through history without re-recording the track it left.
+            if(!backing && !last.isEmpty() && !last.equals(chosen)){history.addLast(last);while(history.size()>20)history.removeFirst();}
+            backing=false;current=chosen;
+            return chosen;
+        }
+        private String choose(String last){
+            boolean wasSkipping=skipping;skipping=false;
+            if(wasSkipping && !forced.isEmpty()){String back=forced;forced="";requested=interrupt="";queue.remove(back);return back;}
             String preferred=requested;
             requested=interrupt="";
             boolean preview=!audition.isEmpty() && audition.equals(preferred);
@@ -136,6 +185,10 @@ final class RoundMusic implements AutoCloseable {
         }
     }
     private synchronized boolean changeAfterBlock(String stem){return rotation.shouldChange(stem);}
+    private synchronized String changeReason(String stem){return rotation.changeReason(stem);}
+    /** Track currently decoding, for the error entry in the track log. */
+    private volatile String decoding="";
+    private volatile long decodedFrames;
     private synchronized String nextTrack(String last){return rotation.next(last);}
     private synchronized String waitForTrack(String last)throws InterruptedException{
         while(!closed){
@@ -176,6 +229,7 @@ final class RoundMusic implements AutoCloseable {
                 if(ready(out))stream(disc,out);
             }finally{out.release();}
         }catch(IOException | RuntimeException e){
+            TrackLog.record(decoding,decodedFrames,0,"error ("+e.getClass().getSimpleName()+"), original disc music restored");
             Log.w("FightNight","Restoring original disc music",e);listener.failed(this);
         }catch(InterruptedException e){Thread.currentThread().interrupt();listener.failed(this);}
     }
@@ -187,10 +241,13 @@ final class RoundMusic implements AutoCloseable {
         long written=0,head=0,previousHead=0;
         java.util.ArrayDeque<Cue> cues=new java.util.ArrayDeque<>();
         boolean fadeIn=false;
-        SceneMix mix=new SceneMix(menuScene);
+        SceneMix mix=new SceneMix(scene);
+        EntryFade entry=new EntryFade();
+        int lastScene=scene;
         while(ready(out)){
             String stem=nextTrack(last);
             if(stem.isEmpty()){
+                TrackLog.record(last,0,0,"stopped, no eligible tracks");
                 out.pause();out.flush();cues.clear();
                 written=head=previousHead=0;
                 listener.audible(this,"");
@@ -207,10 +264,17 @@ final class RoundMusic implements AutoCloseable {
                 }
                 mix.selectTrack(stem);
                 cues.addLast(new Cue(written/2,stem));
-                int frames;
+                decoding=stem;decodedFrames=0;
+                boolean cut=false;
+                int frames=0;
                 while(ready(out) && (frames=extra==null?disc.read(pcm):extra.read(pcm))>0){
                     boolean skip=changeAfterBlock(stem);
-                    if(skip)frames=Math.min(frames,441);
+                    if(skip){
+                        frames=Math.min(frames,441);
+                        TrackLog.record(stem,decodedFrames,extra==null?0:extra.storedFrames,changeReason(stem));
+                        cut=true;
+                    }
+                    decodedFrames+=frames;
                     if(fadeIn || skip){
                         int ramp=Math.min(441,frames);
                         for(int i=0;i<ramp;i++){
@@ -219,7 +283,10 @@ final class RoundMusic implements AutoCloseable {
                         }
                         fadeIn=false;
                     }
-                    mix.apply(pcm,frames,menuScene);
+                    int now=scene;
+                    if(lastScene==SceneMix.SCENE_RETURNING && now==SceneMix.SCENE_MENU)entry.hurry(head);
+                    lastScene=now;
+                    mix.apply(pcm,frames,now);
                     for(int at=0;at<frames*2;){
                         if(!ready(out))return;
                         int n=out.write(pcm,at,frames*2-at,AudioTrack.WRITE_BLOCKING);
@@ -227,6 +294,8 @@ final class RoundMusic implements AutoCloseable {
                         at+=n;written+=n;
                         long raw=out.getPlaybackHeadPosition()&0xffffffffL;
                         head+=(raw-previousHead)&0xffffffffL;previousHead=raw;
+                        if(resumed){resumed=false;entry.begin(head,longEntry?EntryFade.FRAMES:EntryFade.SHORT_FRAMES);}
+                        if(entry.active())out.setVolume(entry.volume(head));
                         while(!cues.isEmpty() && head>cues.peekFirst().frame){
                             String audible=cues.removeFirst().stem;
                             expandedStart.audible(audible);
@@ -235,17 +304,25 @@ final class RoundMusic implements AutoCloseable {
                     }
                     if(skip){fadeIn=true;break;}
                 }
+                // Decoded length vs the file's stated length shows a short decode; the audio buffer still drains.
+                if(!cut && frames<=0)TrackLog.record(stem,decodedFrames,extra==null?0:extra.storedFrames,"ended");
             }
         }
     }
-    /** Gains relative to decoded stereo PCM. Stock menu captures measure 0.22 at the default mix.
-     *  Fight music sits 3 dB under the former 0.12 so punches and breathing (game stream) carry over it. */
+    /** Scene levels as linear gains on decoded stereo PCM. Stock menu captures measure 0.22 at the default mix.
+     *  Fight music: 0.13 (-17.7 dB) at the owner's request. Level changes move in equal decibel steps (perceptual),
+     *  not equal amplitude steps. Scenes: MENU, FIGHT (from the bell), RETURNING (result in, menu not yet back). */
     static final class SceneMix {
-        static final float MENU=.22f,FIGHT=.085f;
+        static final float MENU=.22f,FIGHT=.13f;
+        static final int SCENE_MENU=0,SCENE_FIGHT=1,SCENE_RETURNING=2;
         static final int FADE_FRAMES=DiscTrax.RATE*3/4;
-        private float current,target,step;
-        private int remaining;
+        /** Fight result to menu: 7 s nominal; if the menu arrives first the rest takes at most QUICK_FRAMES. */
+        static final int RETURN_FRAMES=DiscTrax.RATE*7, QUICK_FRAMES=DiscTrax.RATE*3/5;
+        private float currentDb,fromDb,toDb;
+        private int total,done,scene;
         private float trackGain=1f;
+        private static float db(float gain){return (float)(20*Math.log10(gain));}
+        private float current(){return (float)Math.pow(10,currentDb/20);}
         void selectTrack(String stem){
             // Full-track integrated LUFS of the decoded stereo sources. Match the disc median.
             double integrated;
@@ -269,17 +346,52 @@ final class RoundMusic implements AutoCloseable {
             }
             trackGain=(float)Math.pow(10,(-7.8-integrated)/20);
         }
-        SceneMix(boolean menu){current=target=menu?MENU:FIGHT;}
-        void apply(short[] pcm,int frames,boolean menu){
-            float requested=menu?MENU:FIGHT;
-            if(target!=requested){
-                target=requested;step=(target-current)/FADE_FRAMES;remaining=FADE_FRAMES;
+        SceneMix(boolean menu){this(menu?SCENE_MENU:SCENE_FIGHT);}
+        SceneMix(int scene){this.scene=scene;currentDb=fromDb=toDb=db(level(scene));}
+        private static float level(int scene){return scene==SCENE_FIGHT?FIGHT:MENU;}
+        private void rampTo(float targetDb,int frames){fromDb=currentDb;toDb=targetDb;total=Math.max(1,frames);done=0;}
+        void apply(short[] pcm,int frames,boolean menu){apply(pcm,frames,menu?SCENE_MENU:SCENE_FIGHT);}
+        void apply(short[] pcm,int frames,int requested){
+            if(requested!=scene){
+                if(requested==SCENE_RETURNING)rampTo(db(MENU),RETURN_FRAMES);
+                else if(scene==SCENE_RETURNING && requested==SCENE_MENU){
+                    // The menu came back before the post-fight ramp finished: finish quickly, never jump.
+                    if(total-done>QUICK_FRAMES)rampTo(toDb,QUICK_FRAMES);
+                }else rampTo(db(level(requested)),FADE_FRAMES);
+                scene=requested;
             }
             for(int i=0;i<frames*2;i+=2){
-                if(remaining>0)current=target-step*(--remaining);
-                float gain=current*trackGain;
+                if(done<total){done++;currentDb=fromDb+(toDb-fromDb)*done/total;}
+                float gain=current()*trackGain;
                 pcm[i]=(short)Math.round(pcm[i]*gain);pcm[i+1]=(short)Math.round(pcm[i+1]*gain);
             }
+        }
+    }
+    /** Music entering from silence. Into or out of a fight (menu return after a silent fight, the bell after an
+     *  entrance): -60 dB to full over 7 s of played audio, linear in decibels. Launch and other menu resumes use
+     *  SHORT_FRAMES. Positions are played frames, so a stalled output never advances the fade. hurry() shortens the
+     *  rest to QUICK_FRAMES when the menu arrives early. */
+    static final class EntryFade {
+        static final float FLOOR_DB=-60f;
+        static final int FRAMES=DiscTrax.RATE*7, SHORT_FRAMES=DiscTrax.RATE*3/5;
+        private long start=-1,end;
+        private float fromDb;
+        static float gain(float db){return (float)Math.pow(10,db/20);}
+        void begin(long head){begin(head,FRAMES);}
+        void begin(long head,int frames){start=head;end=head+Math.max(1,frames);fromDb=FLOOR_DB;}
+        boolean active(){return start>=0;}
+        private float dbAt(long head){
+            if(head>=end)return 0f;
+            return fromDb-fromDb*(head-start)/(float)(end-start);
+        }
+        void hurry(long head){
+            if(start<0 || end-head<=SceneMix.QUICK_FRAMES)return;
+            fromDb=dbAt(Math.max(start,head));start=Math.max(start,head);end=start+SceneMix.QUICK_FRAMES;
+        }
+        float volume(long head){
+            if(start<0)return 1f;
+            if(head>=end){start=-1;return 1f;}
+            return gain(dbAt(Math.max(start,head)));
         }
     }
     private static final class Cue {

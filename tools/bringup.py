@@ -64,6 +64,23 @@ def observe_career_menus(directory):
             "extern void fight_training_ratings(uint32_t, int);\n    fight_training_ratings(esp + 0x14, 1);\n    extern void fight_training_choice(unsigned);\n    fight_training_choice(edi);",
         "loc_0014E6C8: ;":
             "extern void fight_career_offer(uint32_t);\n    fight_career_offer(esp);",
+        # GetContractInfo's C strings for m_purse, m_bonus and m_bonusCriteria, each read at the label
+        # before the APT value constructor (0x233559) takes it. Both bonus branches are covered, and
+        # every branch reaches m_fightType at 0x14ECFA, where the three are reported together.
+        "loc_0014E6F5: ;":
+            "extern void fight_contract_text(unsigned, uint32_t);\n    fight_contract_text(0, eax);",
+        "loc_0014E7B1: ;":
+            "extern void fight_contract_text(unsigned, uint32_t);\n    fight_contract_text(1, esp + 0x18C);",
+        "loc_0014E7FE: ;":
+            "extern void fight_contract_text(unsigned, uint32_t);\n    fight_contract_text(2, 0x47F6E0u);",
+        "loc_0014E96E: ;":
+            "extern void fight_contract_text(unsigned, uint32_t);\n    fight_contract_text(1, esp + 0x198);",
+        "loc_0014EC5D: ;":
+            "extern void fight_contract_text(unsigned, uint32_t);\n    fight_contract_text(2, esp + 0x198);",
+        "loc_0014ECD0: ;":
+            "extern void fight_contract_text(unsigned, uint32_t);\n    fight_contract_text(2, 0x47F6E0u);",
+        "loc_0014ECFA: ;":
+            "extern void fight_contract_done(void);\n    fight_contract_done();",
         "loc_0019CC5C: ;\n    esi = MEM32(esi + 0x24);\n    eax = (uint32_t)(int32_t)SMEM16(esi);\n    eax = (uint32_t)((int32_t)eax * (int32_t)0x64);":
             "extern void fight_store_price(int32_t);\n    fight_store_price((int32_t)eax);",
     }
@@ -179,10 +196,13 @@ def observe_ring_events(directory):
         "loc_000C88CD: ;": ("void fight_hud_time(uint32_t)", "fight_hud_time(edi)"),
         "loc_000C8FE9: ;": ("void fight_hud_time(uint32_t)", "fight_hud_time(eax)"),
         "loc_0017F8AB: ;": ("void fight_ref_count(uint32_t)", "fight_ref_count(MEM32(esp + 0x2C))"),
+        # The boxer damage routine formats "damagelog P%d, <area>, head|body, <attack>, <hit>, <amount>" into a
+        # stack buffer on every landed punch; both branches meet here with the buffer at esp+0x60.
+        "loc_00085848: ;": ("void fight_damage_log(uint32_t)", "fight_damage_log(esp + 0x60)"),
         "loc_0016C39A: ;": ("void fight_stumble(void)", "fight_stumble()"),
     }
     touched = []
-    for path in patch_candidates(directory, "recomp_0*.c", ('0024', '0044', '0045')):
+    for path in patch_candidates(directory, "recomp_0*.c", ('0024', '0017', '0044', '0045')):
         source = path.read_text(encoding="utf-8")
         original = source
         for label in list(sites):

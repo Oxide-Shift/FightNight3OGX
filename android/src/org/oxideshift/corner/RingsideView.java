@@ -21,6 +21,8 @@ final class RingsideView extends LinearLayout {
     private final CutmanStroke.Stick stick;
     private final Hero hero;
     private final FightCallout announcement=new FightCallout();
+    private final TransitionMirror mirror=new TransitionMirror();
+    private final Runnable mirrorTick=this::followTransition;
     private BoutAnnouncements.Notice announced;
     private final View rule;
     private final TextView launchHint;
@@ -40,6 +42,7 @@ final class RingsideView extends LinearLayout {
     private CareerDesk.Page careerPage;
     private CareerDesk.Page editorPage;
     private BoxerEditorDesk editorDesk;
+    private Object animatedEditorPage;
     private final BoxerEditorDesk.Notebook notebook=new BoxerEditorDesk.Notebook();
     private boolean editorVisit;
     private long careerRevision=-1;
@@ -390,6 +393,17 @@ final class RingsideView extends LinearLayout {
             }
             for(int i=0;i<added.size();i++)content.addView(added.get(i),card+i);
         }
+        addDamage();
+    }
+    /** Per-region damage figures, placed right under the punch counts (above the judges' card). */
+    private DamageMap damageMap;
+    private void addDamage(){
+        if(session==null)return;
+        damageMap=new DamageMap(getContext(),headline);
+        int at=punchPanel!=null && punchPanel.getParent()==content?content.indexOfChild(punchPanel)+1:content.getChildCount();
+        LayoutParams size=new LayoutParams(-1,dp(206));size.setMargins(dp(3),dp(6),dp(3),dp(4));
+        content.addView(damageMap,at,size);
+        damageMap.show(session.damage,fighters);
     }
     private void addScorecard(){
         addPunches();
@@ -413,6 +427,7 @@ final class RingsideView extends LinearLayout {
         if(session!=null){session.lowerCallouts=false;}
         session=owner;editorPage=null;editorVisit=false;notebook.clear();careerBranch=false;careerFocus=-1;announced=null;announcement.clear();
         if(screen!=null){screen.lowerShows(BroadcastCues.NONE);screen.timing.suspend();}
+        mirror.clear();
         deskScene.reset();wasAtRoot=false;cabinetCovered=false;nextFooterRead=0;currentPage=null;missingPageReads=0;tips.leave();displayedCamp=null;lastMenuRead=0;screen=next;sequence=0;lastSeen=0;scene=null;footerMask=0;
         lastCard=null;bout=null;fighters=null;drawNames();java.util.Arrays.fill(levels,-1);
         boolean opening=next!=null && owner!=null && owner.openingSlate();
@@ -440,13 +455,26 @@ final class RingsideView extends LinearLayout {
         forceCapture=true;schedule();
     }
     private void schedule(){
-        removeCallbacks(tick);
-        if(activeView && isAttachedToWindow() && screen!=null)post(tick);
+        removeCallbacks(tick);removeCallbacks(mirrorTick);
+        if(activeView && isAttachedToWindow() && screen!=null){post(tick);post(mirrorTick);}
+        else if(mirror.active()){mirror.clear();invalidate();}
+    }
+    /** Career drills keep their training sheet through the loading hold. */
+    private boolean mirrorShown(){
+        return screen!=null && !(session!=null && session.career.page!=null && session.career.page.is("drill"));
+    }
+    /** Idle: a cheap read every 40 ms. While the top plays its transition: every display frame. */
+    private void followTransition(){
+        if(!activeView || !isAttachedToWindow() || screen==null)return;
+        boolean was=mirror.active();
+        boolean following=mirror.observe(screen.latestFrame(),SystemClock.uptimeMillis());
+        if(following || was)invalidate();
+        if(following)postOnAnimation(mirrorTick);else postDelayed(mirrorTick,40);
     }
     @Override protected void onAttachedToWindow(){super.onAttachedToWindow();syncDisplayOwnership();schedule();}
     @Override protected void onDetachedFromWindow(){
         if(session!=null){session.lowerCallouts=false;}
-        removeCallbacks(tick);
+        removeCallbacks(tick);removeCallbacks(mirrorTick);
         if(screen!=null){screen.timing.suspend();screen.lowerShows(BroadcastCues.NONE);}
         super.onDetachedFromWindow();
     }
@@ -455,7 +483,7 @@ final class RingsideView extends LinearLayout {
         scroll.setVisibility(VISIBLE);
         if(cutman!=null){cutman.release();removeView(cutman);cutman=null;}
         menuDock.removeAllViews();menuDock.setVisibility(scene==Scene.MENU && screen!=null?VISIBLE:GONE);
-        content.removeAllViews();rootIllustration=null;scroll.scrollTo(0,0);menuHint=null;menuLead=null;scouting=null;contract=null;training=null;ledger=null;judgePanel=null;punchPanel=null;java.util.Arrays.fill(punchCounts,null);
+        content.removeAllViews();damageMap=null;rootIllustration=null;scroll.scrollTo(0,0);menuHint=null;menuLead=null;scouting=null;contract=null;training=null;ledger=null;judgePanel=null;punchPanel=null;java.util.Arrays.fill(punchCounts,null);
         resultHeading="";hero.career=false;careerActions.removeAllViews();careerActions.setVisibility(GONE);compactCareer=false;careerPage=null;careerDetails=false;careerRevision=-1;
         boolean showingHome=screen==null;
         launchHint.setVisibility(showingHome?VISIBLE:GONE);
@@ -468,7 +496,10 @@ final class RingsideView extends LinearLayout {
             hero.setVisibility(GONE);rule.setVisibility(GONE);scroll.setVisibility(GONE);
             fightPanel.setVisibility(GONE);menuDock.setVisibility(GONE);
             editorDesk=new BoxerEditorDesk(getContext(),headline,editorPage,notebook,session.camp());
-            desk.addView(editorDesk,new FrameLayout.LayoutParams(-1,-1));return;
+            desk.addView(editorDesk,new FrameLayout.LayoutParams(-1,-1));
+            // The desk is rebuilt on every refresh; only a new editor page earns the entry motion.
+            if(editorPage!=animatedEditorPage){animatedEditorPage=editorPage;BoxerEditorDesk built=editorDesk;post(()->SheetMotion.appear(built));}
+            return;
         }
         if(intro){
             hero.setVisibility(GONE);rule.setVisibility(GONE);desk.setVisibility(GONE);
@@ -493,7 +524,7 @@ final class RingsideView extends LinearLayout {
             }
         }else if(scene==Scene.ROUND){
             hero.title="In your corner";
-            addScorecard();
+            addScorecard();addDamage();
         }else if(scene==Scene.TREATMENT){
             hero.setVisibility(GONE);rule.setVisibility(GONE);desk.setVisibility(GONE);
             cutman=new CutmanDesk(getContext(),usedFonts!=null?usedFonts:DiscFonts.FALLBACK,stick,
@@ -502,7 +533,7 @@ final class RingsideView extends LinearLayout {
             addView(cutman,new LayoutParams(-1,-1));
         }else if(scene==Scene.PAUSE){
             hero.title="Paused";
-            addScorecard();
+            addScorecard();addDamage();
         }else if(scene==Scene.FINAL || scene==Scene.TOTALS){
             boolean end=scene==Scene.FINAL;
             resultHeading=session.result()+session.finish();
@@ -558,12 +589,17 @@ final class RingsideView extends LinearLayout {
             contract.setOnClickListener(v->{if(activeOfferFrame()!=null)pad.press(Key.X);});
             content.addView(contract,0,new LayoutParams(-1,-2));
         }else if(TrainingSheet.handles(page) && training==null){
-            training=trainingSheet();content.addView(training,0,new LayoutParams(-1,-2));
+            // Weighted: on tall screens the sheet's camp poster takes the space left below the table.
+            training=trainingSheet();content.addView(training,0,new LayoutParams(-1,-2,1f));
         }else if((page.is("fightstore") || page.is("trophycase")) && ledger==null){
             ledger=new CampLedger(getContext(),fonts);ledger.setArt(careerArt);
-            content.addView(ledger,0,new LayoutParams(-1,-2));
+            content.addView(ledger,0,new LayoutParams(-1,-2,1f));
+        }else if(OptionsSheet.handles(page) && optionsSheet==null){
+            optionsSheet=new OptionsSheet(getContext(),fonts);
+            content.addView(optionsSheet,0,new LayoutParams(-1,dp(300),1f));
         }
     }
+    private OptionsSheet optionsSheet;
     private void quietHint(String text){
         menuHint=type(text,15,PAPER);menuHint.setTypeface(headline);
         menuHint.setGravity(Gravity.CENTER);menuHint.setPadding(dp(6),dp(4),dp(6),dp(8));
@@ -609,14 +645,16 @@ final class RingsideView extends LinearLayout {
         if(this.desk.getBackground()!=wall)this.desk.setBackground(wall);
         if(training!=null)training.show(desk,page);
         boolean atLedger=ledger!=null && ledger.show(desk,page);
-        menuHint.setVisibility(offers || atTraining || (atLedger && !careerDetails)?GONE:VISIBLE);
+        boolean atOptions=optionsSheet!=null && optionsSheet.show(page);
+        menuHint.setVisibility(offers || atTraining || atOptions || (atLedger && !careerDetails)?GONE:VISIBLE);
         hero.setVisibility(offers || atTraining || shop?GONE:VISIBLE);rule.setVisibility(hero.getVisibility());
         if(scouting!=null)scouting.show(scout?camp:null);
         boolean guide=dedicated || (central && camp==null) || setup;
         if(guide!=careerGuide || dedicated!=compactCareer){
             careerGuide=guide;compactCareer=dedicated;sizeHero();
-            menuHint.setBackground(guide?new CornerInk(dedicated?GameInk.TEXT:CareerScouting.FIELD,0xffa6412a):null);
-            menuHint.setTextColor(dedicated?0xff37291e:guide?CareerScouting.TYPE:GameInk.MUTED);
+            // Dedicated career pages without their own sheet use the dark card too: no cream paper left in Career.
+            menuHint.setBackground(guide?new CornerInk(dedicated?0xff1f0e0a:CareerScouting.FIELD,dedicated?GameInk.ORANGE:0xffa6412a):null);
+            menuHint.setTextColor(dedicated?GameInk.TEXT:guide?CareerScouting.TYPE:GameInk.MUTED);
             menuHint.setTextSize(dedicated?16:guide?22:18);
             menuHint.setLineSpacing(dp(dedicated?1:2),1);
             menuHint.setMinHeight(guide && !dedicated?dp(80):0);
@@ -627,7 +665,7 @@ final class RingsideView extends LinearLayout {
             int line=hint.indexOf('\n');
             if(dedicated && line>0){
                 android.text.SpannableString text=new android.text.SpannableString(hint);
-                text.setSpan(new android.text.style.ForegroundColorSpan(0xff80331f),0,line,0);
+                text.setSpan(new android.text.style.ForegroundColorSpan(GameInk.GOLD),0,line,0);
                 menuHint.setText(text);
             }else menuHint.setText(hint);
         }
@@ -635,12 +673,17 @@ final class RingsideView extends LinearLayout {
         if(hero.career!=career){hero.career=career;sizeHero();hero.invalidate();}
         boolean newTitle=!title.equals(hero.title);
         if(newTitle){hero.title=title;hero.setContentDescription(title);hero.invalidate();}
-        if(career && (changed || newTitle) && isAttachedToWindow() && activeView &&
+        // Every menu page, not only Career: the title reveals and the note settles in under it.
+        if((changed || newTitle) && isAttachedToWindow() && activeView &&
                 android.animation.ValueAnimator.areAnimatorsEnabled()){
             hero.revealTitle();
             if(!offers){
-                menuHint.animate().cancel();menuHint.setTranslationY(dp(5));
-                menuHint.animate().translationY(0).setDuration(180).start();
+                menuHint.animate().cancel();menuHint.setTranslationY(dp(career?5:10));menuHint.setAlpha(career?1f:.25f);
+                menuHint.animate().translationY(0).alpha(1f).setDuration(career?180:240).setInterpolator(SheetMotion.settle()).start();
+            }
+            if(menuLead!=null && menuLead.getVisibility()==VISIBLE){
+                menuLead.animate().cancel();menuLead.setTranslationX(dp(-14));menuLead.setAlpha(0f);
+                menuLead.animate().translationX(0).alpha(1f).setDuration(260).setInterpolator(SheetMotion.settle()).start();
             }
         }
     }
@@ -745,6 +788,7 @@ final class RingsideView extends LinearLayout {
         if(latest!=bout){bout=latest;drawBout();showFighters();}
         FightBroadcast.Fighters names=session.fighters();
         if(names!=fighters){fighters=names;drawNames();}
+        if(damageMap!=null)damageMap.show(session.damage,fighters);
         menuDock.setAlpha(session.cabinetOpen?0f:1f);
         openingSlate.movie(session.introMovie());
         if((scene==Scene.RINGSIDE || scene==Scene.MENU) && (tips.due(SystemClock.uptimeMillis()) || displayedCamp!=session.camp() || careerRevision!=session.career.revision))describeMenu();
@@ -877,10 +921,23 @@ final class RingsideView extends LinearLayout {
             if(getHeight()-top>=dp(48))rockedArea.set(0,top,getWidth(),getHeight());
             else rockedArea.set(Math.max(getWidth()/2,hero.titleRight+dp(6)),hero.getTop(),getWidth(),hero.getBottom());
         }else rockedArea.setEmpty();
-        if(announcement.draw(canvas,getWidth(),getHeight(),headline,SystemClock.uptimeMillis(),rockedArea))postInvalidateOnAnimation();
+        long drawn=SystemClock.uptimeMillis();
+        boolean more=mirrorShown() && mirror.draw(canvas,getWidth(),getHeight(),headline,getResources().getDisplayMetrics().density,
+                drawn,!android.animation.ValueAnimator.areAnimatorsEnabled());
+        if(announcement.draw(canvas,getWidth(),getHeight(),headline,drawn,rockedArea) || more)postInvalidateOnAnimation();
     }
     @Override protected void onDraw(Canvas canvas){
         super.onDraw(canvas);
+        drawBackdrop(canvas);
+        // Arena atmosphere under the menu pages, redrawn at about 30 fps while a menu is on screen.
+        boolean menus=screen!=null && activeView && (scene==Scene.MENU || (scene==Scene.RINGSIDE && !inBout()));
+        if(menus && SheetMotion.on()){
+            ambience.draw(canvas,getWidth(),getHeight(),getResources().getDisplayMetrics().density,SystemClock.uptimeMillis());
+            postInvalidateDelayed(MenuAmbience.FRAME_MS);
+        }
+    }
+    private final MenuAmbience ambience=new MenuAmbience();
+    private void drawBackdrop(Canvas canvas){
         if(cornerArt==null || screen==null)return;
         int h=Math.min(416,cornerArt.getHeight()), w=cornerArt.getWidth();
         float scale=Math.max(getWidth()/(float)w,getHeight()/(float)h);

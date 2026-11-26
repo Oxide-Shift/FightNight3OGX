@@ -58,9 +58,14 @@ int main(void){
     set(g_ecx+0x4c,4);assert(fight_present_interval()==1);
     set(g_ecx+0x4c,3);music_scene(1);assert(fight_present_interval()==1);
     set(0x5b3318,0x71000);set(0x71004,0x72000);set(0x7200c,0x71000);
+    /* The main menu's background is a replay playback while the title asks for every vblank:
+     * on menu pages a replay never halves the presentation rate. */
+    for(unsigned mode=1;mode<=4;mode++){set(0x71008,mode);assert(fight_present_interval()==1);}
+    music_scene(0);
     for(unsigned mode=1;mode<=4;mode++){set(0x71008,mode);assert(fight_present_interval()==2);}
     set(0x71008,0);assert(fight_present_interval()==1);
-    set(0x71008,2);set(0x7200c,0);assert(fight_present_interval()==1);set(0x5b3318,0);
+    set(0x71008,2);set(0x7200c,0);assert(fight_present_interval()==1);set(0x7200c,0x71000);
+    music_scene(1);assert(fight_present_interval()==1);set(0x5b3318,0);
     fight_music_open(31,"intro.nfx",9);assert(fight_present_interval()==2);
     fight_music_open(32,"Rivals00.NFX",12);fight_music_close(31);assert(fight_present_interval()==2);
     fight_music_close(32);assert(fight_present_interval()==1);
@@ -142,6 +147,18 @@ int main(void){
     memcpy(ram+profile+0x2bc+2*0x38+14,(uint8_t[]){9,2,0,6},4);
     fight_career_offer(offer_stack);
     assert(!strcmp(events,"FNR3/1 OFFER 426C75652054657374 7400 75 81 68 85 70 72 4,1,0,2 9,2,0,6\n"));events[0]=0;
+    /* Contract text: the last value written to each field wins; blank criteria and padding trim to "-". */
+    uint32_t text=0x33000;
+    strcpy((char *)ram+text,"$7,400");strcpy((char *)ram+text+0x40,"$5,000 ");strcpy((char *)ram+text+0x80,"Win by KO\x01");
+    strcpy((char *)ram+text+0xc0," ");
+    fight_contract_text(0,text);fight_contract_text(1,text+0x40);fight_contract_text(2,text+0xc0);
+    fight_contract_text(2,text+0x80);fight_contract_text(3,text);fight_contract_done();
+    assert(!strcmp(events,"FNR3/1 CONTRACT 24372C343030 24352C303030 57696E206279204B4F3F\n"));events[0]=0;
+    fight_contract_done();assert(!events[0]);
+    fight_contract_text(0,text);fight_contract_done();assert(!events[0]);
+    fight_career_offer(offer_stack);events[0]=0;
+    fight_contract_text(0,text);fight_contract_text(2,text+0xc0);fight_contract_done();
+    assert(!strcmp(events,"FNR3/1 CONTRACT 24372C343030 - -\n"));events[0]=0;
     set(profile+0x170,12500);set(profile+0x2694,3750);set(profile+0x2bc+0x38+0x30,1);
     memcpy(ram+profile+0x2bc+0x38+14,(uint8_t[]){4,1,0,2},4);
     memcpy(ram+profile+0x2bc+2*0x38+14,(uint8_t[]){9,2,0,6},4);

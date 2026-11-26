@@ -17,7 +17,13 @@ final class TraxBanner extends Drawable {
     private int opacity=255;
     private ColorFilter tint;
 
-    TraxBanner(Bitmap[] sprites,float maxBadge){this.sprites=sprites;this.maxBadge=maxBadge;}
+    /** Which layer to draw: both, only the printed sleeve, or only the badge and tab (the cue animates them apart). */
+    static final int BOTH=0,SLEEVE=1,EMBLEM=2;
+    private final int part;
+    TraxBanner(Bitmap[] sprites,float maxBadge){this(sprites,maxBadge,BOTH);}
+    TraxBanner(Bitmap[] sprites,float maxBadge,int part){this.sprites=sprites;this.maxBadge=maxBadge;this.part=part;}
+    /** Width the badge takes at the left of a strip this size (for placing the copy beside it). */
+    float badgeWidth(){return sprites==null?0:badge*.82f;}
     @Override protected void onBoundsChange(Rect bounds){
         float w=bounds.width(),h=bounds.height();
         if(w<=0 || h<=0)return;
@@ -45,14 +51,16 @@ final class TraxBanner extends Drawable {
         if(w<=0 || h<=0)return;
         int base=canvas.save();canvas.translate(b.left,b.top);
         if(opacity!=255)canvas.saveLayerAlpha(0,0,w,h,opacity);
-        int strip=canvas.save();canvas.clipPath(shape);
-        paint.setColorFilter(tint);paint.setColor(0xffffffff);paint.setShader(field);
-        canvas.drawPath(shape,paint);paint.setShader(null);
-        paint.setColor(0xffaa642a);canvas.drawRect(0,top,w,top+h*.019f,paint);
-        paint.setColor(0xff75391e);canvas.drawRect(0,bottom-h*.04f,w,bottom,paint);
-        paint.setColor(0x80885d38);canvas.drawPath(wear,paint);
-        canvas.restoreToCount(strip);
-        if(sprites!=null){
+        if(part!=EMBLEM){
+            int strip=canvas.save();canvas.clipPath(shape);
+            paint.setColorFilter(tint);paint.setColor(0xffffffff);paint.setShader(field);
+            canvas.drawPath(shape,paint);paint.setShader(null);
+            paint.setColor(0xffaa642a);canvas.drawRect(0,top,w,top+h*.019f,paint);
+            paint.setColor(0xff75391e);canvas.drawRect(0,bottom-h*.04f,w,bottom,paint);
+            paint.setColor(0x80885d38);canvas.drawPath(wear,paint);
+            canvas.restoreToCount(strip);
+        }
+        if(sprites!=null && part!=SLEEVE){
             paint.setColor(0xffffffff);paint.setColorFilter(tint);
             canvas.save();canvas.translate(badge*.27f,top+badge*.96f);canvas.rotate(-90);
             sprite(canvas,2,16,33,0,0,badge*.24f,badge*.51f);

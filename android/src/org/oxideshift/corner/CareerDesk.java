@@ -91,11 +91,18 @@ final class CareerDesk {
         final int[] ratings;
         final String ownRecord,rivalRecord;
         final FightBroadcast.Record own,rival;
+        /** The contract screen's own m_purse, m_bonus and m_bonusCriteria text, or null before the game sends it. */
+        final Terms terms;
         Offer(String name,int purse,int[] ratings){this(name,purse,ratings,"-","-");}
-        Offer(String name,int purse,int[] ratings,String ownRecord,String rivalRecord){
+        Offer(String name,int purse,int[] ratings,String ownRecord,String rivalRecord){this(name,purse,ratings,ownRecord,rivalRecord,null);}
+        private Offer(String name,int purse,int[] ratings,String ownRecord,String rivalRecord,Terms terms){
             this.name=name;this.purse=purse;this.ratings=ratings;this.ownRecord=ownRecord;this.rivalRecord=rivalRecord;
             own=FightBroadcast.Record.parse(ownRecord);rival=FightBroadcast.Record.parse(rivalRecord);
+            this.terms=terms;
         }
+        Offer with(Terms value){return new Offer(name,purse,ratings,ownRecord,rivalRecord,value);}
+        /** Purse as the contract screen prints it, falling back to the offer record's amount. */
+        String purseText(){return terms!=null && !terms.purse.isEmpty()?terms.purse:purse>=0?money(purse):"";}
         String experience(){
             if(rival==null)return "";
             if(own!=null && Math.abs(rival.bouts()-own.bouts())>=3){
@@ -136,6 +143,36 @@ final class CareerDesk {
             return advice[index][gap>0?0:1];
         }
     }
+    /** Retail contract text. Empty strings mean the game left that field blank. */
+    static final class Terms {
+        final String purse,bonus,objective;
+        Terms(String purse,String bonus,String objective){this.purse=purse;this.bonus=bonus;this.objective=objective;}
+        boolean hasBonus(){return !bonus.isEmpty();}
+        @Override public boolean equals(Object o){
+            if(!(o instanceof Terms))return false;
+            Terms t=(Terms)o;return purse.equals(t.purse) && bonus.equals(t.bonus) && objective.equals(t.objective);
+        }
+        @Override public int hashCode(){return (purse+"\n"+bonus+"\n"+objective).hashCode();}
+        /** Hex-encoded printable ASCII, "-" for an empty field, at most 80 characters. */
+        static String text(String hex){
+            if(hex.equals("-"))return "";
+            if(hex.length()%2!=0 || hex.length()>160)return null;
+            StringBuilder out=new StringBuilder();
+            for(int i=0;i<hex.length();i+=2){
+                int c;
+                try{c=Integer.parseInt(hex.substring(i,i+2),16);}catch(NumberFormatException e){return null;}
+                if(c<32 || c>126)return null;
+                out.append((char)c);
+            }
+            // The contract screen's money text can arrive with its currency sign doubled ("$$7,400"); show one.
+            return out.toString().trim().replaceAll(" {2,}"," ").replaceAll("\\${2,}","\\$");
+        }
+        static Terms parse(String[] v){
+            if(v.length!=3)return null;
+            String purse=text(v[0]),bonus=text(v[1]),objective=text(v[2]);
+            return purse==null || bonus==null || objective==null?null:new Terms(purse,bonus,objective);
+        }
+    }
     static Page find(String group,int n){
         for(Page p:PAGES)if(p.index==n && p.is(group))return p;
         return null;
@@ -173,6 +210,10 @@ final class CareerDesk {
                 if(previous==null || !name.equals(previous.name) || purse!=previous.purse ||
                         !own.equals(previous.ownRecord) || !rival.equals(previous.rivalRecord) ||
                         !java.util.Arrays.equals(previous.ratings,ratings))offer=new Offer(name,purse,ratings,own,rival);
+            }else if(event.equals("CONTRACT")){
+                // Sent by the same GetContractInfo call, after the OFFER line for this contract.
+                Terms terms=Terms.parse(v);
+                if(offer!=null && terms!=null && !terms.equals(offer.terms))offer=offer.with(terms);
             }else if(event.equals("TRAINCHOICE")){
                 selectedDrill=integer(payload,0,4);
             }else if(event.equals("TRAINSTATS")){

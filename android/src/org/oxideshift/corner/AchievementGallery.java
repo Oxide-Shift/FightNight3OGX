@@ -13,6 +13,9 @@ final class AchievementGallery extends LinearLayout {
         boolean enabled(int row);
         void toggle(int row);
         void openTrax();
+        /** Lower-screen transport: -1 back, +1 next, 0 pause or resume. */
+        default void transport(int action){}
+        default boolean paused(){return false;}
     }
     private final MusicSettings music;
     private boolean revealSelectionAfterLayout;
@@ -26,6 +29,7 @@ final class AchievementGallery extends LinearLayout {
     private final LinearLayout footer;
     private final Runnable close;
     private final TextView tally;
+    private final MenuArt.Ring ring;
     private final LinearLayout cards;
     private final boolean wide;
     private final Bitmap[] galleryArt;
@@ -80,11 +84,16 @@ final class AchievementGallery extends LinearLayout {
         TextView title=text(c,music==null?"ACHIEVEMENTS":"MUSIC",wide?42:30,GOLD,f.stencil);
         title.setShadowLayer(dp(c,3),dp(c,2),dp(c,3),0xff150502);heading.addView(title);
         tally=text(c,"",13,PAPER,f.stencil);tally.setShadowLayer(2,1,1,0xff130501);heading.addView(tally);
+        if(music==null){
+            ring=new MenuArt.Ring(c,f.stencil);
+            mast.addView(ring,new LayoutParams(dp(c,wide?62:48),dp(c,wide?62:48)));
+        }else ring=null;
         if(music!=null){
             tally.setVisibility(GONE);
             // Only a music row owns controller focus. Keep the scrollable area tight to the rows
             // even with the footer on a second display, and allow large text to scroll on small screens.
             FrameLayout body=new FrameLayout(c);
+            body.setBackground(new MenuArt.Groove());
             addView(body,new LayoutParams(-1,0,1));
             scroll=new ScrollView(c,null,0);
             scroll.setFocusableInTouchMode(false);scroll.setFocusable(false);
@@ -124,41 +133,44 @@ final class AchievementGallery extends LinearLayout {
         footer=controls(c);
         addView(footer,new LayoutParams(-1,-2));
     }
-    final class LowerPage extends FrameLayout {
-        private final TextView section,title,detail;
-        private String lastTitle,lastDetail;
-        private int lastCategory=-1,lastCount=-1;
+    /** Lower pages showing this gallery, refreshed when the selection above changes. */
+    private final java.util.Set<LowerPage> lowers=java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+    private void refreshLower(){for(LowerPage page:lowers)page.update(page.song);}
+    final class LowerPage extends LinearLayout {
+        private final MenuStage stage;
+        private FightBroadcast.Song song;
         LowerPage(Context c){
-            super(c);setBackground(new CabinetBackdrop(galleryArt));setClickable(true);
+            super(c);setOrientation(VERTICAL);setClickable(true);
             // This full-screen panel intercepts touches. Focus styling belongs
             // to its individual controls, including after a controller wake.
             setFocusable(false);setDefaultFocusHighlightEnabled(false);
-            LinearLayout textBlock=stack(c);pad(textBlock,26,10);
-            section=text(c,music!=null?"EA TRAX":"ACHIEVEMENTS",17,GOLD,fonts.stencil);
-            title=text(c,"",32,PAPER,fonts.stencil);title.setMaxLines(3);
-            detail=text(c,"",19,SILVER,fonts.body);detail.setMaxLines(3);
-            for(TextView v:new TextView[]{section,title,detail}){
-                v.setShadowLayer(dp(c,3),1,2,0xff190803);textBlock.addView(v);
-            }
-            addView(textBlock,new FrameLayout.LayoutParams(-1,-2,Gravity.CENTER_VERTICAL));
-            addView(controls(c),new FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM));
-        }
-        void update(FightBroadcast.Song song){
-            String heading,sub;
+            stage=new MenuStage(c,fonts);
+            addView(stage,new LayoutParams(-1,0,1f));
             if(music!=null){
-                heading=song==null?"No track playing":song.title;
-                sub=song==null?"":song.artist;
-            }else{
-                int count=awards.count();
-                if(lastCategory==selected && lastCount==count)return;
-                lastCategory=selected;lastCount=count;
-                Achievements.Category category=Achievements.Category.values()[selected];
-                int have=0,total=0;
-                for(Achievements.Award a:Achievements.Award.values())if(a.category==category){total++;if(awards.earned(a))have++;}
-                heading=category.title;sub=have+" / "+total+" earned";
+                transport=new MenuArt.Transport(c,fonts.stencil,action->{
+                    music.transport(action);
+                    update(song);
+                });
+                addView(transport,new LayoutParams(-1,dp(c,86)));
+            }else transport=null;
+            addView(controls(c),new LayoutParams(-1,-2));
+            lowers.add(this);
+        }
+        private final MenuArt.Transport transport;
+        void update(FightBroadcast.Song playing){
+            song=playing;
+            if(music!=null){
+                boolean paused=music.paused();
+                stage.record(playing,music.enabled(0),music.enabled(1),paused);
+                transport.paused(paused);
+                return;
             }
-            if(!heading.equals(lastTitle)){title.setText(heading);lastTitle=heading;}
-            if(!sub.equals(lastDetail)){detail.setText(sub);lastDetail=sub;}
+            Achievements.Category category=Achievements.Category.values()[Math.max(0,selected)];
+            int have=0,total=0;
+            for(Achievements.Award a:Achievements.Award.values())if(a.category==category){total++;if(awards.earned(a))have++;}
+            Achievements.Award pick=awardOrder.isEmpty()?null:awardOrder.get(Math.min(chosenAward,awardOrder.size()-1));
+            stage.spotlight(pick,pick!=null && awards.earned(pick),category.title,have,total,
+                    awards.count(),Achievements.Award.values().length,awards.fightScore());
         }
     }
     void promptsOnLower(boolean lower){footer.setVisibility(lower?GONE:VISIBLE);}
@@ -198,6 +210,7 @@ final class AchievementGallery extends LinearLayout {
     private final class MusicRow extends LinearLayout {
         private final int index;
         private final TextView title,state;
+        private final MenuArt.Switch toggle;
         MusicRow(Context c,int index){
             super(c);this.index=index;
             setGravity(Gravity.CENTER_VERTICAL);pad(this,14,10);
@@ -209,14 +222,18 @@ final class AchievementGallery extends LinearLayout {
             LinearLayout label=stack(c);addView(label,new LayoutParams(0,-2,1));
             title=text(c,OPTIONS[index].toUpperCase(java.util.Locale.ROOT),wide?25:21,PAPER,fonts.stencil);
             label.addView(title);label.addView(text(c,DESCRIPTIONS[index],wide?16:14,GameInk.TEXT,fonts.body));
-            state=text(c,"",21,SILVER,fonts.stencil);pad(state,8,2);addView(state);
+            // The two settings are real switches; EA Trax opens the retail playlist.
+            state=text(c,"",21,SILVER,fonts.stencil);pad(state,8,2);
+            if(index==2){toggle=null;addView(state);}
+            else{toggle=new MenuArt.Switch(c,fonts.stencil);LayoutParams knob=new LayoutParams(dp(c,74),dp(c,32));knob.leftMargin=dp(c,10);addView(toggle,knob);}
             setOnFocusChangeListener((v,focused)->{if(focused)selectMusic(index);});
             setOnClickListener(v->toggleMusic(index));
         }
         void update(){
             boolean active=selected==index,playlist=index==2,enabled=!playlist && music.enabled(index);
             setSelected(active);title.setTextColor(active?GOLD:PAPER);
-            state.setText(playlist?"OPEN":enabled?"ON":"OFF");state.setTextColor(active || enabled?GOLD:SILVER);
+            state.setText(playlist?"OPEN  ›":enabled?"ON":"OFF");state.setTextColor(active || enabled?GOLD:SILVER);
+            if(toggle!=null)toggle.set(enabled);
             setContentDescription(OPTIONS[index]+", "+(playlist?"open playlist":enabled?"on":"off"));
         }
     }
@@ -251,26 +268,28 @@ final class AchievementGallery extends LinearLayout {
     void selectPlaylist(){if(music!=null)selectMusic(2,false);}
     private void toggleMusic(int index){
         if(index==2){music.openTrax();return;}
-        selected=index;music.toggle(index);sound.accept(DiscMenuSounds.Cue.FORWARD);showMusicRows();
+        selected=index;music.toggle(index);sound.accept(DiscMenuSounds.Cue.FORWARD);showMusicRows();refreshLower();
         announceForAccessibility(cards.getChildAt(index).getContentDescription());
     }
     private void showCategory(int index){
         if(index==selected)return;
         if(selected>=0)sound.accept(DiscMenuSounds.Cue.HORIZONTAL);
         selected=index;Context c=getContext();
+        float density=getResources().getDisplayMetrics().density;
         for(int i=0;i<tabs.length;i++){
             boolean active=i==index;tabs[i].setSelected(active);
             if(!wide)tabs[i].setVisibility(active?VISIBLE:GONE);
-            tabs[i].setBackgroundColor(active?0xba581503:0x00000000);
+            // Each tab carries a thin bar of how much of its category is earned.
+            int have=0,total=0;
+            for(Achievements.Award a:Achievements.Award.values())if(a.category.ordinal()==i){total++;if(awards.earned(a))have++;}
+            tabs[i].setBackground(new MenuArt.TabMeter(have,total,active,density));
             tabs[i].setTextColor(active?0xffffc137:0xffe2bc8c);
             tabs[i].setShadowLayer(dp(c,2),1,2,0xff0d0301);
-            android.graphics.drawable.GradientDrawable bar=new GradientDrawable(
-                    GradientDrawable.Orientation.LEFT_RIGHT,new int[]{0x00ffad28,0xffffad28,0x00ffad28});
-            bar.setBounds(0,0,dp(c,48),dp(c,2));
-            tabs[i].setCompoundDrawables(null,null,null,active?bar:null);
+            tabs[i].setCompoundDrawables(null,null,null,null);
         }
         tally.setText(awards.count()+" / "+Achievements.Award.values().length+" EARNED"+
                 (wide?"    \u2022    FIGHT SCORE  ":"  \u2022  SCORE ")+awards.fightScore());
+        if(ring!=null)ring.set(awards.count(),Achievements.Award.values().length);
         cards.removeAllViews();awardDetail=null;chosenAward=0;awardOrder.clear();awardRows.clear();
         for(MenuPrompt action:detailsActions)action.setVisibility(VISIBLE);
         int columns=wide?2:1,visible=0;
@@ -284,11 +303,15 @@ final class AchievementGallery extends LinearLayout {
             final int item=awardOrder.size();awardOrder.add(a);awardRows.add(row);
             row.setMinimumHeight(dp(c,52));row.setPadding(dp(c,15),dp(c,7),dp(c,9),dp(c,7));
             row.setBackground(new BillSelect(getResources().getDisplayMetrics().density,false));
+            row.setForeground(new MenuArt.CardMark(earned,density));
+            // The selected card lifts toward the viewer (see lift()); the outline gives it a real shadow.
+            row.setOutlineProvider(ViewOutlineProvider.BOUNDS);
             row.setSelected(item==0);row.setSoundEffectsEnabled(false);
+            if(item==0)lift(row,true,false);
             row.setOnClickListener(v->{selectAward(item,false);openAward();});
-            LayoutParams slot=new LayoutParams(0,-1,1);slot.setMargins(dp(c,2),dp(c,2),dp(c,2),dp(c,2));
+            LayoutParams slot=new LayoutParams(0,-1,1);slot.setMargins(dp(c,4),dp(c,3),dp(c,4),dp(c,3));
             line.addView(row,slot);
-            row.addView(new Medal(c,earned,a),new LayoutParams(dp(c,34),dp(c,40)));
+            row.addView(new Medal(c,earned,a),new LayoutParams(dp(c,46),dp(c,50)));
             LinearLayout copy=stack(c);copy.setPadding(dp(c,8),0,0,0);row.addView(copy,new LayoutParams(0,-2,1));
             TextView name=text(c,a.title.toUpperCase(java.util.Locale.ROOT),19,earned?GOLD:0xffffe8c1,fonts.stencil);
             name.setShadowLayer(1,0,1,0xff24160c);copy.addView(name);
@@ -301,32 +324,45 @@ final class AchievementGallery extends LinearLayout {
         final View selectedTab=tabs[index];
         selectedTab.post(()->selectedTab.requestRectangleOnScreen(new Rect(0,0,selectedTab.getWidth(),selectedTab.getHeight()),false));
         scroll.scrollTo(0,0);
+        refreshLower();
     }
     private void selectAward(int index,boolean audible){
         if(index<0 || index>=awardOrder.size() || index==chosenAward)return;
-        awardRows.get(chosenAward).setSelected(false);chosenAward=index;
-        View row=awardRows.get(index);row.setSelected(true);
+        View old=awardRows.get(chosenAward);old.setSelected(false);lift(old,false,true);chosenAward=index;
+        View row=awardRows.get(index);row.setSelected(true);lift(row,true,true);
         row.requestRectangleOnScreen(new Rect(0,0,row.getWidth(),row.getHeight()),true);
         if(audible){
             sound.accept(DiscMenuSounds.Cue.VERTICAL);
             row.announceForAccessibility(row.getContentDescription());
         }
+        refreshLower();
+    }
+    /** Raise or settle an award card: a slight zoom and a lifted shadow, with an overshoot on the way up. */
+    private void lift(View row,boolean up,boolean animate){
+        float z=up?dp(getContext(),10):0,scale=up?1.03f:1f;
+        row.animate().cancel();
+        if(!animate || !SheetMotion.on()){row.setTranslationZ(z);row.setScaleX(scale);row.setScaleY(scale);return;}
+        row.animate().translationZ(z).scaleX(scale).scaleY(scale).setDuration(up?240:160)
+                .setInterpolator(up?new android.view.animation.OvershootInterpolator(1.6f):SheetMotion.settle()).start();
     }
     private void openAward(){
         if(awardDetail!=null || awardOrder.isEmpty())return;
         Context c=getContext();Achievements.Award award=awardOrder.get(chosenAward);
         boolean earned=awards.earned(award);awardScroll=scroll.getScrollY();
         for(int i=0;i<cards.getChildCount();i++)cards.getChildAt(i).setVisibility(GONE);
-        LinearLayout sheet=stack(c);sheet.setBackgroundColor(GameInk.PAPER);pad(sheet,18,15);
+        // Dark detail sheet (no cream paper), matching the career sheets.
+        LinearLayout sheet=stack(c);sheet.setBackground(new CornerInk(0xff1f0e0a,GameInk.ORANGE));pad(sheet,18,15);
         LinearLayout header=new LinearLayout(c);header.setGravity(Gravity.CENTER_VERTICAL);sheet.addView(header);
-        header.addView(new Medal(c,earned,award),new LayoutParams(dp(c,wide?90:66),dp(c,wide?90:66)));
+        header.addView(new Medal(c,earned,award),new LayoutParams(dp(c,wide?96:70),dp(c,wide?96:70)));
         LinearLayout title=stack(c);title.setPadding(dp(c,12),0,0,0);header.addView(title,new LayoutParams(0,-2,1));
-        title.addView(text(c,earned?"EARNED":"LOCKED",15,GameInk.NAME_RED,fonts.body));
-        title.addView(text(c,award.title,wide?32:25,GameInk.DARK,fonts.stencil));
+        TextView state=text(c,earned?"EARNED":"LOCKED",15,earned?GOLD:0xffef9979,fonts.stencil);state.setLetterSpacing(.1f);title.addView(state);
+        TextView name=text(c,award.title.toUpperCase(java.util.Locale.ROOT),wide?34:26,GameInk.TEXT,fonts.stencil);
+        name.setShadowLayer(dp(c,2),0,dp(c,1),0xff0a0504);title.addView(name);
         View rule=new View(c);rule.setBackgroundColor(GameInk.ORANGE);
         LayoutParams edge=new LayoutParams(-1,dp(c,2));edge.setMargins(0,dp(c,10),0,dp(c,10));sheet.addView(rule,edge);
-        sheet.addView(text(c,earned?award.deed:award.goal,19,GameInk.DARK,fonts.body));
-        if(award.points>0)sheet.addView(text(c,award.points+" Fight Score",15,GameInk.NAME_RED,fonts.body));
+        sheet.addView(text(c,earned?award.deed:award.goal,19,GameInk.TEXT,fonts.body));
+        if(award.points>0){TextView pts=text(c,"◆ "+award.points+" FIGHT SCORE",15,GOLD,fonts.stencil);pts.setPadding(0,dp(c,8),0,0);sheet.addView(pts);}
+        if(SheetMotion.on())sheet.post(()->SheetMotion.appear(sheet));
         awardDetail=sheet;cards.addView(sheet);scroll.scrollTo(0,0);
         for(MenuPrompt action:detailsActions)action.setVisibility(GONE);
         sound.accept(DiscMenuSounds.Cue.FORWARD);
@@ -442,18 +478,17 @@ final class AchievementGallery extends LinearLayout {
         @Override public void setColorFilter(ColorFilter filter){}
         @Override public int getOpacity(){return PixelFormat.OPAQUE;}
     }
-    static View ribbon(Context c,DiscFonts f,Achievements.Award a,int hostWidth){
-        LinearLayout banner=new LinearLayout(c);banner.setGravity(Gravity.CENTER_VERTICAL);
-        banner.setBackground(plate(0xfb29221e,0xffbb8a4e));pad(banner,12,7);
-        banner.addView(new Medal(c,true,a),new LayoutParams(dp(c,48),dp(c,48)));
-        LinearLayout words=stack(c);words.setPadding(dp(c,9),0,0,0);
-        int labelWidth=Math.max(1,Math.min(dp(c,300),hostWidth-dp(c,72)));
-        banner.addView(words,new LayoutParams(labelWidth,LayoutParams.WRAP_CONTENT));
-        TextView kicker=text(c,"ACHIEVEMENT UNLOCKED   \u25c6 "+a.points,12,GOLD,f.stencil);kicker.setLetterSpacing(.08f);words.addView(kicker);
-        words.addView(text(c,a.title,22,PAPER,f.stencil));
-        TextView deed=text(c,a.deed,15,PAPER,f.body);
-        words.addView(deed);
-        banner.setContentDescription("Achievement unlocked. "+a.title+". "+a.deed+" "+a.points+" Fight Score.");return banner;
+    /** The same earned-state medal the gallery shows, for the unlock cue. */
+    static View medal(Context c,boolean earned,Achievements.Award award){return new Medal(c,earned,award);}
+    /** The shared medal atlas (128px cells, 8 per row), or null when the artwork cannot be read. */
+    static Bitmap medalAtlas(Context c){
+        if(Medal.atlas==null)try(java.io.InputStream in=c.getAssets().open("achievement-badges.webp")){
+            Medal.atlas=android.graphics.BitmapFactory.decodeStream(in);
+        }catch(java.io.IOException | RuntimeException e){android.util.Log.w("FightNight","Achievement artwork unavailable",e);}
+        return Medal.atlas;
+    }
+    static Rect medalCell(Achievements.Award award){
+        int cell=award.ordinal();return new Rect(cell%8*128,cell/8*128,(cell%8+1)*128,(cell/8+1)*128);
     }
     private static final class Medal extends View {
 

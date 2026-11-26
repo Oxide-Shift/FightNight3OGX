@@ -73,6 +73,38 @@ final class FightPad {
     boolean key(KeyEvent e,boolean down){
         return key(e.getDeviceId(),e.getSource(),e.getKeyCode(),down && !e.isCanceled());
     }
+    /** Apply a release even while presses are not accepted, so a held button can never outlive its key-up.
+     *  Returns true when the combined state changed. Never creates a device entry. */
+    boolean release(int id,int sources,int code){
+        boolean known=false;
+        for(Source s:devices)if(s.id==id){known=true;break;}
+        if(!known)return false;
+        byte[] before=state.clone();
+        key(id,sources,code,false);
+        return !Arrays.equals(before,state);
+    }
+    /** Motion while presses are not accepted: an axis may move toward rest but never away from it.
+     *  Returns true when the combined state changed. */
+    boolean releaseMotion(MotionEvent e){
+        if(!directionalMotion(e))return false;
+        Source pad=null;
+        for(Source s:devices)if(s.id==e.getDeviceId()){pad=s;break;}
+        if(pad==null)return false;
+        byte[] before=state.clone();
+        short lx=pad.lx,ly=pad.ly,rx=pad.rx,ry=pad.ry;
+        int hat=pad.hat,lt=pad.leftTrigger,rt=pad.rightTrigger;
+        motion(e);
+        pad.lx=toward(lx,pad.lx);pad.ly=toward(ly,pad.ly);pad.rx=toward(rx,pad.rx);pad.ry=toward(ry,pad.ry);
+        pad.hat&=hat;
+        pad.leftTrigger=Math.min(lt,pad.leftTrigger);pad.rightTrigger=Math.min(rt,pad.rightTrigger);
+        combine();
+        return !Arrays.equals(before,state);
+    }
+    private static short toward(short old,short next){
+        if(next==0 || old==0)return 0;
+        if((old>0)!=(next>0))return 0;
+        return Math.abs((int)next)<=Math.abs((int)old)?next:old;
+    }
     boolean key(int id,int sources,int code,boolean down){
         boolean controller=(sources & InputDevice.SOURCE_GAMEPAD)==InputDevice.SOURCE_GAMEPAD ||
                 (sources & InputDevice.SOURCE_JOYSTICK)==InputDevice.SOURCE_JOYSTICK;

@@ -37,12 +37,27 @@ final class RootIllustration extends View {
         int next=-1;
         for(int i=0;i<8;i++)if(page!=null && MenuContext.root(i)==page){next=i;break;}
         if(row==next)return;
+        // The plate that was showing hands over: the new photo slides in from the right as the old one leaves.
+        previous=getVisibility()==VISIBLE?row:-1;changedAt=android.os.SystemClock.uptimeMillis();
         row=next;setVisibility(next<0?GONE:VISIBLE);invalidate();
     }
+    private int previous=-1;private long changedAt;
+    static final long CHANGE_MS=380;
     @Override protected void onDraw(Canvas canvas){
         if(row<0)return;
+        long now=android.os.SystemClock.uptimeMillis();
+        boolean motion=SheetMotion.on();
+        float t=motion?Math.min(1f,(now-changedAt)/(float)CHANGE_MS):1f;
+        float eased=1f-(1f-t)*(1f-t)*(1f-t);
+        // A slow breathing zoom keeps the photo alive while the row is held.
+        float zoom=motion?1.02f+.02f*(float)Math.sin(now/7000.0*Math.PI*2):1f;
+        int w=getWidth(),h=getHeight();
+        if(eased<1f && previous>=0 && plates!=null){
+            plate.draw(canvas,w,h,previous,plates[previous],plates[8],-eased*w*.18f,zoom,1f);
+        }
         Bitmap image=plates==null?null:plates[row];
-        plate.draw(canvas,getWidth(),getHeight(),row,image,plates==null?null:plates[8]);
+        plate.draw(canvas,w,h,row,image,plates==null?null:plates[8],(1f-eased)*w*.22f,zoom,eased);
+        if(motion && isShown())postInvalidateDelayed(t<1f?0:MenuAmbience.FRAME_MS);
     }
 
     static final class Plate {
@@ -50,8 +65,11 @@ final class RootIllustration extends View {
         private final Paint ink=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
         private final Path field=new Path();
         private final RectF position=new RectF();
-        void draw(Canvas c,int w,int h,int row,Bitmap image,Bitmap ring){
-            if(w<=0 || h<=0 || row<0 || row>=INKS.length || (image==null && row!=6))return;
+        void draw(Canvas c,int w,int h,int row,Bitmap image,Bitmap ring){draw(c,w,h,row,image,ring,0f,1f,1f);}
+        /** slide moves the photo sideways, zoom scales it about its centre, and show fades the whole plate. */
+        void draw(Canvas c,int w,int h,int row,Bitmap image,Bitmap ring,float slide,float zoom,float show){
+            if(w<=0 || h<=0 || row<0 || row>=INKS.length || (image==null && row!=6) || show<=0f)return;
+            int layer=show<1f?c.saveLayerAlpha(0,0,w,h,Math.round(255*show)):-1;
             c.save();c.clipRect(0,0,w,h);
             // The unprinted margin above the cut keeps the note and illustration distinct.
             field.reset();field.moveTo(0,h*.18f);field.lineTo(w,h*.035f);field.lineTo(w,h);field.lineTo(0,h);field.close();
@@ -66,8 +84,11 @@ final class RootIllustration extends View {
             for(int i=0;i<3;i++){
                 float y=h*(.48f+.17f*i);c.drawRect(0,y,w,y+Math.max(1,h*.013f),ink);
             }
+            c.translate(slide,0);
             if(row==6){
                 float cx=w*.66f,cy=h*.64f,r=Math.min(w*.42f,h*.61f);
+                // The record on the music row turns slowly.
+                c.rotate(SheetMotion.on()?(android.os.SystemClock.uptimeMillis()%5400)/5400f*360f:0f,cx,cy);
                 ink.setColor(0xff191917);c.drawCircle(cx,cy,r,ink);
                 ink.setStyle(Paint.Style.STROKE);ink.setStrokeWidth(Math.max(1,r*.007f));
                 ink.setColor(0xff55504a);
@@ -79,9 +100,12 @@ final class RootIllustration extends View {
                 float iw=image.getWidth()*scale,ih=image.getHeight()*scale;
                 float x=(w-iw)*(row<2?.5f:.66f);
                 float bottom=row<2?h:h*.96f;
-                position.set(x,bottom-ih,x+iw,bottom);ink.setColor(0xffffffff);c.drawBitmap(image,null,position,ink);
+                position.set(x,bottom-ih,x+iw,bottom);
+                c.scale(zoom,zoom,position.centerX(),bottom);
+                ink.setColor(0xffffffff);c.drawBitmap(image,null,position,ink);
             }
             c.restore();
+            if(layer>=0)c.restoreToCount(layer);
         }
     }
 }

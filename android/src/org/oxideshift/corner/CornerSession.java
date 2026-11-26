@@ -233,7 +233,14 @@ public final class CornerSession {
     private final RoundMusic.ExpandedStart expandedStart=new RoundMusic.ExpandedStart();
     private boolean fightMusic,expandedMusic,bankReady,musicMenu=true;
     private boolean roundStarted;
-    boolean fullMusicLevel(){return !roundStarted;}
+    /** MENU on menu pages and before the bell, FIGHT from the bell, RETURNING once the result is in until a
+     *  menu page reports MUSICSCENE 1 (results screens), so the menu level is reached as the menu returns. */
+    int musicScene(){
+        if(musicMenu)return RoundMusic.SceneMix.SCENE_MENU;
+        if(hasResult())return RoundMusic.SceneMix.SCENE_RETURNING;
+        return roundStarted?RoundMusic.SceneMix.SCENE_FIGHT:RoundMusic.SceneMix.SCENE_MENU;
+    }
+    boolean fullMusicLevel(){return musicScene()!=RoundMusic.SceneMix.SCENE_FIGHT;}
     android.content.res.AssetManager musicAssets;
     private String retailStem="";
     private Runnable songObserver;
@@ -243,13 +250,24 @@ public final class CornerSession {
         if(continuousMusic() && stem.equals(retailStem))musicPlayer.requested(stem,true);
     }
     synchronized void onSong(Runnable observer){songObserver=observer;}
+    /** Lower-screen music controls: -1 back, +1 next, 0 pause or resume. Only for the EA Trax player. */
+    synchronized boolean musicTransport(int action){
+        if(musicPlayer==null || !bankReady)return false;
+        if(action==0)musicPlayer.pause(!musicPlayer.paused());
+        else{musicPlayer.pause(false);musicPlayer.skip(action);}
+        if(songObserver!=null)songObserver.run();
+        return true;
+    }
+    synchronized boolean musicPaused(){return musicPlayer!=null && musicPlayer.paused();}
     private void publishSong(FightBroadcast.Song value){
         song=value;
         if(songObserver!=null)songObserver.run();
     }
     synchronized boolean continuousMusic(){return musicPlayer!=null && bankReady && (fightMusic || musicMenu);}
     private void syncTrack(){
-        if(musicPlayer!=null)musicPlayer.transport(retailStem,bankReady && !sleeping && introMovie==0 && (fightMusic || musicMenu),fullMusicLevel());
+        // With fight music off, menu music starts at the result so it is already in by the time the menu returns.
+        if(musicPlayer!=null)musicPlayer.transport(retailStem,bankReady && !sleeping && introMovie==0 &&
+                (fightMusic || musicMenu || hasResult()),musicScene());
     }
     synchronized void musicOptions(boolean fight,boolean expanded){
         if(terminal || cancelled || menuDisc==null || (fightMusic==fight && expandedMusic==expanded))return;
@@ -293,6 +311,8 @@ public final class CornerSession {
     synchronized void menuCancelSound(){
         if(running && !terminal && !sleeping)commands.offer("MENUCANCEL");
     }
+    /** Per-region damage this bout, from the retail damage routine (FNR3/1 DAMAGE). Read on the UI thread. */
+    final DamageMap.Tally damage=new DamageMap.Tally();
     synchronized void setTrax(boolean ready){
         int route=ready?2:0;
         if(trax==route)return;
@@ -351,8 +371,14 @@ public final class CornerSession {
         samples=preset.samples;anisotropy=preset.anisotropy;
         renderer=software?"Software":"Starting Vulkan";
     }
+    /** A game-side song change counts as a menu selection only this soon after a pad or touch change. The game also
+     *  advances its own (silenced) rotation when its copy of a song ends, which must not cut our track short. */
+    static final long SELECTION_WINDOW_MS=2500;
+    private long lastPadChange=Long.MIN_VALUE/2;
+    synchronized boolean recentInput(){return uptime.getAsLong()-lastPadChange<=SELECTION_WINDOW_MS;}
     public synchronized void controller(String state){
         if(state.equals(padState))return;
+        lastPadChange=uptime.getAsLong();
         if(timingLog!=null && atRoot() && state.startsWith("PAD ") && state.length()>=6
                 && android.util.Log.isLoggable("FightNightInput",android.util.Log.DEBUG))
             android.util.Log.d("FightNightInput","Root buttons "+state.substring(4,6));
@@ -492,6 +518,7 @@ public final class CornerSession {
             if(musicMenu)roundStarted=false;
             syncTrack();return;
         }
+        if(line.startsWith("FNR3/1 PACEINT ")){if(timingLog!=null)timingLog.accept(line.substring(7));return;}
         if(timingLog!=null && (line.startsWith("FNR3/1 FRONT ") || line.startsWith("FNR3/1 PLAYLIST ") ||
                 line.equals("FNR3/1 MUSICMENU OPEN") || line.equals("FNR3/1 CABINET OPEN") ||
                 line.startsWith("[Fight Night] Android shared GPU images ") || line.startsWith("[Fight Night] soft targets ") ||
@@ -576,15 +603,20 @@ public final class CornerSession {
             if(timingLog!=null)timingLog.accept(line.substring(7));
             return;
         }
+        if(line.startsWith("FNR3/1 DAMAGE ")){damage.line(line);return;}
         if(line.startsWith("FNR3/1 SHOT ")){
             if(!hasResult() && bout!=null && bout.seconds==0 && judging!=null && judging.last()==bout.round)startShot(15000);
             return;
         }
         if(line.equals("FNR3/1 BOUTBEGIN")){
             cameraShot=0;
+            result=finish="";
+            // A menu pause never carries into a fight.
+            if(musicPlayer!=null)musicPlayer.pause(false);
+            damage.clear();
             boutNumber++;musicMenu=false;roundStarted=false;bout=null;syncTrack();
             reachedMenu();advance(Milestone.BOUT);lastEvent="BOUT";
-            result=finish="";resultsDismissed=false;lastScored=null;lastTotals=null;lastNames=fighters;
+            resultsDismissed=false;lastScored=null;lastTotals=null;lastNames=fighters;
             announcements.reset();lastPulse=null;achievementRound=0;
             if(achievements!=null)achievements.beginBout();
             return;
@@ -618,6 +650,7 @@ public final class CornerSession {
             if(event.equals("WON") || event.equals("LOST")){cameraShot=0;result=event+"!!";}
             if(event.equals("FINAL")){cameraShot=0;result="Final bell";}
             if(event.equals("KO") || event.equals("TKO")){cameraShot=0;finish=event;}
+            if(event.matches("WON|LOST|FINAL|KO|TKO"))syncTrack();
             if(achievements!=null && boutNumber>0 && (event.equals("WON") || event.equals("KO") || event.equals("TKO")))
                 achievements.result(result,finish,achievementRound);
             if(achievements!=null && boutNumber>0 && event.equals("STAGGER"))achievements.stagger();
@@ -652,7 +685,7 @@ public final class CornerSession {
             }catch(NumberFormatException ignored){}
             return;
         }
-        if(line.startsWith("FNR3/1 CAREERPAGE ") || line.startsWith("FNR3/1 OFFER ") ||
+        if(line.startsWith("FNR3/1 CAREERPAGE ") || line.startsWith("FNR3/1 OFFER ") || line.startsWith("FNR3/1 CONTRACT ") ||
                 line.startsWith("FNR3/1 TRAINCHOICE ") || line.startsWith("FNR3/1 TRAINSTATS ") || line.startsWith("FNR3/1 SHOP ") || line.startsWith("FNR3/1 TRAINER ") || line.startsWith("FNR3/1 TROPHY ") || line.startsWith("FNR3/1 CASE ")){
             int split=line.indexOf(' ',7);
             career.accept(line.substring(7,split),line.substring(split+1));
@@ -755,7 +788,9 @@ public final class CornerSession {
                 retailStem=stem;syncTrack();
                 if(changed && musicPlayer!=null){
                     musicPlayer.requested(stem,false);
-                    if(menuSelection!=null)menuSelection.accept(stem);
+                    if(recentInput()){if(menuSelection!=null)menuSelection.accept(stem);}
+                    else if(browsingTrax || frontPage==FRONT_TRAX)
+                        TrackLog.add("game moved to "+TrackLog.label(stem)+" with no recent input: not treated as a preview");
                 }
             }
             return;

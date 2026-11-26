@@ -11,26 +11,27 @@ import android.widget.TextView;
 
 /** The live trainer quote, store receipt or trophy case for the highlighted item. */
 final class CampLedger extends LinearLayout {
-    private static final int PAPER=GameInk.PAPER, INK=GameInk.DARK, RED=GameInk.NAME_RED, GOLD=0xffa86b20;
     private final TextView heading, amount, caption, balance;
-    private final CaseRack rack;
+    private final TrophyCabinet rack;
     private final LinearLayout trophyPanel;
     private final StoreTicket ticket;
     void setArt(CareerArt art){ticket.setArt(art);}
     CampLedger(Context context,DiscFonts fonts){
         super(context);
         setOrientation(VERTICAL);
-        ticket=new StoreTicket(context,fonts);addView(ticket,new LayoutParams(-1,-2));
-        trophyPanel=new LinearLayout(context);trophyPanel.setOrientation(VERTICAL);addView(trophyPanel);
-        trophyPanel.setPadding(dp(15),dp(6),dp(12),dp(8));
-        trophyPanel.setBackground(new CornerInk(PAPER,RED));
-        heading=line(fonts.stencil,12,RED);
-        heading.setLetterSpacing(.08f);
-        amount=line(fonts.stencil,25,INK);
-        rack=new CaseRack(context);
-        trophyPanel.addView(rack,new LayoutParams(-1,dp(17)));
-        caption=line(fonts.body,16,INK);
-        balance=line(fonts.stencil,15,RED);
+        ticket=new StoreTicket(context,fonts);addView(ticket,new LayoutParams(-1,-2,1f));
+        trophyPanel=new LinearLayout(context);trophyPanel.setOrientation(VERTICAL);addView(trophyPanel,new LayoutParams(-1,-2,1f));
+        trophyPanel.setPadding(dp(12),dp(8),dp(12),dp(8));
+        trophyPanel.setBackground(new CornerInk(0xff1f0e0a,GameInk.ORANGE));
+        heading=line(fonts.stencil,14,GameInk.GOLD);
+        heading.setLetterSpacing(.12f);
+        amount=line(fonts.stencil,34,GameInk.TEXT);
+        amount.setShadowLayer(dp(2),0,dp(1),0xff0a0504);
+        caption=line(fonts.stencil,20,GameInk.TEXT);caption.setPadding(0,dp(2),0,dp(6));
+        // The cabinet takes the rest of the lower screen.
+        rack=new TrophyCabinet(context,fonts.stencil);
+        trophyPanel.addView(rack,new LayoutParams(-1,dp(170),1f));
+        balance=line(fonts.stencil,15,TrainingSheet.LOSS);
         setVisibility(GONE);
     }
     private int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
@@ -47,37 +48,24 @@ final class CampLedger extends LinearLayout {
         boolean trophy=page!=null && page.is("trophycase");
         boolean shop=page!=null && page.is("fightstore");
         if(!trophy && !shop){setVisibility(GONE);return false;}
+        boolean entering=getVisibility()!=VISIBLE;
         setVisibility(VISIBLE);
+        if(entering)post(()->SheetMotion.enter(this));
         trophyPanel.setVisibility(trophy?VISIBLE:GONE);
         ticket.setVisibility(shop?VISIBLE:GONE);
-        rack.setVisibility(trophy && desk.trophies()>=0?VISIBLE:GONE);
+        rack.setVisibility(trophy?VISIBLE:GONE);
         if(trophy){
             int mask=desk.trophies(),slot=desk.selectedTrophy();
-            bind(heading,"TROPHY CABINET");
-            bind(amount,mask>=0?Integer.bitCount(mask)+" / 14 earned":"");
+            bind(heading,"CAREER TROPHY CABINET");
+            bind(amount,TrophyCabinet.count(mask).toUpperCase(java.util.Locale.ROOT));
             rack.show(mask,slot);
-            bind(caption,slot>=0 && mask>=0?"Trophy "+(slot+1)+"   "+((mask & (1<<slot))!=0?"Earned":"Locked"):page.note);
+            String selected=TrophyCabinet.caption(mask,slot);
+            bind(caption,selected.isEmpty()?page.note:selected);
+            caption.setTextColor(selected.isEmpty()?GameInk.MUTED:(mask&(1<<slot))!=0?GameInk.GOLD:GameInk.TEXT);
             bind(balance,"");
         }else{
             ticket.show(page,desk.storeBudget());
         }
         return true;
-    }
-    private final class CaseRack extends View {
-        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final RectF cell=new RectF();
-        private int mask=-1,slot=-1;
-        CaseRack(Context context){super(context);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
-        void show(int earned,int selected){if(mask!=earned || slot!=selected){mask=earned;slot=selected;invalidate();}}
-        @Override protected void onDraw(Canvas canvas){
-            float gap=dp(2),width=(getWidth()-13*gap)/14f;
-            if(width<=0 || mask<0)return;
-            for(int i=0;i<14;i++){
-                float x=i*(width+gap);
-                paint.setColor((mask&(1<<i))!=0?GOLD:0xffc8b89c);
-                cell.set(x,dp(3),x+width,dp(10));canvas.drawRoundRect(cell,dp(1),dp(1),paint);
-                if(slot==i){paint.setColor(RED);canvas.drawRect(x,dp(12),x+width,dp(14),paint);}
-            }
-        }
     }
 }

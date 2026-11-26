@@ -21,17 +21,22 @@ final class ExpandedAudio implements AutoCloseable {
     private short[] decoded=new short[0];
     private long frame,next;
     private int previousL,previousR;
+    /** Container-stated duration at the 44.1 kHz bus rate, or 0 when the file does not state one. */
+    final long storedFrames;
 
     ExpandedAudio(AssetManager assets,String title)throws IOException{
+        long stored=0;
         try(AssetFileDescriptor file=assets.openFd("expanded/"+title+".mp3")){
             source.setDataSource(file.getFileDescriptor(),file.getStartOffset(),file.getLength());
             MediaFormat format=source.getTrackFormat(0);
+            if(format.containsKey(MediaFormat.KEY_DURATION))stored=format.getLong(MediaFormat.KEY_DURATION)*DiscTrax.RATE/1000000L;
             source.selectTrack(0);
             sampleRate=format.getInteger(MediaFormat.KEY_SAMPLE_RATE);
             codec=MediaCodec.createDecoderByType(format.getString(MediaFormat.KEY_MIME));
             codec.configure(format,null,null,0);
             codec.start();
         }catch(IOException | RuntimeException problem){close();throw problem;}
+        storedFrames=stored;
     }
     int read(short[] pcm)throws IOException{
         while(offset==available && !outputDone){

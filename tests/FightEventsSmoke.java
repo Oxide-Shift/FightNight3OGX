@@ -187,6 +187,7 @@ public class FightEventsSmoke {
         s.line("FNR3/1 BOUT 1 179 100 100 100 100");check(!s.fullMusicLevel());
         s.line("FNR3/1 BOUT 2 180 100 100 100 100");check(!s.fullMusicLevel());
         s.line("FNR3/1 MUSICSCENE 1");check(s.fullMusicLevel());
+        check(s.musicScene()==RoundMusic.SceneMix.SCENE_MENU);
         s.line("FNR3/1 FIGHTERS 4741545449 57415244");
         s.line("FNR3/1 CARD 2 1,10,9,9,10,10,9 2,10,9,10,9,9,10");
         check(s.inLiveBout() && !s.showingResult());
@@ -216,6 +217,20 @@ public class FightEventsSmoke {
         s.line("FNR3/1 CARD 1");check(s.inLiveBout() && !s.showingResult());
         s.line("FNR3/1 CALLOUT FINAL");check(s.showingResult() && !s.inLiveBout());
         s.line("FNR3/1 CALLOUT LOST");check(s.result().equals("LOST!!"));
+        // Music scenes: a new bout clears the old result before the music hears about it.
+        s.line("FNR3/1 BOUTBEGIN");check(s.musicScene()==RoundMusic.SceneMix.SCENE_MENU);
+        s.line("FNR3/1 MUSICSCENE 0");
+        s.line("FNR3/1 BOUT 1 180 100 100 100 100");s.line("FNR3/1 BOUT 1 179 100 100 100 100");
+        check(s.musicScene()==RoundMusic.SceneMix.SCENE_FIGHT);
+        s.line("FNR3/1 CALLOUT KO");check(s.musicScene()==RoundMusic.SceneMix.SCENE_RETURNING);
+        s.line("FNR3/1 CALLOUT WON");check(s.musicScene()==RoundMusic.SceneMix.SCENE_RETURNING);
+        s.line("FNR3/1 MUSICSCENE 1");check(s.musicScene()==RoundMusic.SceneMix.SCENE_MENU);
+        // A game-side song change is a menu selection only shortly after real input.
+        check(!s.recentInput());
+        s.controller("PAD 0100");check(s.recentInput());
+        time[0]+=CornerSession.SELECTION_WINDOW_MS;check(s.recentInput());
+        time[0]+=1;check(!s.recentInput());
+        s.controller("PAD 0100");check(!s.recentInput());
         System.out.println("Referee count deduplication, interrupted counts, official results and stoppage ordering");
     }
 }

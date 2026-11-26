@@ -395,6 +395,9 @@ static int rating(const uint8_t *p) {
     int16_t n;memcpy(&n,p,2);return n>=0 && n<=100?n:-1;
 }
 
+#define CONTRACT_TEXT 80
+static _Thread_local int contract_open;
+static _Thread_local char contract_text[3][CONTRACT_TEXT+1];
 /* GetContractInfo has assembled the highlighted offer on its own stack here.
  * Its purse, first and last name and both boxers' displayed ratings all refer
  * to the same offer, including while the player is still comparing contracts. */
@@ -433,6 +436,41 @@ void fight_career_offer(uint32_t stack) {
     }
     printf("FNR3/1 OFFER %s %d %d %d %d %d %d %d %s %s\n",used?name:"-",(int32_t)word(offer+4),
             values[0],values[1],values[2],values[3],values[4],values[5],yours,rival);fflush(stdout);
+    contract_open=1;memset(contract_text,0,sizeof contract_text);
+}
+
+/* GetContractInfo hands each contract field to the APT layer as a C string. The observer copies the
+ * three the player chooses a contract on: m_purse (0), m_bonus (1) and m_bonusCriteria (2). */
+void fight_contract_text(unsigned field,uint32_t address) {
+    if(field>2 || !contract_open)return;
+    char *out=contract_text[field];
+    unsigned n=0;
+    /* Strings are byte-aligned: check the containing word with guest(), then index the byte. */
+    for(;address && n<CONTRACT_TEXT;n++){
+        uint32_t at=address+n;
+        const uint8_t *w=at<address?NULL:guest(at&~3u,4);
+        const uint8_t *c=w?w+(at&3u):NULL;
+        if(!c || !*c)break;
+        out[n]=(char)(*c>=32 && *c<127?*c:'?');
+    }
+    out[n]=0;
+}
+/* Every branch of GetContractInfo reaches m_fightType after the three fields above. */
+void fight_contract_done(void) {
+    static const char digits[]="0123456789ABCDEF";
+    if(!contract_open)return;
+    contract_open=0;
+    char hex[3][CONTRACT_TEXT*2+2];
+    for(unsigned f=0;f<3;f++){
+        const char *t=contract_text[f];
+        while(*t==' ')t++;
+        unsigned n=0;
+        for(;*t;t++){hex[f][n++]=digits[(uint8_t)*t>>4];hex[f][n++]=digits[(uint8_t)*t&15];}
+        while(n>=2 && hex[f][n-2]=='2' && hex[f][n-1]=='0')n-=2;
+        if(!n)hex[f][n++]='-';
+        hex[f][n]=0;
+    }
+    printf("FNR3/1 CONTRACT %s %s %s\n",hex[0],hex[1],hex[2]);fflush(stdout);
 }
 
 static void sample_career(void) {
@@ -566,27 +604,53 @@ static void sample_winner(const uint8_t *clock) {
 
 /* Read the same presentation interval that the title's cinematic update writes
  * through sub_000FF240 and sub_0029E1E0. The director must still be playing a selected retail script. */
-unsigned fight_present_interval(void){
+enum { PACE_NONE, PACE_MOVIE, PACE_REPLAY, PACE_ENTRANCE, PACE_DIRECTOR };
+static unsigned present_interval(unsigned *reason){
+    *reason=PACE_MOVIE;
     if(atomic_load(&paced_movie))return 2;
     /* sub_00188860 advances the active replay transport. The recorder keeps running
-     * during a fight, but only playback attaches a transport to the owner's +0xc. */
+     * during a fight, but only playback attaches a transport to the owner's +0xc.
+     * The main menu's swinging-bag background is also a replay playback, while the title's
+     * own display interval there is 1 (Thor run 20261125-235257). Halving menu pages made the
+     * frame-counted carousel take twice as long, so menu pages keep every vblank. */
     uint32_t transport=word(XBOX_HOST(0x5b3318));
-    const uint8_t *replay=guest(transport,12);
+    const uint8_t *replay=atomic_load(&in_music_menu)?NULL:guest(transport,12);
+    *reason=PACE_REPLAY;
     if(replay && word(replay+8)>=1 && word(replay+8)<=4){
         const uint8_t *owner=guest(word(replay+4),16);
         if(owner && word(owner+12)==transport)return 2;
     }
+    *reason=PACE_NONE;
     uint32_t address=atomic_load(&paced_director);
     if(!address)return 1;
     const uint8_t *director=guest(address&~1u,0x58);
     if(!director || !director[0x48] || word(director+0x4c)!=3)return 1;
     const uint8_t *script=guest(word(director+0x40),16);
     if(!script || word(script)!=0x01707473 || word(director+0x54)>=word(script+8))return 1;
+    *reason=PACE_ENTRANCE;
     if(address&1)return 2;
+    *reason=PACE_DIRECTOR;
     const uint8_t *timing=guest(word(XBOX_HOST(0x594da0)),0x1c);
     const uint8_t *display=timing?guest(word(timing+0x0c),0xe4):NULL;
     unsigned interval=display?word(display+0xe0):1;
     return interval>=1 && interval<=3?interval:1;
+}
+/* Diagnostics: one line whenever the chosen interval or its reason changes, with the title's own
+ * display interval and the replay transport state at that moment. Never printed per frame. */
+unsigned fight_present_interval(void){
+    static atomic_uint last=0xffffffffu;
+    unsigned reason,interval=present_interval(&reason);
+    unsigned key=interval|(reason<<8);
+    if(atomic_exchange(&last,key)!=key){
+        static const char *const names[]={"none","movie","replay","entrance","director"};
+        const uint8_t *timing=guest(word(XBOX_HOST(0x594da0)),0x1c);
+        const uint8_t *display=timing?guest(word(timing+0x0c),0xe4):NULL;
+        const uint8_t *replay=guest(word(XBOX_HOST(0x5b3318)),12);
+        printf("FNR3/1 PACEINT %u %s title=%d replay=%d menu=%d\n",interval,names[reason],
+               display?(int)word(display+0xe0):-1,replay?(int)word(replay+8):-1,atomic_load(&in_music_menu));
+        fflush(stdout);
+    }
+    return interval;
 }
 
 void fight_cinematic(uint32_t sequence) {
@@ -717,6 +781,20 @@ void fight_hud_time(uint32_t seconds) {
         if(round>0 && round<=15)
             atomic_store(&hud_time,((uint64_t)address<<32)|(round<<16)|(seconds+1));
     }
+}
+
+/* Each landed punch: the retail damage routine's own log line. Its fields, from the xbe tables it indexes:
+ * player, attack type (0x548018: ATTACK_TYPE_*), head or body, damage kind (0x548058: ATTACK_DAMAGE_*),
+ * damage area (0x548038: DAMAGE_AREA_*), amount. The game never prints this line itself. */
+void fight_damage_log(uint32_t buffer){
+    const uint8_t *s=guest(buffer,128);
+    if(!s || memcmp(s,"damagelog P",11))return;
+    char text[129];memcpy(text,s,128);text[128]=0;
+    int player;char attack[48],zone[8],kind[48],area[48];float amount;
+    if(sscanf(text,"damagelog P%d, %47[^,], %7[^,], %47[^,], %47[^,], %f",&player,attack,zone,kind,area,&amount)!=6)return;
+    if(player<0 || player>1 || !(amount>=0 && amount<1000) || strncmp(area,"DAMAGE_AREA_",12))return;
+    for(char *c=attack;*c;c++)if(*c==' ')*c='_';
+    printf("FNR3/1 DAMAGE %d %s %s %.2f %s\n",player,area,zone[0]=='h'?"HEAD":"BODY",amount,attack);fflush(stdout);
 }
 
 static void sample_bout(const uint8_t *root, const uint8_t *clock, int round) {

@@ -22,6 +22,14 @@ public class ControllerInputSmoke {
         check(pad.cancelMotion(7,true) && value(pad.report(),4)==255);
         check(pad.report().substring(16).equals(neutral.substring(16)));
         check(pad.remove(7) && pad.report().equals(neutral));
+        // A guard (right trigger key) release applies without a matching accepted press path, exactly once.
+        pad.key(9,gamepad,KeyEvent.KEYCODE_BUTTON_R2,true);
+        check(value(pad.report(),9)==255);
+        check(!pad.release(10,gamepad,KeyEvent.KEYCODE_BUTTON_R2) && value(pad.report(),9)==255);
+        check(pad.release(9,gamepad,KeyEvent.KEYCODE_BUTTON_R2) && pad.report().equals(neutral));
+        check(!pad.release(9,gamepad,KeyEvent.KEYCODE_BUTTON_R2));
+        check(!pad.release(9,gamepad,KeyEvent.KEYCODE_VOLUME_UP));
+        check(pad.remove(9) && pad.report().equals(neutral));
         for(int i=0;i<10000;i++){
             pad.axes(1,1,-1,0,0,-1,0,.5f,0);
             pad.axes(2,0,0,.01f,.01f,0,0,0,0);

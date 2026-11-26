@@ -30,9 +30,11 @@ final class CareerScouting extends View {
 
     void show(FightBroadcast.Camp value){
         if(camp==value)return;
+        boolean entering=camp==null && value!=null;
         camp=value;
         setContentDescription(value==null?null:value.notes());
         setVisibility(value==null?GONE:VISIBLE);
+        if(entering)post(()->SheetMotion.appear(this));
         requestLayout();invalidate();
     }
 

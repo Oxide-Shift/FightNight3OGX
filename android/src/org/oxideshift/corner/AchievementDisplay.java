@@ -5,8 +5,8 @@ import android.app.Activity;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.SoundPool;
+import android.os.SystemClock;
 import android.view.*;
-import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
 import java.io.*;
 import java.nio.file.Files;
@@ -41,8 +41,9 @@ final class AchievementDisplay {
     private AchievementGallery galleryPage;
     private FrameLayout promptHost;
     private AchievementGallery.LowerPage promptOverlay;
-    private View banner;
-    private final Runnable retire=this::slideOut;
+    private AwardCue banner;
+    private long spentVisibleMs,visibleSince=-1;
+    private final Runnable tick=this::drawAward;
 
     AchievementDisplay(Activity activity,FrameLayout top,DiscFonts fonts,java.util.function.Supplier<android.graphics.Bitmap[]> artwork,CornerSession session,File game,boolean wide,java.util.function.BooleanSupplier enterPlaylist,Runnable neutralPad){
         this.enterPlaylist=enterPlaylist;this.wide=wide;
@@ -56,6 +57,7 @@ final class AchievementDisplay {
             try{loaded=new MenuTransition(game,this.fonts.stencil);}
             catch(IOException | RuntimeException e){android.util.Log.w("FightNight","Disc menu transition unavailable",e);}
             MenuTransition movie=loaded;
+            if(movie!=null)MenuTransition.loaded=movie;
             activity.runOnUiThread(()->{
                 transition=movie;transitionLoaded=true;
                 Runnable waiting=waitingForTransition;waitingForTransition=null;
@@ -118,6 +120,12 @@ final class AchievementDisplay {
                 prefs.edit().putBoolean(key(row),!enabled(row)).apply();
                 session.musicOptions(enabled(0),enabled(1));
             }
+            public void transport(int action){
+                if(galleryPage==null || closing)return;
+                if(session.musicTransport(action))play(action==0?DiscMenuSounds.Cue.FORWARD:DiscMenuSounds.Cue.VERTICAL);
+                if(promptOverlay!=null)promptOverlay.update(session.song());
+            }
+            public boolean paused(){return session.musicPaused();}
         }:null;
         AchievementGallery page=new AchievementGallery(activity,fonts,awards,top.getWidth(),artwork.get(),this::leave,this::play,options);
         FrameLayout layers=new FrameLayout(activity);
@@ -160,16 +168,18 @@ final class AchievementDisplay {
         if(movie==null){change.run();done.run();return;}
         FrameLayout layers=cabinetLayers;
         changing=true;
+        // Shared with the lower-screen copy so both screens show the same frame.
+        long[] clock={-1};
         View film=new View(activity){
             long start=-1;boolean switched;
             @Override protected void onDraw(android.graphics.Canvas c){
                 long now=android.os.SystemClock.uptimeMillis();
-                if(start<0)start=now;
+                if(start<0)start=clock[0]=now;
                 int frame=(int)((now-start)*60/1000);
                 int w=getWidth(),h=getHeight(),aw=wide?16:4,ah=wide?9:3;
                 int vw=Math.min(w,h*aw/ah),vh=Math.min(h,w*ah/aw);
                 c.save();c.translate((w-vw)/2f,(h-vh)/2f);c.clipRect(0,0,vw,vh);
-                movie.draw(c,frame,vw,vh);c.restore();
+                synchronized(movie){movie.draw(c,frame,vw,vh);}c.restore();
                 if(cabinetLayers!=layers)return;
                 if(!switched && frame>=movie.changeFrame){switched=true;change.run();}
                 if(frame<movie.frames-1)postInvalidateOnAnimation();
@@ -182,6 +192,28 @@ final class AchievementDisplay {
         film.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         film.setClickable(true);film.setFocusable(false);
         layers.addView(film,new FrameLayout.LayoutParams(-1,-1));
+        lowerFilm(movie,clock);
+    }
+    /** The lower screen plays the same transition's bars (no photo or logo) on the top film's clock. It stays above
+     *  the lower page that swaps in at the change frame, and removes itself when the movie ends. */
+    private void lowerFilm(MenuTransition movie,long[] clock){
+        FrameLayout host=lowerDisplay;
+        if(host==null || !host.isAttachedToWindow())return;
+        TransitionMirror painter=new TransitionMirror();
+        View bars=new View(host.getContext()){
+            @Override protected void onDraw(android.graphics.Canvas c){
+                long now=android.os.SystemClock.uptimeMillis();
+                if(clock[0]<0){postInvalidateOnAnimation();return;}
+                int frame=(int)((now-clock[0])*60/1000);
+                if(frame>=movie.frames-1){post(()->{if(getParent()==host)host.removeView(this);});return;}
+                painter.drawFrame(c,getWidth(),getHeight(),fonts.stencil,getResources().getDisplayMetrics().density,now,movie,frame,false);
+                postInvalidateOnAnimation();
+            }
+        };
+        bars.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        // Above the lower page that routePrompts() adds at the change frame.
+        bars.setTranslationZ(1000f);bars.setOutlineProvider(null);
+        host.addView(bars,new FrameLayout.LayoutParams(-1,-1));
     }
     private void removePage(){
         if(cabinetLayers==null)return;
@@ -190,11 +222,41 @@ final class AchievementDisplay {
         if(previousFocus!=null && previousFocus.isAttachedToWindow())previousFocus.requestFocus();
         previousFocus=null;menuDirection=0;
         cabinetLayers=null;galleryPage=null;waitingForTransition=null;
-        changing=false;closing=false;backPending=false;openPending=false;session.cabinetOpen=false;
+        changing=false;closing=false;backPending=false;openPending=false;handingOff=false;session.cabinetOpen=false;
     }
+    private java.util.function.Supplier<LiveFrame> frames;
+    private boolean handingOff;
+    /** Latest game frame, used to hand the Music page over to the retail EA Trax transition. */
+    void frames(java.util.function.Supplier<LiveFrame> source){frames=source;}
+    /** Longest the Music page waits for the retail wipe after the EA Trax page is reported. */
+    static final long HANDOFF_MS=1200;
     void playlistChanged(){
-        // The guest begins its own transition after consuming Open.
-        if(musicHome && galleryPage!=null && session.playlistOpening())removePage();
+        // The guest begins its own transition after consuming Open. Removing the page at once exposed the bare
+        // main menu for about half a second before the retail wipe (Thor run 20261126-003057), so hold the page,
+        // swallowing input, until the wipe covers the game image or HANDOFF_MS passes.
+        if(!musicHome || galleryPage==null || !session.playlistOpening() || handingOff)return;
+        if(frames==null || !ValueAnimator.areAnimatorsEnabled()){removePage();return;}
+        handingOff=true;closing=true;
+        long deadline=android.os.SystemClock.uptimeMillis()+HANDOFF_MS;
+        FrameLayout layers=cabinetLayers;
+        Runnable check=new Runnable(){public void run(){
+            if(cabinetLayers!=layers){handingOff=false;return;}
+            LiveFrame frame=frames.get();
+            if((frame!=null && wipeCovers(frame)) || android.os.SystemClock.uptimeMillis()>=deadline){
+                handingOff=false;removePage();return;
+            }
+            top.postOnAnimation(this);
+        }};
+        top.postOnAnimation(check);
+    }
+    /** The retail EA Trax transition sweeps saturated orange bars over most of the 640x480 guest image. */
+    static boolean wipeCovers(LiveFrame frame){
+        int orange=0,total=0;
+        for(int y=24;y<480;y+=40)for(int x=20;x<640;x+=40){
+            int c=frame.at(x,y);total++;
+            if(LiveFrame.red(c)>200 && LiveFrame.green(c)>90 && LiveFrame.green(c)<200 && LiveFrame.blue(c)<70)orange++;
+        }
+        return orange*100>=total*55;
     }
     private void leave(){
         if(galleryPage==null || closing || session.waitingForPlaylist())return;
@@ -247,46 +309,48 @@ final class AchievementDisplay {
         if(galleryPage==null && session.takeMusicRequest())open(true,session.takePlaylistReturn());
         else if(galleryPage==null && session.takeCabinetRequest())open(false);
         if(galleryPage!=null)routePrompts(galleryPage.getVisibility()==View.VISIBLE?lower:null);
+        // The award's clock only runs while it can be seen: a fight cue pauses it instead of letting it expire unseen.
         if(session.fightCueVisible()){
-            if(banner!=null)banner.setVisibility(View.INVISIBLE);
+            if(banner!=null && visibleSince>=0){
+                spentVisibleMs+=SystemClock.uptimeMillis()-visibleSince;visibleSince=-1;
+                banner.removeCallbacks(tick);banner.setVisibility(View.INVISIBLE);
+            }
             return;
         }
-        if(banner!=null){banner.setVisibility(View.VISIBLE);return;}
+        if(banner!=null){
+            if(visibleSince<0){visibleSince=SystemClock.uptimeMillis();banner.setVisibility(View.VISIBLE);drawAward();}
+            return;
+        }
         if(galleryPage!=null || soundLoading)return;
         FrameLayout host=lower!=null?lower:top;
         if(!host.isAttachedToWindow() || host.getWidth()<=0)return;
+        // One award at a time, first in first out: the next is taken only after this one has fully left.
         Achievements.Award award=awards.nextRibbon();if(award==null)return;
-        View v=AchievementGallery.ribbon(host.getContext(),fonts,award,host.getWidth());
-        FrameLayout.LayoutParams pos=new FrameLayout.LayoutParams(-2,-2,Gravity.RIGHT|Gravity.TOP);
-        pos.topMargin=AchievementGallery.dp(host.getContext(),8);
-        banner=v;host.addView(v,pos);
-        boolean animate=ValueAnimator.areAnimatorsEnabled();
-        if(animate){
-            v.measure(View.MeasureSpec.makeMeasureSpec(host.getWidth(),View.MeasureSpec.AT_MOST),
-                    View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED));
-            v.setTranslationX(v.getMeasuredWidth()*.85f);v.setAlpha(.15f);
-            View badge=((android.view.ViewGroup)v).getChildAt(0);
-            View label=((android.view.ViewGroup)v).getChildAt(1);
-            badge.setScaleX(.72f);badge.setScaleY(.72f);
-            badge.animate().scaleX(1).scaleY(1).setDuration(160).start();
-            label.setAlpha(0);label.setTranslationX(AchievementGallery.dp(host.getContext(),12));
-            label.animate().alpha(1).translationX(0).setStartDelay(40).setDuration(120).start();
-            v.animate().alpha(1).translationX(0).setDuration(160).setInterpolator(new DecelerateInterpolator()).start();
-        }
+        AwardCue v=new AwardCue(host.getContext(),fonts,award);
+        int edge=AchievementGallery.dp(host.getContext(),8);
+        FrameLayout.LayoutParams pos=new FrameLayout.LayoutParams(
+                Math.max(1,Math.min(AchievementGallery.dp(host.getContext(),440),host.getWidth()-2*edge)),-2,Gravity.RIGHT|Gravity.TOP);
+        pos.topMargin=edge;pos.rightMargin=edge;
+        banner=v;spentVisibleMs=0;visibleSince=SystemClock.uptimeMillis();
+        host.addView(v,pos);
         if(soundReady)sounds.play(chime,.26f,.26f,1,0,1);
-        v.announceForAccessibility(v.getContentDescription());v.postDelayed(retire,animate?2160:2000);
+        v.announceForAccessibility(v.getContentDescription());
+        drawAward();
     }
-    private void slideOut(){
-        if(banner==null)return;
-        if(!ValueAnimator.areAnimatorsEnabled()){removeBanner();return;}
-        banner.animate().alpha(0).translationX(banner.getWidth()*.64f).setDuration(140).withEndAction(this::removeBanner).start();
+    /** Every frame during entry and exit, one wake for the still hold; reduced motion holds a still card. */
+    private void drawAward(){
+        AwardCue cue=banner;if(cue==null || visibleSince<0)return;
+        cue.removeCallbacks(tick);
+        long age=spentVisibleMs+SystemClock.uptimeMillis()-visibleSince;
+        boolean reduced=!ValueAnimator.areAnimatorsEnabled();
+        if(!cue.render(age,reduced)){removeBanner();return;}
+        long wake=reduced?CueMotion.end(CueMotion.Kind.AWARD)-age:CueMotion.nextWake(CueMotion.Kind.AWARD,age);
+        if(wake<=0 || cue.getWidth()==0)cue.postOnAnimation(tick);else cue.postDelayed(tick,wake);
     }
     void detach(FrameLayout host){if(lowerDisplay==host)lowerDisplay=null;if(promptHost==host)routePrompts(null);if(banner!=null && banner.getParent()==host)removeBanner();}
     private void removeBanner(){
-        View old=banner;if(old==null)return;
-        banner=null;old.removeCallbacks(retire);old.animate().cancel();
-        android.view.ViewGroup row=(android.view.ViewGroup)old;
-        for(int i=0;i<row.getChildCount();i++)row.getChildAt(i).animate().cancel();
+        AwardCue old=banner;if(old==null)return;
+        banner=null;visibleSince=-1;spentVisibleMs=0;old.removeCallbacks(tick);
         if(old.getParent() instanceof FrameLayout)((FrameLayout)old.getParent()).removeView(old);
     }
     void rememberOpenPage(){
