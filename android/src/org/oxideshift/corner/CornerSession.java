@@ -603,7 +603,8 @@ public final class CornerSession {
             if(timingLog!=null)timingLog.accept(line.substring(7));
             return;
         }
-        if(line.startsWith("FNR3/1 DAMAGE ")){damage.line(line);return;}
+        // Logged locally (FightNightTiming) so the damage scale can be tuned from real fight amounts.
+        if(line.startsWith("FNR3/1 DAMAGE ")){damage.line(line);if(timingLog!=null)timingLog.accept(line);return;}
         if(line.startsWith("FNR3/1 SHOT ")){
             if(!hasResult() && bout!=null && bout.seconds==0 && judging!=null && judging.last()==bout.round)startShot(15000);
             return;

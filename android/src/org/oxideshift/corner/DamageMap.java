@@ -6,7 +6,7 @@ import android.view.View;
 
 /** Where each boxer has been hurt this bout, from the retail damage routine's own per-punch log: eyes, nose,
  *  mouth, jaws and both sides of the body. Two boxer silhouettes (blue corner left, red corner right) are
- *  shaded by the damage each region has taken, relative to the most-hurt region in the bout, with head and body
+ *  shaded green, yellow, orange, then red as each region takes damage (see Tally.level), with head and body
  *  totals underneath. The game's amounts have no published unit, so the figures compare, they do not measure. */
 final class DamageMap extends View {
     /** Running totals for one bout. Pure data, so it can be tested off device. */
@@ -30,10 +30,21 @@ final class DamageMap extends View {
                 if(player<0 || player>1 || at<0 || !(amount>=0 && amount<1000))return false;
                 // The log names the boxer who landed the punch (owner on Thor: his own hits showed on his boxer),
                 // so the damage belongs to the other one.
-                total[1-player][at]+=amount;revision++;return true;
+                total[1-player][at]+=amount;sum+=amount;hits++;revision++;return true;
             }catch(NumberFormatException e){return false;}
         }
-        synchronized void clear(){for(float[] t:total)java.util.Arrays.fill(t,0f);revision++;}
+        private float sum;private int hits;
+        /** Average hits a region needs to reach the middle of the scale. Long fights need room: one hit is a faint
+         *  green, about 12 average hits is yellow-orange, and red takes dozens. */
+        static final float HALF_HITS=12f;
+        /** 0..1 for region i of boxer p. Each hit is weighed against the bout's average hit, because the game's
+         *  damage amounts have no known unit; the curve never quite reaches 1. */
+        synchronized float level(int p,int i){
+            if(hits==0 || sum<=0f || total[p][i]<=0f)return 0f;
+            float effective=total[p][i]/(sum/hits);
+            return effective/(effective+HALF_HITS);
+        }
+        synchronized void clear(){for(float[] t:total)java.util.Arrays.fill(t,0f);sum=0f;hits=0;revision++;}
         synchronized float head(int p){float s=0;for(int i=0;i<6;i++)s+=total[p][i];return s;}
         synchronized float body(int p){return total[p][6]+total[p][7];}
         synchronized float peak(){float m=0;for(float[] t:total)for(float v:t)m=Math.max(m,v);return m;}
@@ -55,9 +66,8 @@ final class DamageMap extends View {
         // A freshly built map shows the bout so far at once; only new hits glow in.
         boolean first=revision<0;
         revision=tally.revision;
-        float peak=Math.max(1f,tally.peak());
         for(int p=0;p<2;p++)for(int i=0;i<Tally.AREAS.length;i++){
-            target[p][i]=tally.total[p][i]/peak;
+            target[p][i]=tally.level(p,i);
             if(first)shown[p][i]=target[p][i];
         }
         setContentDescription("Damage this bout. "+names[0]+": head "+Math.round(tally.head(0))+", body "+Math.round(tally.body(0))+
@@ -80,52 +90,92 @@ final class DamageMap extends View {
         ink.setColor(0xff75391e);c.drawRect(8*d,0,w-8*d,1.5f*d,ink);
         ink.setTypeface(face);ink.setTextAlign(Paint.Align.LEFT);ink.setTextSize(12*getResources().getDisplayMetrics().scaledDensity);
         ink.setColor(GameInk.GOLD);c.drawText("DAMAGE THIS BOUT",12*d,20*d,ink);
+        // Faint scan lines across the panel, like a medical readout.
+        ink.setColor(0x0affffff);
+        for(float y=28*d;y<h-4*d;y+=4*d)c.drawRect(6*d,y,w-6*d,y+Math.max(1f,.6f*d),ink);
         float half=w/2f,top=30*d,figH=h-top-34*d;
         for(int p=0;p<2;p++)figure(c,p*half,top,half,figH,p,d);
         if(moving)postInvalidateOnAnimation();
     }
-    /** A boxer in a guard, Tarkov-style: every part is a filled segment with a dark seam. Tracked parts (face zones,
-     *  both sides of the torso) heat up with damage; arms, legs and neck stay dark; gloves and trunks wear the corner
-     *  colour. Drawn in a 60 x 100 unit frame (origin top centre). The boxer's left side is on the viewer's right. */
+    /** A boxer in a high guard, Tarkov-style: every part is a shaded segment with a dark seam. Tracked parts (face
+     *  zones, both sides of the torso) start green and heat up with damage; neck, arms and legs are dark; gloves and
+     *  trunks wear the corner colour. Drawn in a 64 x 100 unit frame (origin top centre). The boxer's left side is on
+     *  the viewer's right. */
     private void figure(Canvas c,float x0,float y0,float w,float h,int p,float d){
         float u=Math.min(w/64f,h/100f),cx=x0+w/2f,oy=y0+(h-100*u)/2f;
         int accent=p==0?GameInk.BLUE_CORNER:GameInk.RED_CORNER;
-        int idle=0xff3a2219,seam=0xff0d0705;
+        int idle=0xff33201a,seam=0xff0b0604;
         float[] s=shown[p];
-        // Legs.
+        // Corner-coloured glow behind the boxer and a shadow on the canvas under his feet.
+        ink.setStyle(Paint.Style.FILL);
+        ink.setShader(new RadialGradient(cx,oy+46*u,52*u,(0x30<<24)|(accent&0xffffff),accent&0xffffff,Shader.TileMode.CLAMP));
+        c.drawCircle(cx,oy+46*u,52*u,ink);ink.setShader(null);
+        ink.setColor(0x66000000);c.drawOval(cx-17*u,oy+97*u,cx+17*u,oy+101.5f*u,ink);
+        // Legs in a boxer's stance, with knees and boots.
         for(int side=-1;side<=1;side+=2){
-            seg(c,poly(cx,oy,u,side*2.5f,66,side*11.5f,66,side*9.5f,99,side*3.5f,99),idle,seam,d);
+            Path leg=curve(cx,oy,u,side,new float[]{2.2f,66, 12.5f,66, 12f,80, 10.8f,96, 3.6f,96, 3.4f,80});
+            seg(c,leg,idle,seam,d);shade(c,leg,oy+66*u,oy+96*u);
+            float a=cx+side*3.0f*u,b=cx+side*11.8f*u,l=Math.min(a,b),r=Math.max(a,b);
+            ink.setColor(seam);c.drawRoundRect(l,oy+93.8f*u,r,oy+99.2f*u,1.6f*u,1.6f*u,ink);
+            ink.setColor(0xff1c1411);c.drawRoundRect(l+.5f*u,oy+94.3f*u,r-.5f*u,oy+98.7f*u,1.3f*u,1.3f*u,ink);
+            ink.setColor(0x33ffffff);c.drawRect(l+1*u,oy+94.6f*u,r-1*u,oy+95.2f*u,ink);
         }
-        // Trunks in the corner colour, with a waistband.
-        int trunks=MenuArt.Switch.blend(accent,0xff120806,.45f);
-        seg(c,poly(cx,oy,u,-12.5f,55,12.5f,55,13.5f,68,1.5f,68,0,63,-1.5f,68,-13.5f,68),trunks,seam,d);
-        ink.setColor(accent);c.drawRect(cx-12.5f*u,oy+55*u,cx+12.5f*u,oy+57.5f*u,ink);
-        // Torso halves: viewer's left is the boxer's right side (RIGHT_BODY), viewer's right is LEFT_BODY.
-        seg(c,poly(cx,oy,u,0,25,-17,26,-15,40,-11,55,0,55),heat(s[7]),seam,d);
-        seg(c,poly(cx,oy,u,0,25,17,26,15,40,11,55,0,55),heat(s[6]),seam,d);
-        glow(c,poly(cx,oy,u,0,25,-17,26,-15,40,-11,55,0,55),s[7],d);
-        glow(c,poly(cx,oy,u,0,25,17,26,15,40,11,55,0,55),s[6],d);
-        // Neck.
-        seg(c,poly(cx,oy,u,-3.5f,20,3.5f,20,4.5f,26,-4.5f,26),idle,seam,d);
-        // Head: dark base, then the five face zones.
-        ink.setStyle(Paint.Style.FILL);ink.setColor(idle);c.drawOval(cx-8*u,oy+2*u,cx+8*u,oy+22*u,ink);
+        // Trunks in the corner colour: waistband, side stripe, split hem.
+        int trunks=MenuArt.Switch.blend(accent,0xff120806,.5f);
+        Path shorts=poly(cx,oy,u,-12.2f,55,12.2f,55,13.6f,69,1.4f,69,0,64.5f,-1.4f,69,-13.6f,69);
+        seg(c,shorts,trunks,seam,d);shade(c,shorts,oy+55*u,oy+69*u);
+        ink.setColor(accent);c.drawRect(cx-12.2f*u,oy+55*u,cx+12.2f*u,oy+58*u,ink);
+        ink.setColor(0x66ffffff);c.drawRect(cx-12.2f*u,oy+55*u,cx+12.2f*u,oy+55.6f*u,ink);
+        ink.setColor(MenuArt.Switch.blend(accent,0xffffffff,.35f));
+        c.drawRect(cx-13.1f*u,oy+59*u,cx-11.9f*u,oy+68.5f*u,ink);c.drawRect(cx+11.9f*u,oy+59*u,cx+13.1f*u,oy+68.5f*u,ink);
+        // Torso halves with shoulders and a tapered waist. Viewer's left is the boxer's RIGHT_BODY.
+        for(int side=-1;side<=1;side+=2){
+            Path half=curve(cx,oy,u,side,new float[]{0,24, 9,23.4f, 16.8f,26.6f, 18.6f,31.5f, 16.2f,41, 12f,48, 11.4f,55.2f, 0,55.2f});
+            float v=s[side<0?7:6];
+            seg(c,half,heat(v),seam,d);shade(c,half,oy+24*u,oy+55*u);glow(c,half,v,d);
+        }
+        // Muscle lines: pecs and abs, drawn as darker seams over the heat colour.
+        ink.setStyle(Paint.Style.STROKE);ink.setStrokeWidth(Math.max(1f,.9f*d));ink.setColor(0x55000000);
+        for(int side=-1;side<=1;side+=2){
+            Path pec=new Path();pec.moveTo(cx+side*1*u,oy+36*u);pec.quadTo(cx+side*8*u,oy+38.5f*u,cx+side*14*u,oy+33*u);c.drawPath(pec,ink);
+        }
+        for(float y=41;y<=51;y+=5){c.drawLine(cx-5*u,oy+y*u,cx+5*u,oy+y*u,ink);}
+        c.drawLine(cx,oy+37*u,cx,oy+54*u,ink);
+        ink.setStyle(Paint.Style.FILL);
+        // Neck and traps.
+        Path neck=poly(cx,oy,u,-3.6f,19,3.6f,19,4.6f,24.4f,7.5f,25,0,26,-7.5f,25,-4.6f,24.4f);
+        seg(c,neck,idle,seam,d);
+        // Head: tinted by its most-hurt zone, ears, then the five face zones.
+        float worst=0f;for(int i=0;i<6;i++)worst=Math.max(worst,s[i]);
+        int skull=MenuArt.Switch.blend(idle,heat(worst),.38f);
+        ink.setColor(seam);c.drawOval(cx-9.2f*u,oy+8.5f*u,cx-6.6f*u,oy+14*u,ink);c.drawOval(cx+6.6f*u,oy+8.5f*u,cx+9.2f*u,oy+14*u,ink);
+        ink.setColor(skull);c.drawOval(cx-8.8f*u,oy+9*u,cx-7f*u,oy+13.5f*u,ink);c.drawOval(cx+7f*u,oy+9*u,cx+8.8f*u,oy+13.5f*u,ink);
+        Path headShape=new Path();headShape.addOval(new RectF(cx-7.8f*u,oy+1.5f*u,cx+7.8f*u,oy+21.5f*u),Path.Direction.CW);
+        seg(c,headShape,skull,seam,d);shade(c,headShape,oy+1.5f*u,oy+21.5f*u);
         zone(c,cx+3.2f*u,oy+9.5f*u,2.4f*u,1.6f*u,s[0]);   // LEFT_EYE (viewer's right)
         zone(c,cx-3.2f*u,oy+9.5f*u,2.4f*u,1.6f*u,s[1]);   // RIGHT_EYE
         zone(c,cx,oy+13*u,1.4f*u,2.2f*u,s[2]);            // NOSE
         zone(c,cx,oy+17.3f*u,3.2f*u,1.3f*u,s[3]);         // MOUTH
-        zone(c,cx+5.6f*u,oy+16*u,2.3f*u,3f*u,s[4]);       // LEFT_JAW
-        zone(c,cx-5.6f*u,oy+16*u,2.3f*u,3f*u,s[5]);       // RIGHT_JAW
-        ink.setStyle(Paint.Style.STROKE);ink.setStrokeWidth(Math.max(1f,1.2f*d));ink.setColor(seam);
-        c.drawOval(cx-8*u,oy+2*u,cx+8*u,oy+22*u,ink);
-        // Arms up in a guard: upper arm to the elbow, forearm up to the glove beside the chin.
-        ink.setStrokeCap(Paint.Cap.ROUND);
+        zone(c,cx+5.5f*u,oy+16*u,2.2f*u,3f*u,s[4]);       // LEFT_JAW
+        zone(c,cx-5.5f*u,oy+16*u,2.2f*u,3f*u,s[5]);       // RIGHT_JAW
+        // Arms up in a high guard: upper arm to the elbow, forearm to a glossy glove with a white cuff.
+        ink.setStrokeCap(Paint.Cap.ROUND);ink.setStyle(Paint.Style.STROKE);
         for(int side=-1;side<=1;side+=2){
-            float sx=cx+side*17*u,sy=oy+27.5f*u,ex=cx+side*20.5f*u,ey=oy+44*u,gx=cx+side*12.5f*u,gy=oy+21*u;
-            ink.setColor(seam);ink.setStrokeWidth(7.4f*u);c.drawLine(sx,sy,ex,ey,ink);c.drawLine(ex,ey,gx,gy,ink);
-            ink.setColor(idle);ink.setStrokeWidth(5.6f*u);c.drawLine(sx,sy,ex,ey,ink);c.drawLine(ex,ey,gx,gy,ink);
-            ink.setStyle(Paint.Style.FILL);ink.setColor(seam);c.drawCircle(gx,gy,5.6f*u,ink);
-            ink.setColor(accent);c.drawCircle(gx,gy,4.8f*u,ink);
-            ink.setColor(0x33ffffff);c.drawCircle(gx-1.4f*u,gy-1.4f*u,1.8f*u,ink);
+            float sx=cx+side*17.2f*u,sy=oy+29*u,ex=cx+side*21*u,ey=oy+44.5f*u,gx=cx+side*12.8f*u,gy=oy+20.5f*u;
+            ink.setColor(seam);ink.setStrokeWidth(8f*u);c.drawLine(sx,sy,ex,ey,ink);c.drawLine(ex,ey,gx,gy,ink);
+            ink.setColor(idle);ink.setStrokeWidth(6.2f*u);c.drawLine(sx,sy,ex,ey,ink);c.drawLine(ex,ey,gx,gy,ink);
+            ink.setColor(0x22ffffff);ink.setStrokeWidth(1.6f*u);
+            c.drawLine(sx-side*1.4f*u,sy,ex-side*1.6f*u,ey,ink);
+            // Cuff where the forearm meets the glove.
+            float cuffX=gx+(ex-gx)*.28f,cuffY=gy+(ey-gy)*.28f;
+            ink.setColor(seam);ink.setStrokeWidth(7.6f*u);c.drawPoint(cuffX,cuffY,ink);
+            ink.setColor(0xffe8dccb);ink.setStrokeWidth(6.2f*u);c.drawPoint(cuffX,cuffY,ink);
+            ink.setStyle(Paint.Style.FILL);
+            ink.setColor(seam);c.drawCircle(gx,gy,6f*u,ink);
+            ink.setShader(new RadialGradient(gx-1.8f*u,gy-1.8f*u,6.4f*u,MenuArt.Switch.blend(accent,0xffffffff,.45f),
+                    MenuArt.Switch.blend(accent,0xff000000,.35f),Shader.TileMode.CLAMP));
+            c.drawCircle(gx,gy,5.2f*u,ink);ink.setShader(null);
+            ink.setColor(0x88ffffff);c.drawOval(gx-3.4f*u,gy-3.9f*u,gx-.6f*u,gy-2.2f*u,ink);
             ink.setStyle(Paint.Style.STROKE);
         }
         ink.setStrokeCap(Paint.Cap.BUTT);ink.setStyle(Paint.Style.FILL);
@@ -144,6 +194,23 @@ final class DamageMap extends View {
         for(int i=0;i<xy.length;i+=2){float x=cx+xy[i]*u,y=oy+xy[i+1]*u;if(i==0)path.moveTo(x,y);else path.lineTo(x,y);}
         path.close();return path;
     }
+    /** A smooth closed outline through unit points (x,y pairs, x measured outward), mirrored to one side. Corners are
+     *  rounded by running quadratic curves through the midpoints. */
+    private Path curve(float cx,float oy,float u,int side,float[] xy){
+        int n=xy.length/2;
+        float[] x=new float[n],y=new float[n];
+        for(int i=0;i<n;i++){x[i]=cx+side*xy[2*i]*u;y[i]=oy+xy[2*i+1]*u;}
+        Path path=new Path();
+        path.moveTo((x[n-1]+x[0])/2f,(y[n-1]+y[0])/2f);
+        for(int i=0;i<n;i++){int j=(i+1)%n;path.quadTo(x[i],y[i],(x[i]+x[j])/2f,(y[i]+y[j])/2f);}
+        path.close();return path;
+    }
+    /** Light from above: a soft highlight at the top of a part fading to shadow at the bottom. */
+    private void shade(Canvas c,Path part,float top,float bottom){
+        ink.setStyle(Paint.Style.FILL);
+        ink.setShader(new LinearGradient(0,top,0,bottom,new int[]{0x2effffff,0x00ffffff,0x40000000},new float[]{0f,.45f,1f},Shader.TileMode.CLAMP));
+        c.drawPath(part,ink);ink.setShader(null);
+    }
     private void seg(Canvas c,Path part,int fill,int seam,float d){
         ink.setStyle(Paint.Style.FILL);ink.setColor(fill);c.drawPath(part,ink);
         ink.setStyle(Paint.Style.STROKE);ink.setStrokeWidth(Math.max(1f,1.2f*d));ink.setColor(seam);c.drawPath(part,ink);
@@ -151,22 +218,26 @@ final class DamageMap extends View {
     }
     /** Badly hurt parts get a hot rim. */
     private void glow(Canvas c,Path part,float v,float d){
-        if(v<.6f)return;
-        ink.setStyle(Paint.Style.STROKE);ink.setStrokeWidth(2*d);ink.setColor((Math.round(200*(v-.4f))<<24)|0xff3a1a);
+        if(v<.85f)return;
+        ink.setStyle(Paint.Style.STROKE);ink.setStrokeWidth(2*d);ink.setColor((Math.round(Math.min(255f,1400*(v-.8f)))<<24)|0xff3a1a);
         c.drawPath(part,ink);ink.setStyle(Paint.Style.FILL);
     }
     private void zone(Canvas c,float x,float y,float rx,float ry,float v){
-        ink.setStyle(Paint.Style.FILL);ink.setColor(v<=0f?0xff4a2c20:heat(v));c.drawOval(x-rx,y-ry,x+rx,y+ry,ink);
-        if(v>=.6f){ink.setStyle(Paint.Style.STROKE);ink.setStrokeWidth(1.2f*getResources().getDisplayMetrics().density);
+        ink.setStyle(Paint.Style.FILL);ink.setColor(0xff0b0604);c.drawOval(x-rx-.6f*getResources().getDisplayMetrics().density,y-ry-.6f*getResources().getDisplayMetrics().density,
+                x+rx+.6f*getResources().getDisplayMetrics().density,y+ry+.6f*getResources().getDisplayMetrics().density,ink);
+        ink.setColor(heat(v));c.drawOval(x-rx,y-ry,x+rx,y+ry,ink);
+        ink.setColor(0x40ffffff);c.drawOval(x-rx*.6f,y-ry*.85f,x+rx*.2f,y-ry*.2f,ink);
+        if(v>=.85f){ink.setStyle(Paint.Style.STROKE);ink.setStrokeWidth(1.2f*getResources().getDisplayMetrics().density);
             ink.setColor(0xccff5a2a);c.drawOval(x-rx,y-ry,x+rx,y+ry,ink);ink.setStyle(Paint.Style.FILL);}
     }
-    /** Untouched regions sit in dark leather; damage warms through orange to a hot red. */
+    /** Healthy regions start green. Damage runs to yellow (about 12 average hits), orange (about 28) and only
+     *  reaches red after a long beating (about 90). */
+    static final float[] STOPS={0f,.45f,.7f,.88f};
+    static final int[] COLORS={0xff3fae4a,0xffe8cc3a,0xfff08a1a,0xffff2a14};
     static int heat(float v){
         v=Math.max(0f,Math.min(1f,v));
-        if(v<=0f)return 0xff3a2219;
-        // Any hit at all is clearly marked; the rest of the range runs orange to hot red.
-        v=.2f+.8f*v;
-        if(v<.6f)return MenuArt.Switch.blend(0xff7a3414,0xffe8701a,(v-.2f)/.4f);
-        return MenuArt.Switch.blend(0xffe8701a,0xffff2a14,(v-.6f)/.4f);
+        for(int k=1;k<STOPS.length;k++)
+            if(v<=STOPS[k])return MenuArt.Switch.blend(COLORS[k-1],COLORS[k],(v-STOPS[k-1])/(STOPS[k]-STOPS[k-1]));
+        return COLORS[COLORS.length-1];
     }
 }

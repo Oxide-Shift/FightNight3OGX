@@ -88,6 +88,12 @@ public final class FightBroadcastSmoke {
         check(!dm.line("FNR3/1 DAMAGE 2 DAMAGE_AREA_NOSE HEAD 1") && !dm.line("FNR3/1 DAMAGE 0 SOMEWHERE HEAD 1") && !dm.line("FNR3/1 DAMAGE 0 DAMAGE_AREA_NOSE HEAD x"),"Bad damage lines are ignored");
         check(dm.head(1)==3.5f && dm.body(0)==2.25f && dm.head(0)==0f && dm.peak()==3.5f,"Damage lands on the boxer who was hit");
         dm.clear();check(dm.peak()==0f,"Damage resets for a new bout");
+        dm.line("FNR3/1 DAMAGE 0 DAMAGE_AREA_NOSE HEAD 4.00");
+        float oneHit=dm.level(1,2);
+        check(Math.abs(oneHit-1f/13f)<1e-4f && ((DamageMap.heat(oneHit)>>8)&255)>((DamageMap.heat(oneHit)>>16)&255),"One hit is a faint green");
+        for(int i=1;i<12;i++)dm.line("FNR3/1 DAMAGE 0 DAMAGE_AREA_NOSE HEAD 4.00");
+        check(Math.abs(dm.level(1,2)-.5f)<1e-4f,"Twelve average hits reach the middle of the scale");
+        check(DamageMap.heat(.95f)==0xffff2a14 && DamageMap.heat(0f)==0xff3fae4a,"Healthy starts green; red only at the top");
         TransitionMirror.Tracker tr=new TransitionMirror.Tracker();tr.setup(141,119);
         tr.observe(10,0);check(tr.active() && Math.abs(tr.position(500)-40f)<.01f,"Mirror locks and runs at 60 fps");
         check(tr.position(3000)==119f,"Mirror holds at the screen change");
