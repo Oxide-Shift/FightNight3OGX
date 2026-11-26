@@ -85,12 +85,14 @@ If you upgrade an existing installation, the launcher can still read its install
 
 ## What's new in Alpha 81
 
-- **Damage by region.** During rounds, between rounds and on the pause screen, the lower screen shows where each boxer has been hit: both eyes, nose, mouth, both jaws and both sides of the body, read from the game's own damage data.
+- **Damage by region.** During rounds, between rounds and on the pause screen, the lower screen shows where each boxer has been hit: both eyes, nose, mouth, both jaws and both sides of the body, read from the game's own damage data. Since 81.1 each boxer is a silhouette whose hurt areas glow, and hits are shown on the boxer who took them.
 - **Transitions on both screens.** When the game plays its red and orange transition, the lower screen plays the same bars in step with it, including on the Achievements and Music pages.
 - **Redesigned career, Achievements and Music screens** with a darker Fight Night look and motion throughout (see below).
 - **Music controls** on the lower screen: Back, Play/Pause and Next.
 - **Notifications:** a larger EA Trax now-playing badge, and achievement unlocks that wait while a fight announcement is on screen.
 - **Faster main menu** (60 FPS menus), arena lights behind the lower-screen menus, and the first song after Start comes in quickly.
+
+<p align="center"><img src="docs/screenshots/damage-map-81.png" width="600" alt="Damage this bout: two boxer silhouettes in a guard. Gatti, in blue gloves and trunks, has hot red and orange torso halves; Ward, in red, has a hurt left eye, nose and jaw. Head and body totals sit under each name. Rendered on a PC from the app's own drawing code with sample hits."></p>
 
 <p align="center"><img src="docs/screenshots/transition-mirror-81.jpg" width="760" alt="Nine frames of the lower screen during a transition: red and orange bars close in from both sides, a LOADING plate opens while the top screen loads, then the bars pull away to reveal the next page. Rendered on a PC from the app's own drawing code with the transition from a retail disc."></p>
 

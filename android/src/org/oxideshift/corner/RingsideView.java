@@ -401,7 +401,7 @@ final class RingsideView extends LinearLayout {
         if(session==null)return;
         damageMap=new DamageMap(getContext(),headline);
         int at=punchPanel!=null && punchPanel.getParent()==content?content.indexOfChild(punchPanel)+1:content.getChildCount();
-        LayoutParams size=new LayoutParams(-1,dp(206));size.setMargins(dp(3),dp(6),dp(3),dp(4));
+        LayoutParams size=new LayoutParams(-1,dp(280));size.setMargins(dp(3),dp(6),dp(3),dp(4));
         content.addView(damageMap,at,size);
         damageMap.show(session.damage,fighters);
     }

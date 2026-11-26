@@ -86,7 +86,7 @@ public final class FightBroadcastSmoke {
         check(dm.line("FNR3/1 DAMAGE 0 DAMAGE_AREA_LEFT_EYE HEAD 3.50") && dm.line("FNR3/1 DAMAGE 1 DAMAGE_AREA_RIGHT_BODY BODY 2.25 ATTACK_TYPE_HOOK_L"),"Damage lines parse");
         check(!dm.line("FNR3/1 DAMAGE 0 ATTACK_TYPE_HOOK_L HEAD 1.00"),"An attack type is not a damage area");
         check(!dm.line("FNR3/1 DAMAGE 2 DAMAGE_AREA_NOSE HEAD 1") && !dm.line("FNR3/1 DAMAGE 0 SOMEWHERE HEAD 1") && !dm.line("FNR3/1 DAMAGE 0 DAMAGE_AREA_NOSE HEAD x"),"Bad damage lines are ignored");
-        check(dm.head(0)==3.5f && dm.body(1)==2.25f && dm.peak()==3.5f,"Damage tallies by region");
+        check(dm.head(1)==3.5f && dm.body(0)==2.25f && dm.head(0)==0f && dm.peak()==3.5f,"Damage lands on the boxer who was hit");
         dm.clear();check(dm.peak()==0f,"Damage resets for a new bout");
         TransitionMirror.Tracker tr=new TransitionMirror.Tracker();tr.setup(141,119);
         tr.observe(10,0);check(tr.active() && Math.abs(tr.position(500)-40f)<.01f,"Mirror locks and runs at 60 fps");
