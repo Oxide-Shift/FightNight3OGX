@@ -23,7 +23,7 @@ final class TrainingSheet extends LinearLayout {
     private Bitmap[] photos;
     private int photoIndex;
     void setArt(Bitmap[] art){
-        photos=art;portrait.setImageBitmap(art==null?null:art[photoIndex]);
+        photos=art;portrait.setImageBitmap(art!=null && photoIndex>=0 && photoIndex<art.length?art[photoIndex]:null);
     }
     private CareerDesk.Page lastPage,lastDrill;
     private int[] lastRatings;
@@ -46,23 +46,24 @@ final class TrainingSheet extends LinearLayout {
         title=label(fonts.stencil,compact?25:33,0xffffe2a8);title.setShadowLayer(dp(2),1,2,0xff210a04);mast.addView(title);
         View keyline=new View(context);keyline.setBackgroundColor(GameInk.ORANGE);addView(keyline,new LayoutParams(-1,dp(2)));
         LinearLayout body=new LinearLayout(context);body.setOrientation(VERTICAL);
+        body.setBackgroundColor(GameInk.PAPER);
         body.setPadding(dp(12),dp(5),dp(12),dp(7));addView(body);
-        cue=label(fonts.stencil,compact?13:16,GameInk.TEXT);body.addView(cue);
+        cue=label(fonts.body,compact?14:17,GameInk.DARK);body.addView(cue);
         quote=new LinearLayout(context);quote.setOrientation(VERTICAL);body.addView(quote);
-        fee=label(fonts.stencil,30,GameInk.GOLD);wallet=label(fonts.stencil,17,GameInk.TEXT);
+        fee=label(fonts.stencil,30,GameInk.NAME_RED);wallet=label(fonts.body,17,GameInk.DARK);
         quote.addView(fee);quote.addView(wallet);
-        legend=label(fonts.stencil,compact?13:16,GameInk.GOLD);legend.setPadding(0,dp(8),0,dp(3));body.addView(legend);
+        legend=label(fonts.stencil,compact?14:16,GameInk.NAME_RED);legend.setPadding(0,dp(8),0,dp(3));body.addView(legend);
         table=new LinearLayout(context);table.setOrientation(VERTICAL);body.addView(table);
         for(int i=0;i<4;i++){
             LinearLayout row=new LinearLayout(context);row.setBaselineAligned(false);table.addView(row);
             for(int col=0;col<2;col++){
                 int k=i+4*col;
                 LinearLayout cell=new LinearLayout(context);cell.setOrientation(VERTICAL);
-                cell.setPadding(dp(6),dp(compact?1:3),dp(6),dp(compact?2:5));cell.setBackgroundColor(i%2==0?0xff431a0d:0xff30130b);
+                cell.setPadding(dp(6),dp(compact?1:3),dp(6),dp(compact?2:5));cell.setBackgroundColor(i%2==0?0xffe4d4b3:GameInk.PAPER);
                 LayoutParams slot=new LayoutParams(0,-2,1);slot.setMargins(0,0,dp(col==0?3:0),dp(1));row.addView(cell,slot);
                 LinearLayout labels=new LinearLayout(context);labels.setGravity(Gravity.CENTER_VERTICAL);cell.addView(labels);
-                TextView name=label(fonts.stencil,compact?13:16,GameInk.MUTED);name.setText(STATS[k]);
-                labels.addView(name,new LayoutParams(0,-2,1));values[k]=label(fonts.stencil,compact?14:18,GameInk.TEXT);labels.addView(values[k]);
+                TextView name=label(fonts.body,compact?14:16,GameInk.DARK);name.setText(STATS[k]);
+            labels.addView(name,new LayoutParams(0,-2,1));values[k]=label(fonts.stencil,compact?14:18,GameInk.DARK);labels.addView(values[k]);
                 meters[k]=new Meter(context);cell.addView(meters[k],new LayoutParams(-1,dp(3)));
             }
         }
@@ -108,7 +109,7 @@ final class TrainingSheet extends LinearLayout {
         if(ratings!=null && !Arrays.equals(lastRatings,ratings)){
             int peak=1;for(int n:ratings)peak=Math.max(peak,Math.abs(n));
             for(int i=0;i<8;i++){
-                int n=ratings[i];values[i].setTextColor(n>0?GameInk.GOLD:n<0?0xfffa9468:GameInk.MUTED);
+                int n=ratings[i];values[i].setTextColor(n>0?0xff265833:n<0?GameInk.NAME_RED:GameInk.DARK);
                 bind(values[i],(n>0?"+":"")+n+"%");meters[i].set(n,peak);
             }
         }
@@ -125,8 +126,8 @@ final class TrainingSheet extends LinearLayout {
         void set(int next,int maximum){value=next;peak=maximum;invalidate();}
         @Override protected void onDraw(Canvas c){
             float w=getWidth(),h=getHeight(),zero=w/2;
-            c.drawColor(0xff503d30);ink.setColor(0xffad9077);c.drawRect(zero,0,zero+1,h,ink);
-            float end=zero+zero*value/peak;ink.setColor(value<0?0xffcd653a:GameInk.GOLD);
+            c.drawColor(0xffc8b89c);ink.setColor(0xff756449);c.drawRect(zero,0,zero+1,h,ink);
+            float end=zero+zero*value/peak;ink.setColor(value<0?GameInk.NAME_RED:0xff265833);
             c.drawRect(Math.min(zero,end),0,Math.max(zero,end),h,ink);
         }
     }

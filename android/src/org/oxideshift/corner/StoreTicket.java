@@ -23,15 +23,15 @@ final class StoreTicket extends LinearLayout {
         title.setShadowLayer(dp(2),1,2,0xff230c07);mast.addView(title);
         View rule=new View(ctx);rule.setBackgroundColor(GameInk.ORANGE);addView(rule,new LayoutParams(-1,dp(2)));
         LinearLayout tag=new LinearLayout(ctx);tag.setGravity(Gravity.CENTER_VERTICAL);
-        tag.setBackground(new CornerInk(0xff48200f,GameInk.ORANGE));
+        tag.setBackgroundColor(GameInk.PAPER);
         tag.setPadding(dp(14),dp(7),dp(14),dp(7));addView(tag,new LayoutParams(-1,-2));
-        TextView label=type(fonts.stencil,17,0xffffd9a6);label.setText("ITEM PRICE");
-        tag.addView(label,new LayoutParams(0,-2,1));price=type(fonts.stencil,28,GameInk.GOLD);tag.addView(price);
+        TextView label=type(fonts.stencil,17,GameInk.DARK);label.setText("ITEM PRICE");
+        tag.addView(label,new LayoutParams(0,-2,1));price=type(fonts.stencil,26,GameInk.NAME_RED);tag.addView(price);
         totals=new LinearLayout(ctx);totals.setOrientation(VERTICAL);
-        totals.setBackgroundColor(0xffdcc592);totals.setPadding(dp(14),dp(6),dp(14),dp(8));addView(totals);
-        wallet=type(fonts.stencil,17,GameInk.DARK);totals.addView(wallet);
-        remainder=type(fonts.stencil,19,GameInk.NAME_RED);totals.addView(remainder);
-        notes=type(fonts.stencil,16,0xffffdaa6);notes.setPadding(dp(14),dp(8),dp(14),dp(8));addView(notes);
+        totals.setBackgroundColor(GameInk.PAPER);totals.setPadding(dp(14),dp(6),dp(14),dp(8));addView(totals);
+        wallet=type(fonts.body,17,GameInk.DARK);totals.addView(wallet);
+        remainder=type(fonts.body,19,GameInk.DARK);totals.addView(remainder);
+        notes=type(fonts.body,16,GameInk.TEXT);notes.setPadding(dp(14),dp(8),dp(14),dp(8));addView(notes);
     }
     void setArt(CareerArt art){header.setArt(art==null?null:art.store);}
     void show(CareerDesk.Page page,CareerDesk.Budget quote){
@@ -40,6 +40,7 @@ final class StoreTicket extends LinearLayout {
         bind(price,cost>=0?CareerDesk.money(cost):"\u2014");
         totals.setVisibility(cash>=0?VISIBLE:GONE);
         bind(wallet,cash>=0?"Career wallet   "+CareerDesk.money(cash):"");
+        remainder.setTextColor(cost>cash?GameInk.NAME_RED:GameInk.DARK);
         bind(remainder,cost<0 || cash<0?"":(cost>cash?"Short by   ":"After purchase   ")+CareerDesk.money(Math.abs(cash-cost)));
         bind(notes,quote==null || (cost<0 && cash<0)?page.note:page.detail);
     }

@@ -27,6 +27,12 @@ public class FightEventsSmoke {
             System.err.println("FNR3/1 FAULT 020493cc");
             System.exit(Integer.parseInt(args[0]));
         }
+        BoutAnnouncements cues=new BoutAnnouncements();
+        check(cues.count(4,20) && cues.ownsDisplay(3000));
+        check(!cues.event("HAYMAKER",3100));
+        check(cues.event("WON",3200) && cues.ownsDisplay(4799) && !cues.ownsDisplay(4800));
+        cues.reset();
+        check(cues.event("STAGGER",100) && !cues.ownsDisplay(1700));
         for(int code:new int[]{0,40,41,42,139}){
             java.io.File java=new java.io.File(System.getProperty("java.home"),"bin/java");
             CornerSession child=new CornerSession(()->0L,new java.io.File("."),java.getPath(),
@@ -77,6 +83,8 @@ public class FightEventsSmoke {
         for(String result:new String[]{"WON","LOST"})for(String ko:new String[]{"KO","TKO"}){
             a.reset();check(a.current(0)==null);a.event("HAYMAKER",1);
             a.event("STAGGER",2);check(a.current(2).words.equals("STAGGER!"));
+            check(a.event("ROCKED",2) && a.current(2).words.equals("ROCKED!!"));
+            check(!a.event("STAGGER",2) && !a.event("HAYMAKER",2));
             a.event("GETUP",3);check(!a.event("HAYMAKER",4));
             for(int n=1;n<=10;n++){check(a.count(n,1000*n));check(!a.count(n,1000*n+5));}
             a.event(ko,10500);a.event(result,10520);check(!a.count(1,10530));
@@ -93,12 +101,38 @@ public class FightEventsSmoke {
         musicMenu.line("FNR3/1 MUSICMENU OPEN");check(musicMenu.takeMusicRequest() && !musicMenu.browsingTrax);
         java.lang.reflect.Field running=CornerSession.class.getDeclaredField("running");
         running.setAccessible(true);running.setBoolean(musicMenu,true);
-        musicMenu.retailMusicRoute=true;musicMenu.cabinetOpen=true;
+        musicMenu.cabinetOpen=true;
         check(musicMenu.requestPlaylist() && !musicMenu.requestPlaylist());
         musicMenu.line("FNR3/1 FRONT 2");check(musicMenu.browsingTrax && !musicMenu.atRoot());
         musicMenu.cabinetOpen=false;musicMenu.line("FNR3/1 FRONT 1");
         check(musicMenu.atRoot() && musicMenu.takeMusicRequest() && musicMenu.takePlaylistReturn() && !musicMenu.browsingTrax);
         musicMenu.line("FNR3/1 FRONT 0");check(!musicMenu.takeMusicRequest());
+
+        // The child can already be visible behind an older Music page. Adopt it without a second command.
+        musicMenu.line("FNR3/1 FRONT 2");musicMenu.cabinetOpen=true;
+        check(musicMenu.requestPlaylist() && !musicMenu.waitingForPlaylist());
+        musicMenu.cabinetOpen=false;musicMenu.line("FNR3/1 FRONT 1");
+        check(musicMenu.takeMusicRequest() && musicMenu.takePlaylistReturn());
+        musicMenu.cabinetOpen=true;
+        check(musicMenu.requestPlaylist());musicMenu.cabinetOpen=false;
+        time[0]+=8001;musicMenu.checkPlaylistArrival();
+        check(musicMenu.waitingForPlaylist() && !musicMenu.takeMusicRequest());
+        musicMenu.line("FNR3/1 PLAYLIST CANCELLED");check(!musicMenu.waitingForPlaylist());
+        musicMenu.cabinetOpen=true;check(musicMenu.requestPlaylist());
+        musicMenu.line("FNR3/1 PLAYLIST OPENING");check(!musicMenu.waitingForPlaylist());
+        musicMenu.line("FNR3/1 FRONT 1");check(!musicMenu.takeMusicRequest());
+        musicMenu.line("FNR3/1 FRONT 0");musicMenu.line("FNR3/1 FRONT 1");
+        check(musicMenu.takeMusicRequest() && musicMenu.takePlaylistReturn());
+        musicMenu.cabinetOpen=true;check(musicMenu.requestPlaylist());
+        musicMenu.line("FNR3/1 PLAYLIST OPENING");check(!musicMenu.waitingForPlaylist());
+        musicMenu.line("FNR3/1 FRONT 2");check(musicMenu.playlistOpening());
+        musicMenu.line("FNR3/1 FRONT 1");check(musicMenu.takeMusicRequest() && musicMenu.takePlaylistReturn());
+        musicMenu.cabinetOpen=true;check(musicMenu.requestPlaylist());musicMenu.setSleeping(true);
+        time[0]+=10000;musicMenu.checkPlaylistArrival();check(!musicMenu.takeMusicRequest());
+        musicMenu.setSleeping(false);musicMenu.checkPlaylistArrival();check(musicMenu.waitingForPlaylist());
+        musicMenu.line("FNR3/1 FRONT 2");musicMenu.cabinetOpen=false;musicMenu.line("FNR3/1 FRONT 1");
+        check(musicMenu.takeMusicRequest() && musicMenu.takePlaylistReturn());
+        time[0]-=18001;
 
         s.motors(new CornerSession.Motors(){
             public void changed(int l,int r,int ms){hits[0]++;}
@@ -167,6 +201,8 @@ public class FightEventsSmoke {
         check(hapticCount[0]==8 && s.callout().words.equals("8"));
         s.line("FNR3/1 COUNT 0");check(s.callout()==null);
         s.line("FNR3/1 CALLOUT TKO");s.line("FNR3/1 CALLOUT WON");
+        s.line("FNR3/1 CALLOUT FINAL");
+        check(s.result().equals("WON!!") && s.finish().equals("TKO"));
         s.line("FNR3/1 SHOT 117");check(s.cameraShot()==0);
         // Play Now can return to its menu while the last round card still exists.
         check(s.showingResult() && !s.inLiveBout() && s.judging().round==2);
@@ -179,6 +215,7 @@ public class FightEventsSmoke {
         s.line("FNR3/1 BOUTBEGIN");check(s.result().isEmpty() && s.finish().isEmpty() && s.scored()==null && s.totals()==null);
         s.line("FNR3/1 CARD 1");check(s.inLiveBout() && !s.showingResult());
         s.line("FNR3/1 CALLOUT FINAL");check(s.showingResult() && !s.inLiveBout());
+        s.line("FNR3/1 CALLOUT LOST");check(s.result().equals("LOST!!"));
         System.out.println("Referee count deduplication, interrupted counts, official results and stoppage ordering");
     }
 }

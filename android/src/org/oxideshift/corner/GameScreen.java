@@ -10,9 +10,23 @@ import java.nio.channels.FileChannel;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
-/** Each complete Xbox frame is uploaded directly from its shared BGRA slot. */
+/** Presents a completed Xbox frame from its GPU image or shared BGRA fallback. */
 public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Renderer {
-    static {System.loadLibrary("frame_reader");}
+    static final boolean readerAvailable;
+    static {
+        boolean loaded=false;
+        try{System.loadLibrary("frame_reader");loaded=true;}
+        catch(UnsatisfiedLinkError | SecurityException e){android.util.Log.w("FightNight","Android frame reader unavailable",e);}
+        readerAvailable=loaded;
+    }
+    private static native long gpuCreate(String framePath,boolean linear,boolean requested);
+    private static native void gpuClose(long handle,boolean currentContext);
+    private static native boolean gpuPoll(long handle);
+    private static native int gpuSelect(long handle,int token,int serial,int[] dimensions);
+    private long gpuReader;
+    private int sharedTexture,outputWidth,outputHeight;
+    private int imageFrames,fullUploads,shadowUploads;
+    private final int[] gpuDimensions=new int[2];
     private static native int sequence(ByteBuffer shared);
     private static native long waitForFrame(ByteBuffer shared,int observed);
     private static native int cameraBytes();
@@ -27,6 +41,14 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
     private volatile ByteBuffer shared;
     private ByteBuffer[] slots;
     private volatile int serial;
+    private volatile int drawnSerial;
+    long drawnSequence(){return drawnSerial==0?-1:Integer.toUnsignedLong(drawnSerial);}
+    long guestSequence(){
+        ByteBuffer map=shared;
+        if(map==null)return -1;
+        int latest=sequence(map);
+        return latest==0?-1:Integer.toUnsignedLong(latest);
+    }
     private final int[] textures=new int[2], widths=new int[2], heights=new int[2];
     private int front,program, texel;
     private long since;
@@ -67,7 +89,7 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
         int seq=sequence(map);
         if(seq==0)return null;
         ByteBuffer p=slots[(int)(Integer.toUnsignedLong(seq)%3)];
-        int w=p.getInt(0),h=p.getInt(4);
+        int w=p.getInt(0)&0xffff,h=p.getInt(4);
         if(w<1||h<1||w>1440||h>1080||8L+4L*w*h>p.capacity())return null;
         return new LiveFrame(p,w,h,seq,autoWide);
     }
@@ -82,6 +104,7 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
     private final int targetFps;
     private final boolean vsync;
     private final android.app.Activity activity;
+    private final java.util.function.Consumer<GameScreen> displayFailure;
     private final android.view.Display.Mode paceMode;
     private int oldMode;
     private boolean requestedMode;
@@ -107,8 +130,8 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
             android.view.Choreographer.getInstance().postFrameCallback(this);
         }
     };
-    public GameScreen(android.app.Activity ctx,File file,int quality,boolean autoWide,int renderHeight,int targetFps,boolean vsync,CornerSession session){
-        super(ctx);activity=ctx;this.session=session;this.targetFps=targetFps;this.vsync=vsync;cadence=new DisplayCadence(targetFps);
+    public GameScreen(android.app.Activity ctx,File file,int quality,boolean autoWide,int renderHeight,int targetFps,boolean vsync,CornerSession session,java.util.function.Consumer<GameScreen> displayFailure){
+        super(ctx);activity=ctx;this.displayFailure=displayFailure;this.session=session;this.targetFps=targetFps;this.vsync=vsync;cadence=new DisplayCadence(targetFps);
         paceMode=vsync?modeFor(ctx,targetFps):null;mailbox=file;this.quality=quality;this.autoWide=autoWide;
         quad.put(new float[]{-1,-1,1,-1,-1,1,1,1}).position(0);
         if(quality<2)addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{
@@ -123,12 +146,20 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
     private static int shader(int type,String src){
         int id=GLES20.glCreateShader(type);GLES20.glShaderSource(id,src);GLES20.glCompileShader(id);
         int[] ok=new int[1];GLES20.glGetShaderiv(id,GLES20.GL_COMPILE_STATUS,ok,0);
-        if(ok[0]==0)throw new IllegalStateException(GLES20.glGetShaderInfoLog(id));
+        if(ok[0]==0){GLES20.glDeleteShader(id);return 0;}
         return id;
     }
     @Override public void onSurfaceCreated(GL10 gl,EGLConfig config){
-        String vertex="attribute vec2 pos;uniform float crop,center;uniform vec3 steady;varying vec2 uv;void main(){gl_Position=vec4(pos,0.,1.);uv=vec2(.5+.5*pos.x,center-.5*pos.y*crop);uv=.5+(uv-.5)*(1.-steady.z)+steady.xy;}";
-        String fragment="precision highp float;varying vec2 uv;uniform sampler2D tex;uniform vec2 stepUV;uniform vec4 patchUV;uniform vec4 starts,ends;void main(){vec2 at=uv;"
+        drawnSerial=0;hasFrame=false;serial=0;
+        if(gpuReader!=0)gpuClose(gpuReader,false);
+        gpuReader=session.allowGpuScanout()?gpuCreate(mailbox.getAbsolutePath(),quality!=0,session.useSharedFrames()):0;
+        imageFrames=fullUploads=shadowUploads=0;
+        sharedTexture=0;
+        int[] range=new int[2],bits=new int[1];
+        GLES20.glGetShaderPrecisionFormat(GLES20.GL_FRAGMENT_SHADER,GLES20.GL_HIGH_FLOAT,range,0,bits,0);
+        String precision=bits[0]>0?"highp":"mediump";
+        String vertex="attribute vec2 pos;uniform float crop,center;uniform vec3 steady;varying "+precision+" vec2 uv;void main(){gl_Position=vec4(pos,0.,1.);uv=vec2(.5+.5*pos.x,center-.5*pos.y*crop);uv=.5+(uv-.5)*(1.-steady.z)+steady.xy;}";
+        String fragment="precision "+precision+" float;varying "+precision+" vec2 uv;uniform sampler2D tex;uniform vec2 stepUV;uniform vec4 patchUV;uniform vec4 starts,ends;void main(){vec2 at=uv;"
             +"if(uv.y>.8645 && uv.y<.9167){vec4 x=vec4(uv.x);if(any(bvec4((x.x>starts.x&&x.x<ends.x),(x.y>starts.y&&x.y<ends.y),(x.z>starts.z&&x.z<ends.z),(x.w>starts.w&&x.w<ends.w))))at.y=1.8334-uv.y;}"
             +"vec3 c=texture2D(tex,at).bgr;";
         if(quality==2 || quality==3) fragment+="vec3 n=texture2D(tex,at+vec2(stepUV.x,0.)).bgr+texture2D(tex,at-vec2(stepUV.x,0.)).bgr+texture2D(tex,at+vec2(0.,stepUV.y)).bgr+texture2D(tex,at-vec2(0.,stepUV.y)).bgr;c=clamp(c*1.32-n*.08,0.,1.);";
@@ -140,11 +171,19 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
                 +"float blend=smoothstep(0.,1.,min(rim.x*240.,rim.y*180.));"
                 +"c=mix(c,mix(a,b,(uv.y-patchUV.z)/(patchUV.w-patchUV.z)),blend);}gl_FragColor=vec4(c,1.);}";
         int v=shader(GLES20.GL_VERTEX_SHADER,vertex),f=shader(GLES20.GL_FRAGMENT_SHADER,fragment);
+        if(v==0 || f==0){
+            if(v!=0)GLES20.glDeleteShader(v);
+            if(f!=0)GLES20.glDeleteShader(f);
+            program=0;post(()->displayFailure.accept(this));return;
+        }
         program=GLES20.glCreateProgram();GLES20.glAttachShader(program,v);GLES20.glAttachShader(program,f);
         GLES20.glBindAttribLocation(program,0,"pos");GLES20.glLinkProgram(program);
         int[] status=new int[1];GLES20.glGetProgramiv(program,GLES20.GL_LINK_STATUS,status,0);
-        if(status[0]==0)throw new IllegalStateException(GLES20.glGetProgramInfoLog(program));
-        GLES20.glDeleteShader(v);GLES20.glDeleteShader(f);GLES20.glUseProgram(program);
+        GLES20.glDeleteShader(v);GLES20.glDeleteShader(f);
+        if(status[0]==0){
+            GLES20.glDeleteProgram(program);program=0;post(()->displayFailure.accept(this));return;
+        }
+        GLES20.glUseProgram(program);
         texel=GLES20.glGetUniformLocation(program,"stepUV");
         steadyUniform=GLES20.glGetUniformLocation(program,"steady");
         cropUniform=GLES20.glGetUniformLocation(program,"crop");
@@ -166,6 +205,7 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
         GLES20.glClearColor(0,0,0,1);
     }
     @Override public void onSurfaceChanged(GL10 gl,int w,int h){
+        if(gpuReader==0)gpuReader=session.allowGpuScanout()?gpuCreate(mailbox.getAbsolutePath(),quality!=0,session.useSharedFrames()):0;
         // GLSurfaceView has made the window surface current on this thread.
         // Reapply the interval when Android replaces the surface on wake.
         android.opengl.EGL14.eglSwapInterval(android.opengl.EGL14.eglGetCurrentDisplay(),vsync?1:0);
@@ -230,24 +270,49 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
         slots=views;shared=map;
     }
     @Override public void onDrawFrame(GL10 gl){
+        if(program==0)return;
+        if(gpuReader!=0 && gpuPoll(gpuReader)){sharedTexture=0;hasFrame=false;serial=0;drawnSerial=0;}
         if(shared==null)mapFile();
         int seq=shared==null?0:sequence(shared);
         if(seq!=0 && seq!=serial){
             ByteBuffer pixels=slots[(int)(Integer.toUnsignedLong(seq)%3)];
-            int w=pixels.getInt(0),h=pixels.getInt(4);
+            int header=pixels.getInt(0),w=header&0xffff,h=pixels.getInt(4);
             if(w>0 && h>0 && w<=1440 && h<=1080 && 8L+(long)w*h*4<=pixels.capacity()){
                 int back=1-front,target=GLES20.GL_TEXTURE_2D;
-                GLES20.glBindTexture(target,textures[back]);pixels.position(8);
-                if(widths[back]!=w || heights[back]!=h){
-                    GLES20.glTexImage2D(target,0,GLES20.GL_RGBA,w,h,0,GLES20.GL_RGBA,GLES20.GL_UNSIGNED_BYTE,pixels);
-                    widths[back]=w;heights[back]=h;
-                }else GLES20.glTexSubImage2D(target,0,0,0,w,h,GLES20.GL_RGBA,GLES20.GL_UNSIGNED_BYTE,pixels);
-                if(Integer.toUnsignedLong(sequence(shared)-seq)<2){
+                int direct=0,token=header>>>16;
+                if(token!=0 && gpuReader!=0)direct=gpuSelect(gpuReader,token,seq,gpuDimensions);
+                // A reused CPU slot cannot contribute a valid frame. Keep the
+                // last complete texture while the producer finishes its next slot.
+                boolean currentBeforeUpload=Integer.toUnsignedLong(sequence(shared)-seq)<2;
+                if(direct==0 && currentBeforeUpload){
+                    GLES20.glBindTexture(target,textures[back]);pixels.position(8);
+                    if(widths[back]!=w || heights[back]!=h){
+                        GLES20.glTexImage2D(target,0,GLES20.GL_RGBA,w,h,0,GLES20.GL_RGBA,GLES20.GL_UNSIGNED_BYTE,pixels);
+                        widths[back]=w;heights[back]=h;
+                    }else GLES20.glTexSubImage2D(target,0,0,0,w,h,GLES20.GL_RGBA,GLES20.GL_UNSIGNED_BYTE,pixels);
+                }
+                boolean currentPixels=Integer.toUnsignedLong(sequence(shared)-seq)<2;
+                if(direct!=0 || (currentBeforeUpload && currentPixels)){
+                    // The acquired GPU image is immutable until our last GL draw retires.
+                    if(direct==0 && sharedTexture!=0)gpuSelect(gpuReader,0,0,gpuDimensions);
+                    sharedTexture=direct;
+                    int outputW=direct==0?w:gpuDimensions[0],outputH=direct==0?h:gpuDimensions[1];
                     if(lowerRoute!=NO_ROUTE || renderedRoute!=BroadcastCues.NONE)
-                        matchLower(new LiveFrame(pixels,w,h,seq,autoWide));
-                    if(!hasFrame || widths[front]!=w || heights[front]!=h)dimensions=w+" \u00d7 "+h;
+                        matchLower(currentPixels?new LiveFrame(pixels,w,h,seq,autoWide):null);
+                    if(!hasFrame || outputWidth!=outputW || outputHeight!=outputH)dimensions=outputW+" \u00d7 "+outputH;
+                    outputWidth=outputW;outputHeight=outputH;
+                    if(gpuReader!=0){
+                        if(direct!=0)imageFrames++;
+                        else if(token!=0)shadowUploads++;
+                        else fullUploads++;
+                        if(imageFrames+fullUploads+shadowUploads==300){
+                            android.util.Log.i("FightNightTiming","Presentation frames GPU "+imageFrames+
+                                    " CPU "+fullUploads+" shadow "+shadowUploads+" output "+outputW+"x"+outputH);
+                            imageFrames=fullUploads=shadowUploads=0;
+                        }
+                    }
                     int shot=lowerRoute==NO_ROUTE?session.cameraShot():0;
-                    if(shot!=0){
+                    if(shot!=0 && currentPixels){
                         measureCamera(camera,pixels,w,h,seq,shot,offset);
                         GLES20.glUniform3f(steadyUniform,offset[0],offset[1],.034f);
                     }else GLES20.glUniform3f(steadyUniform,0,0,0);
@@ -268,10 +333,18 @@ public final class GameScreen extends GLSurfaceView implements GLSurfaceView.Ren
         }
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
         if(hasFrame){
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,textures[front]);
-            GLES20.glUniform2f(texel,1f/widths[front],1f/heights[front]);
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,sharedTexture!=0?sharedTexture:textures[front]);
+            GLES20.glUniform2f(texel,1f/outputWidth,1f/outputHeight);
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP,0,4);
+            drawnSerial=serial;
         }
+    }
+    @Override public void surfaceDestroyed(android.view.SurfaceHolder holder){
+        queueEvent(()->{
+            if(gpuReader!=0){gpuClose(gpuReader,true);gpuReader=0;}
+            sharedTexture=0;hasFrame=false;serial=0;drawnSerial=0;
+        });
+        super.surfaceDestroyed(holder);
     }
     private void schedule(boolean on){
         on=on && isAttachedToWindow() && !paused;

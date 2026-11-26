@@ -74,7 +74,7 @@ def assemble(args):
                     add("xboxrecomp/tools/"+sub+"/"+p.name, p.read_bytes())
         for name in ("recomp_types.h","kernel_stubs.h","xbox_memory.h"):
             add("xboxrecomp/templates/runtime/"+name,(args.toolkit/"templates/runtime"/name).read_bytes())
-        for name in ("tools/device_build.py","tools/compile_objects.py","tools/bringup.py","native/texel_offset.h",
+        for name in ("tools/device_build.py","tools/compile_objects.py","tools/bringup.py","tools/compact_dispatch.py","tools/guest_hotpaths.py","native/matrix_stream.h","native/texel_offset.h",
                      "native/title_hooks.c","native/observed_functions.json",
                      "tools/translate_disc.py"):
             data=(ROOT/name).read_bytes().replace(b"\r\n",b"\n")
@@ -109,6 +109,8 @@ def assemble(args):
         digests["lib/"+name]=hashlib.sha256((out/name).read_bytes()).hexdigest()
     signature=hashlib.sha256()
     for name,digest in sorted(digests.items()):
+        if name in ("tools/device_build.py", "tools/compile_objects.py"):
+            digest = OBJECT_COMPATIBILITY.get(digest, digest)
         signature.update(name.encode()+b"\x00"+bytes.fromhex(digest))
     marker.write_text(signature.hexdigest()+"\n",encoding="ascii")
     print("Disc build kit ready in",out)
@@ -122,11 +124,21 @@ def guest_header(name):
             or name in {"linux/limits.h", "linux/wait.h", "linux/types.h", "linux/posix_types.h", "linux/stddef.h"})
 
 
+# These validator-only revisions produce the same guest objects as the preceding kit.
+# Any other compiler, flag or script revision continues to get its own cache.
+OBJECT_COMPATIBILITY = {
+    "6eea2ca33be8a6b74fccc222579817f278ee7264ea4592642f534968fdb4efd9": "e1fad5da28dd38baeeaa535bf18df39b9644a71400d30857e4fdb1d8d22a63c4",
+    "a816c7840be2f42e860ce6a111e390e05f722ce35867efcb065f6afd90a49657": "ba9c07503b0979b4979ecfa13716508fa7e3fbc6c4c87dd51dd9ed788da8be2c",
+}
+
+
 def guest_identity(digests, out):
     signature = hashlib.sha256()
     for name, digest in sorted(digests.items()):
         if name.startswith("licenses/") or name in ("runtime.a", "guest-build.id"):
             continue
+        if name in ("tools/device_build.py", "tools/compile_objects.py"):
+            digest = OBJECT_COMPATIBILITY.get(digest, digest)
         signature.update(name.encode()+b"\0"+bytes.fromhex(digest))
     for name in TOOLS:
         with (out/name).open("rb") as stream:

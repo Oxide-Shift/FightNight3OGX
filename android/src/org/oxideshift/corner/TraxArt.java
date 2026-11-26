@@ -49,9 +49,18 @@ final class TraxArt {
         for(int[] image:result)if(image==null)throw invalid();
         return result;
     }
+    static File guiFile(File game,String name)throws IOException{
+        File common=new File(game,"GUI/"+name);
+        if(common.isFile())return common;
+        File[] directories=game.listFiles((parent,child)->child.equalsIgnoreCase("GUI"));
+        if(directories!=null)for(File dir:directories){
+            File[] matches=dir.listFiles((parent,child)->child.equalsIgnoreCase(name));
+            if(matches!=null)for(File file:matches)if(file.isFile())return file;
+        }
+        throw new IOException("Missing GUI/"+name);
+    }
     static byte[] textureBank(File game,String archiveName,String group,String bank,int limit)throws IOException{
-        File archive=new File(game,"GUI/"+archiveName);
-        if(!archive.isFile())archive=new File(game,"gui/"+archiveName);
+        File archive=guiFile(game,archiveName);
         byte[] widget;
         try(RandomAccessFile f=new RandomAccessFile(archive,"r")){
             byte[] header=new byte[(int)Math.min(f.length(),32768)];f.readFully(header);

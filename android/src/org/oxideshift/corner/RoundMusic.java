@@ -19,59 +19,131 @@ final class RoundMusic implements AutoCloseable {
     }
     private final File game;
     private final android.content.res.AssetManager assets;
-    private volatile boolean expanded;
-    private boolean pickExpanded;
+    private final ExpandedStart expandedStart;
+    private final Rotation rotation;
     synchronized void expanded(boolean enabled){
-        if(expanded!=enabled){
-            expanded=enabled;pickExpanded=enabled;
-            if(enabled){choice=randomExpanded();preview=choice;}
-            else choice=preview="";
-        }
+        rotation.expanded(enabled);
+        notifyAll();
     }
-    private static String randomExpanded(){
-        String[] tracks=FightBroadcast.EXPANDED;
-        return tracks[java.util.concurrent.ThreadLocalRandom.current().nextInt(tracks.length)];
+    synchronized void trackMask(int mask){
+        rotation.mask(mask);
+        notifyAll();
+    }
+    synchronized void endPreview(){
+        rotation.endPreview();
+        notifyAll();
+    }
+    static final class ExpandedStart {
+        private boolean heard;
+        synchronized String select(){
+            String[] titles=ExpandedTracks.TITLES;
+            return heard?titles[java.util.concurrent.ThreadLocalRandom.current().nextInt(titles.length)]:titles[0];
+        }
+        synchronized void audible(String stem){
+            if(ExpandedTracks.TITLES[0].equals(stem))heard=true;
+        }
     }
     private final Listener listener;
     private boolean playing,closed;
     private volatile boolean menuScene=true;
-    private String first="",choice="",preview="";
-    // File reads can announce the next song while the current song is still audible.
+    private String first="";
     synchronized void requested(String stem,boolean audition){
-        if(expanded && !audition)return;
-        choice=stem;
-        if(audition)preview=stem;
+        rotation.request(stem,audition);
+        notifyAll();
     }
-    private synchronized String takeChoice(){
-        String next=choice;choice="";pickExpanded=false;return next;
+    RoundMusic(File game,android.content.res.AssetManager assets,boolean expanded,ExpandedStart expandedStart,int mask,Listener listener){
+        this.expandedStart=expandedStart;
+        rotation=new Rotation(expandedStart,expanded,mask);
+        this.game=game;this.assets=assets;this.listener=listener;
     }
-    private synchronized boolean changeAfterBlock(String current){
-        boolean change=(!preview.isEmpty() && !preview.equals(current)) || (!expanded && isExpanded(current));
-        preview="";return change;
-    }
-    RoundMusic(File game,android.content.res.AssetManager assets,boolean expanded,Listener listener){
-        this.game=game;this.assets=assets;this.expanded=expanded;this.pickExpanded=expanded;this.listener=listener;
-    }
-    private static boolean isExpanded(String stem){return java.util.Arrays.asList(FightBroadcast.EXPANDED).contains(stem);}
+    private static boolean isExpanded(String stem){return ExpandedTracks.index(stem)>=0;}
     void start(){new Thread(this::run,"fight-ea-trax").start();}
     synchronized void transport(String stem,boolean play,boolean inMenu){
         menuScene=inMenu;
-        if(first.isEmpty() && !stem.isEmpty())first=stem;
+        if(first.isEmpty() && !stem.isEmpty()){
+            first=stem;
+            rotation.request(stem,false);
+        }
         playing=play;
         notifyAll();
     }
     @Override public synchronized void close(){closed=true;notifyAll();}
     private synchronized boolean ready(AudioTrack out)throws InterruptedException{
-        while(!closed && (!playing || first.isEmpty())){
+        while(!closed && (!playing || (first.isEmpty() && rotation.mask!=0))){
             if(out.getPlayState()==AudioTrack.PLAYSTATE_PLAYING)out.pause();
             wait();
         }
         if(!closed && out.getPlayState()!=AudioTrack.PLAYSTATE_PLAYING)out.play();
         return !closed;
     }
-    private synchronized String initialTrack(){
-        if(pickExpanded){pickExpanded=false;choice=preview="";return randomExpanded();}
-        return first;
+    /** Row order from the retail title lookup (sub_00162800), independent of BIG file order. */
+    static final class Rotation {
+        static final String[] STOCK={"SEANBIG1","ATMOSPH1","BRASCO","CONSEQ1","DILATEDP","DIPSET",
+                "KRAYTWIN","LTDA","OBIETRIC","ROCC","SLIC","YOUNGROS"};
+        private final ExpandedStart start;
+        private final List<String> queue=new ArrayList<>();
+        private boolean expanded;
+        private int mask;
+        private String requested="",interrupt="",audition="";
+
+        Rotation(ExpandedStart start,boolean expanded,int mask){
+            this.start=start;this.mask=mask;expanded(expanded);
+        }
+        void expanded(boolean enabled){
+            if(expanded==enabled)return;
+            expanded=enabled;queue.clear();audition="";
+            requested=interrupt=enabled?start.select():"";
+        }
+        void mask(int enabled){
+            if(mask!=enabled){mask=enabled;queue.clear();}
+        }
+        private boolean eligible(String stem){
+            if(isExpanded(stem))return expanded;
+            int row=java.util.Arrays.asList(STOCK).indexOf(stem);
+            return row>=0 && mask>=0 && (mask & (1<<row))!=0;
+        }
+        void request(String stem,boolean preview){
+            if(preview){
+                requested=interrupt=audition=stem;
+            }else if(!expanded && audition.isEmpty()){
+                requested=stem;
+            }
+        }
+        void endPreview(){
+            if(!audition.isEmpty() && audition.equals(requested))requested=interrupt="";
+            audition="";
+        }
+        boolean shouldChange(String current){
+            return (!interrupt.isEmpty() && !interrupt.equals(current))
+                    || (!eligible(current) && !current.equals(audition));
+        }
+        String next(String last){
+            String preferred=requested;
+            requested=interrupt="";
+            boolean preview=!audition.isEmpty() && audition.equals(preferred);
+            if(!preview)audition="";
+            if(queue.isEmpty()){
+                for(String stem:STOCK)if(eligible(stem))queue.add(stem);
+                if(expanded)Collections.addAll(queue,FightBroadcast.EXPANDED);
+                Collections.shuffle(queue);
+                if(queue.size()>1 && queue.get(0).equals(last))Collections.swap(queue,0,1);
+            }
+            if(preview || (eligible(preferred) && !preferred.equals(last))){
+                queue.remove(preferred);
+                return preferred;
+            }
+            return queue.isEmpty()?"":queue.remove(0);
+        }
+    }
+    private synchronized boolean changeAfterBlock(String stem){return rotation.shouldChange(stem);}
+    private synchronized String nextTrack(String last){return rotation.next(last);}
+    private synchronized String waitForTrack(String last)throws InterruptedException{
+        while(!closed){
+            String next=rotation.next(last);
+            if(!next.isEmpty())return next;
+            wait();
+        }
+        return "";
     }
     private File archive()throws IOException{
         File entry=game;
@@ -108,29 +180,31 @@ final class RoundMusic implements AutoCloseable {
         }catch(InterruptedException e){Thread.currentThread().interrupt();listener.failed(this);}
     }
     private void stream(DiscTrax disc,AudioTrack out)throws IOException,InterruptedException{
-        List<String> queue=new ArrayList<>();
         java.util.Map<String,DiscTrax.Song> originals=new java.util.LinkedHashMap<>();
         for(DiscTrax.Song song:disc.songs)originals.put(song.stem,song);
         String last="";
-        boolean mixed=expanded;
-        String next=initialTrack();
         short[] pcm=new short[DiscTrax.MAX_FRAMES*2];
         long written=0,head=0,previousHead=0;
         java.util.ArrayDeque<Cue> cues=new java.util.ArrayDeque<>();
         boolean fadeIn=false;
         SceneMix mix=new SceneMix(menuScene);
         while(ready(out)){
-            if(mixed!=expanded){mixed=expanded;queue.clear();}
-            if(queue.isEmpty()){
-                queue.addAll(originals.keySet());
-                if(mixed)Collections.addAll(queue,FightBroadcast.EXPANDED);
-                Collections.shuffle(queue);
-                if(queue.size()>1 && queue.get(0).equals(last))Collections.swap(queue,0,1);
+            String stem=nextTrack(last);
+            if(stem.isEmpty()){
+                out.pause();out.flush();cues.clear();
+                written=head=previousHead=0;
+                listener.audible(this,"");
+                stem=waitForTrack(last);
+                if(stem.isEmpty() || !ready(out))return;
+                fadeIn=true;
             }
-            String stem=!next.equals(last) && (originals.containsKey(next) || (mixed && isExpanded(next)))?next:queue.get(0);
-            queue.remove(stem);last=stem;
+            last=stem;
             try(ExpandedAudio extra=isExpanded(stem)?new ExpandedAudio(assets,stem):null){
-                if(extra==null)disc.select(originals.get(stem));
+                if(extra==null){
+                    DiscTrax.Song song=originals.get(stem);
+                    if(song==null)throw new IOException("Missing EA Trax disc selection: "+stem);
+                    disc.select(song);
+                }
                 mix.selectTrack(stem);
                 cues.addLast(new Cue(written/2,stem));
                 int frames;
@@ -153,13 +227,15 @@ final class RoundMusic implements AutoCloseable {
                         at+=n;written+=n;
                         long raw=out.getPlaybackHeadPosition()&0xffffffffL;
                         head+=(raw-previousHead)&0xffffffffL;previousHead=raw;
-                        while(!cues.isEmpty() && head>cues.peekFirst().frame)
-                            listener.audible(this,cues.removeFirst().stem);
+                        while(!cues.isEmpty() && head>cues.peekFirst().frame){
+                            String audible=cues.removeFirst().stem;
+                            expandedStart.audible(audible);
+                            listener.audible(this,audible);
+                        }
                     }
                     if(skip){fadeIn=true;break;}
                 }
             }
-            next=takeChoice();
         }
     }
     /** Gains relative to decoded stereo PCM. Stock menu captures measure 0.22 at the default mix. */
@@ -175,24 +251,20 @@ final class RoundMusic implements AutoCloseable {
             switch(stem){
                 case "ATMOSPH1": integrated=-5.7;break;
                 case "BRASCO": integrated=-7.4;break;
-                case "Blood + Sweat": integrated=-15.4;break;
-                case "Body Shots": integrated=-16.0;break;
                 case "CONSEQ1": integrated=-11.0;break;
-                case "Corner Talk": integrated=-15.3;break;
                 case "DILATEDP": integrated=-7.8;break;
                 case "DIPSET": integrated=-8.4;break;
-                case "Heavy Hands": integrated=-15.7;break;
                 case "KRAYTWIN": integrated=-8.5;break;
-                case "Knockout City": integrated=-15.9;break;
                 case "LTDA": integrated=-8.1;break;
-                case "No Mercy": integrated=-15.5;break;
                 case "OBIETRIC": integrated=-7.6;break;
                 case "ROCC": integrated=-7.3;break;
                 case "SEANBIG1": integrated=-7.7;break;
                 case "SLIC": integrated=-7.2;break;
-                case "The Contender": integrated=-15.4;break;
                 case "YOUNGROS": integrated=-8.2;break;
-                default:trackGain=1f;return;
+                default:
+                    int index=ExpandedTracks.index(stem);
+                    if(index<0){trackGain=1f;return;}
+                    integrated=ExpandedTracks.LUFS[index];
             }
             trackGain=(float)Math.pow(10,(-7.8-integrated)/20);
         }

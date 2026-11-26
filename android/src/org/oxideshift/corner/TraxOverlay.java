@@ -24,7 +24,7 @@ final class TraxOverlay extends LinearLayout {
         setBackground(new TraxBanner(null,dp(69)));
         setPadding(dp(single?65:79),dp(7),dp(24),dp(8));setMinimumHeight(dp(single?54:63));
         title=label(single?17:21,GameInk.GOLD,fonts.stencil);title.setMaxLines(2);
-        artist=label(single?12:15,GameInk.MUTED,fonts.stencil);artist.setSingleLine(true);
+        artist=label(single?12:15,GameInk.TEXT,fonts.body);artist.setSingleLine(true);
         FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(single?dp(360):-1,-2,Gravity.BOTTOM|Gravity.LEFT);
         lp.setMargins(dp(12),0,dp(12),dp(6));setVisibility(GONE);host.addView(this,lp);
     }
@@ -42,20 +42,25 @@ final class TraxOverlay extends LinearLayout {
         }
         if(next==song)return;
         song=next;
-        if(song!=null){title.setText(song.title);artist.setText(song.artist);}
+        if(song!=null){
+            title.setText(song.title);artist.setText(song.artist);
+            artist.setVisibility(TextUtils.isEmpty(song.artist)?GONE:VISIBLE);
+        }
         drawCue();
     }
     private void drawCue(){
         removeCallbacks(animateStrip);
         long age=song==null?-1:SystemClock.uptimeMillis()-song.started;
-        if(age<0 || age>=6600){setVisibility(GONE);return;}
+        if(age<0 || age>=6600){setVisibility(GONE);setTranslationX(0);setAlpha(1);return;}
         setVisibility(VISIBLE);
         boolean animate=ValueAnimator.areAnimatorsEnabled();
         float shift=0;
-        if(animate && age<300){float t=1f-age/300f;shift=-t*t;}
-        else if(animate && age>=6250){float t=(age-6250)/350f;shift=t*t;}
-        setAlpha(1-Math.abs(shift));setTranslationX(dp(115)*shift);
-        if(animate && (age<300 || age>=6250))postOnAnimation(animateStrip);
+        if(animate && age<220){float t=1f-age/220f;shift=-t*t;}
+        else if(animate && age>=6250){float t=(age-6250)/350f;shift=-t*t;}
+        float caption=animate?Math.min(1f,Math.max(0f,(age-80f)/140f)):1f;
+        title.setAlpha(caption);artist.setAlpha(caption);
+        setAlpha(1-Math.abs(shift));setTranslationX((getWidth()+dp(12))*shift);
+        if(animate && (age<220 || age>=6250))postOnAnimation(animateStrip);
         else postDelayed(animateStrip,(animate?6250:6600)-age);
     }
     void detach(){removeCallbacks(animateStrip);host.removeView(this);}

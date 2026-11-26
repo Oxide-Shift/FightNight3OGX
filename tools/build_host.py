@@ -19,7 +19,10 @@ def main():
     parser.add_argument("--runtime-only", action="store_true",
                         help="Build the ARM64 engine archive for first-run linking, without the translated game")
     parser.add_argument("--vulkan-ndk", type=Path, help="Use NDK Vulkan headers and shader compiler for a Windows renderer test")
+    parser.add_argument("--frame-profile", action="store_true", help="Emit Windows QA per-flip data and game/render thread IDs")
     args = parser.parse_args()
+    if args.frame_profile and args.target != "windows":
+        parser.error("--frame-profile requires a Windows desktop host")
     if args.runtime_only and args.target != "android":
         parser.error("--runtime-only requires --target android")
     private = args.private_dir.resolve()
@@ -45,7 +48,7 @@ def main():
     sources.extend(src / "apu" / name for name in ("apu_core.c","apu_vp.c","apu_dsp.c","apu_mmio_hook.c"))
     sources.append(native / ("android_audio.c" if android else "desktop_audio.c"))
     sources.extend(native / name for name in
-                   ("host_main.c", "host_dispatch.c", "host_video.c", "frame_output.c", "corner_pipe.c","pad_input.c","menu_cancel.c",
+                   ("host_main.c", "gpu_flush.c", "host_dispatch.c", "host_video.c", "frame_output.c", "corner_pipe.c","pad_input.c","menu_cancel.c",
                     "title_hooks.c", "fight_data.c", "fight_trax.c", "fight_timing.c"))
     arch = "x86_64" if args.target == "android-x86_64" else "aarch64"
     platform = [f"--target={arch}-linux-android30", "-fPIC"] if android else []
@@ -53,6 +56,8 @@ def main():
              "-fdata-sections", "-fms-extensions", "-DWIN32_LEAN_AND_MEAN", "-DNOMINMAX",
              "-I", src, "-I", kernel, "-I", src / "nv2a",
              "-I", args.toolkit.resolve() / "templates/runtime" if args.runtime_only else private / "gen"]
+    if args.frame_profile:
+        flags.append("-DFNR3_FRAME_PROFILE")
     if args.runtime_only:
         for path,name in ((private,"build"),(project,"project"),(args.toolkit.resolve(),"xboxrecomp"),
                           (args.android_reference.resolve(),"reference"),(cc.parents[5],"ndk")):
@@ -60,7 +65,7 @@ def main():
                 flags.append(f"-ffile-prefix-map={prefix}={name}")
     if android:
         flags.extend(["-I",adapter, "-I",src / "platform"])
-        subprocess.run([cc, *platform, "-O2", "-shared", native / "frame_reader.c", "-lm",
+        subprocess.run([cc, *platform, "-O2", "-shared", native / "frame_reader.c", "-lm", "-landroid", "-lEGL", "-lGLESv2",
                         "-o", out / "libframe_reader.so"], check=True)
     gpu_libs = []
     use_vulkan = android or args.vulkan_ndk is not None
@@ -81,6 +86,8 @@ def main():
     names.add("nv2a_vsh_interp.c")
     subprocess.run(["git","apply","--no-index","--whitespace=nowarn","-"],cwd=patched,check=True,
                    input=(patches / "fight-vertex-decode.patch").read_text(encoding="utf-8").encode("utf-8"))
+    subprocess.run(["git", "apply", "--no-index", "--whitespace=nowarn", "-"], cwd=patched, check=True,
+                   input=(patches / "fight-gpu-flush.patch").read_bytes().replace(b"\r\n", b"\n"))
     patch_args = [] if use_vulkan else ["--exclude=vkr.c"]
     subprocess.run(["git", "apply", "--no-index", "--unidiff-zero", "--whitespace=nowarn", *patch_args,
                     str(patches / "runtime-update.patch")], cwd=patched, check=True)
@@ -112,14 +119,32 @@ def main():
         if args.runtime_only:
             subprocess.run(["git", "apply", "--no-index", "--whitespace=nowarn", "-"], cwd=patched,
                            input=(patches / "fight-live-shaders.patch").read_bytes().replace(b"\r\n", b"\n"), check=True)
+        # The statements after vkCreateDevice differ in the static and live shader builds.
+        # The shared-frame hook anchors to the common device creation immediately above it.
+        subprocess.run(["git", "apply", "--no-index", "--unidiff-zero", "--whitespace=nowarn", "-"], cwd=patched, check=True,
+                       input=(patches / "fight-shared-display.patch").read_bytes().replace(b"\r\n", b"\n"))
+        subprocess.run(["git", "apply", "--no-index", "--whitespace=nowarn", "-"], cwd=patched, check=True,
+                       input=(patches / "fight-target-feedback.patch").read_bytes().replace(b"\r\n", b"\n"))
+        subprocess.run(["git", "apply", "--no-index", "--whitespace=nowarn", "-"], cwd=patched, check=True,
+                       input=(patches / "fight-texture-allocation.patch").read_bytes().replace(b"\r\n", b"\n"))
+        if args.runtime_only:
+            for patch in ("fight-device-probe.patch", "fight-ordinary-descriptors.patch"):
+                subprocess.run(["git", "apply", "--no-index", "--whitespace=nowarn", "-"], cwd=patched, check=True,
+                               input=(patches / patch).read_bytes().replace(b"\r\n", b"\n"))
         gpu_src, gpu_flags, gpu_libs = prepare(args.android_reference.resolve(), out, cc, ndk, android,
                                                 profiles=not args.runtime_only)
         sources.extend([*gpu_src, native / "fight_gpu.c"])
         flags.extend(gpu_flags)
         flags[:0] = ["-I", patched]
+    subprocess.run(["git", "apply", "--no-index", "--whitespace=nowarn", "-"], cwd=patched, check=True,
+                   input=(patches / "fight-gpu-progress.patch").read_bytes().replace(b"\r\n", b"\n"))
     shutil.copyfile(kernel / "kernel_bridge.c", patched / "kernel_bridge.c")
     subprocess.run(["git", "apply", "--no-index", "--whitespace=nowarn",
                     str(patches / "fight-data.patch")], cwd=patched, check=True)
+    subprocess.run(["git", "apply", "--no-index", "--whitespace=nowarn", "-"], cwd=patched, check=True,
+                   input=(patches / "fight-fence-wait.patch").read_bytes().replace(b"\r\n", b"\n"))
+    subprocess.run(["git", "apply", "--no-index", "--whitespace=nowarn", "-"], cwd=patched, check=True,
+                   input=(patches / "fight-thread-status.patch").read_bytes().replace(b"\r\n", b"\n"))
     names.add("kernel_bridge.c")
     shutil.copyfile(src / "usb" / "ohci.c", patched / "ohci.c")
     subprocess.run(["git", "apply", "--no-index", "--whitespace=nowarn",

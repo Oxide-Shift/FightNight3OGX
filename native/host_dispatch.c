@@ -30,6 +30,10 @@ void recomp_icall_not_code_log(uint32_t va) {
         fprintf(stderr, "[Fight Night] guest stack");
         for (unsigned i = 0; i < 8; ++i) fprintf(stderr, " %08X", MEM32(g_esp + i*4));
         fputc('\n', stderr);
+        if (MEM32(g_esp) == 0x001F3381u) {
+            fprintf(stderr, "[Fight Night] worker sleep call 001F337E, stop %u, object %08X, vtable %08X\n",
+                    (unsigned)MEM8(0x005C4A8C), MEM32(0x005C4A84), g_eax);
+        }
     }
 #ifdef _WIN32
     void *stack[12];

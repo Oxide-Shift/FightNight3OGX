@@ -1,0 +1,51 @@
+--- a/vkr.c
++++ b/vkr.c
+@@ -9,6 +9,10 @@
+ #include "../log.h"
+ 
+ #include "vkr_thread.h"
++#ifdef __ANDROID__
++#include <pthread.h>
++#include "android_gpu_present.h"
++#endif
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -1288,3 +1292,6 @@
+ #endif
+     di.pNext = &f13; di.queueCreateInfoCount = 1; di.pQueueCreateInfos = &qi;
+     if (vkCreateDevice(c->phys, &di, NULL, &c->dev) != VK_SUCCESS) goto fail;
++#ifdef __ANDROID__
++    gpu_display_init(c->dev,c->phys,fight_gpu_extensions);
++#endif
+@@ -1606,6 +1613,10 @@
+     }
+     free_target(c);
+     vkDeviceWaitIdle(c->dev);
++#ifdef __ANDROID__
++    gpu_display_close();
++#endif
++
+     tex_free_all(c);
+     if (c->pj_started) {
+         pthread_mutex_lock(&c->pj_lock);
+@@ -3201,13 +3212,12 @@
+          * for guest memory (what the title and the screenshots read). */
+         VkImageBlit bl = {0};
+         cp.imageExtent.width = c->sw; cp.imageExtent.height = c->sh;
+-        if (c->crt_in) {
+-            crt_pass(c, frame);
+-            vkCmdCopyImageToBuffer(c->cmd, c->crt_out, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+-                                   c->fr[slot].rbh, 1, &cp);
+-        } else
+-            vkCmdCopyImageToBuffer(c->cmd, frame, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+-                                   c->fr[slot].rbh, 1, &cp);
++        VkImage output=frame;
++        if(c->crt_in){crt_pass(c,frame);output=c->crt_out;}
++#ifdef __ANDROID__
++        if(!gpu_copy_display(c->cmd,output,c->qfam,c->sw,c->sh))
++#endif
++            vkCmdCopyImageToBuffer(c->cmd,output,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,c->fr[slot].rbh,1,&cp);
+         barrier(c, c->down, VK_IMAGE_ASPECT_COLOR_BIT,
+                 VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                 VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,

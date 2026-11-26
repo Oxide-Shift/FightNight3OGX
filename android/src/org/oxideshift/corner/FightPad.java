@@ -20,6 +20,7 @@ final class FightPad {
         final int[] axes={MotionEvent.AXIS_X,MotionEvent.AXIS_Y,MotionEvent.AXIS_Z,MotionEvent.AXIS_RZ,
                 MotionEvent.AXIS_HAT_X,MotionEvent.AXIS_HAT_Y,MotionEvent.AXIS_LTRIGGER,MotionEvent.AXIS_RTRIGGER};
         final float[] flat=new float[8];
+        int supported;
         short lx,ly,rx,ry;
         Source(int id){this.id=id;}
     }
@@ -106,9 +107,10 @@ final class FightPad {
         pad.axes[3]=preferred(device,source,MotionEvent.AXIS_RZ,MotionEvent.AXIS_RY);
         pad.axes[6]=preferred(device,source,MotionEvent.AXIS_LTRIGGER,MotionEvent.AXIS_BRAKE);
         pad.axes[7]=preferred(device,source,MotionEvent.AXIS_RTRIGGER,MotionEvent.AXIS_GAS);
+        pad.supported=0;
         for(int i=0;i<pad.axes.length;i++){
             InputDevice.MotionRange range=device.getMotionRange(pad.axes[i],source);
-            pad.flat[i]=range==null?0:range.getFlat();
+            if(range!=null){pad.supported|=1<<i;pad.flat[i]=range.getFlat();}
         }
     }
     private static float axis(MotionEvent e,Source pad,int i){
@@ -117,26 +119,46 @@ final class FightPad {
     }
     private static short stick(float f){return (short)Math.round(Math.min(1,Math.max(-1,f))*(f<0?32768:32767));}
     void axes(int id,float lx,float ly,float rx,float ry,float hatX,float hatY,float lt,float rt){
-        Source s=source(id);
+        applyAxes(source(id),255,lx,ly,rx,ry,hatX,hatY,lt,rt);
+    }
+    private void applyAxes(Source s,int mask,float lx,float ly,float rx,float ry,float hatX,float hatY,float lt,float rt){
         // Some controllers advertise a zero flat and send a small residual at rest.
         boolean left=lx*lx+ly*ly>.08f*.08f,right=rx*rx+ry*ry>.08f*.08f;
-        s.lx=left?stick(lx):0;s.ly=left?stick(-ly):0;
-        s.rx=right?stick(rx):0;s.ry=right?stick(-ry):0;
-        s.hat=(hatY<-.5f?1:0)|(hatY>.5f?2:0)|(hatX<-.5f?4:0)|(hatX>.5f?8:0);
-        s.leftTrigger=Math.round(255*Math.max(0,Math.min(1,lt)));
-        s.rightTrigger=Math.round(255*Math.max(0,Math.min(1,rt)));
+        if((mask&1)!=0)s.lx=left?stick(lx):0;
+        if((mask&2)!=0)s.ly=left?stick(-ly):0;
+        if((mask&4)!=0)s.rx=right?stick(rx):0;
+        if((mask&8)!=0)s.ry=right?stick(-ry):0;
+        if((mask&16)!=0)s.hat=(s.hat&3)|(hatX<-.5f?4:0)|(hatX>.5f?8:0);
+        if((mask&32)!=0)s.hat=(s.hat&12)|(hatY<-.5f?1:0)|(hatY>.5f?2:0);
+        if((mask&64)!=0)s.leftTrigger=Math.round(255*Math.max(0,Math.min(1,lt)));
+        if((mask&128)!=0)s.rightTrigger=Math.round(255*Math.max(0,Math.min(1,rt)));
         combine();
     }
+    static boolean directionalMotion(MotionEvent event){
+        return event.isFromSource(InputDevice.SOURCE_JOYSTICK) || event.isFromSource(InputDevice.SOURCE_DPAD);
+    }
+    boolean cancelMotion(int id,boolean joystick){
+        for(Source pad:devices)if(pad.id==id){
+            // Android cancels motion streams independently of key streams.
+            // A real disconnect clears the entire device in remove().
+            applyAxes(pad,joystick?255:48,0,0,0,0,0,0,0,0);
+            return true;
+        }
+        return false;
+    }
     boolean motion(MotionEvent e){
-        if(!e.isFromSource(InputDevice.SOURCE_JOYSTICK))return false;
-        if(e.getActionMasked()==MotionEvent.ACTION_CANCEL)return remove(e.getDeviceId());
+        if(!directionalMotion(e))return false;
+        boolean joystick=e.isFromSource(InputDevice.SOURCE_JOYSTICK);
+        if(e.getActionMasked()==MotionEvent.ACTION_CANCEL)return cancelMotion(e.getDeviceId(),joystick);
         if(e.getActionMasked()!=MotionEvent.ACTION_MOVE)return false;
         InputDevice device=e.getDevice();
         int id=e.getDeviceId(),bits=e.getSource();
-        if(device==null){axes(id,0,0,0,0,0,0,0,0);return true;}
+        if(device==null){cancelMotion(id,joystick);return true;}
         Source pad=source(id);
         if(device!=pad.motionDevice || bits!=pad.motionSource)configure(pad,device,bits);
-        axes(id,axis(e,pad,0),axis(e,pad,1),axis(e,pad,2),axis(e,pad,3),
+        int supported=pad.supported;
+        if(!joystick)supported&=48;
+        applyAxes(pad,supported,axis(e,pad,0),axis(e,pad,1),axis(e,pad,2),axis(e,pad,3),
                 axis(e,pad,4),axis(e,pad,5),axis(e,pad,6),axis(e,pad,7));
         return true;
     }

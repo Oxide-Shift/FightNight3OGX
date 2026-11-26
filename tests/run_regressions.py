@@ -21,6 +21,9 @@ def main():
     parser.add_argument("--frames", type=Path, action="append", default=[])
     parser.add_argument("--menu-archive", type=Path, action="append", default=[],
                         help="Test startup on a private retail or previously installed GUI/overlay.viv")
+    parser.add_argument("--vulkan-include",type=Path,help="Vulkan headers for the host capability and descriptor fault fixtures")
+    parser.add_argument("--bench-voice-stop", action="store_true",
+                        help="Measure real thread CPU, wall time and polls for 100 missed stop notifications")
     args=parser.parse_args()
     src=args.toolkit/"src"
     host=args.build/"host-windows"
@@ -28,8 +31,8 @@ def main():
         out=Path(tmp)
         javac=args.jdk/"bin/javac.exe"
         java=args.jdk/"bin/java.exe"
-        java_suites=["CornerControlsSmoke","FightBroadcastSmoke","RingsidePromptSmoke","CutmanStrokeSmoke",
-               "HakuSaveSmoke","ProfileSavesSmoke","DisplayCadenceSmoke","MenuStripSmoke","ControllerInputSmoke","FightEventsSmoke","CommandPipeSmoke","SessionSleepSmoke","ReleaseVersionSmoke","ReleaseAssetSmoke","DiscTraxSmoke","AchievementsSmoke","CalloutRumbleSmoke"]
+        java_suites=["GraphicsStartupSmoke","LaunchRecoveryTest","CornerControlsSmoke","FightBroadcastSmoke","RingsidePromptSmoke","CutmanStrokeSmoke",
+               "HakuSaveSmoke","ProfileSavesSmoke","DisplayCadenceSmoke","MenuStripSmoke","ControllerInputSmoke","FightEventsSmoke","CommandPipeSmoke","SessionSleepSmoke","ReleaseVersionSmoke","ReleaseAssetSmoke","DiscTraxSmoke","AchievementsSmoke","CalloutRumbleSmoke","BetweenRoundsSmoke"]
         paths=[TESTS/(name+".java") for name in java_suites+["LinkSmoke","DiscInstallSmoke","RetailMenuStartupSmoke"]]
         run([javac,"--release","8","-encoding","UTF-8","-cp",args.android_jar,"-d",out,*JAVA.glob("*.java"),*paths])
         cp=os.pathsep.join(map(str,(out,args.android_jar)))
@@ -39,8 +42,35 @@ def main():
         run([java,"-cp",cp,"org.oxideshift.corner.DiscInstallSmoke",args.build/"default.xbe"])
         for n,archive in enumerate(args.menu_archive):
             run([java,"-cp",cp,"org.oxideshift.corner.RetailMenuStartupSmoke",archive,out/("menu-"+str(n))])
+        run([sys.executable,TESTS/"guest_object_cache.py"])
         run([sys.executable,TESTS/"shader_constants.py"])
+        run([sys.executable,TESTS/"thor_health.py"])
+        run([sys.executable,TESTS/"usb_sweep.py"])
+        run([sys.executable,TESTS/"crash_inbox.py"])
         run(["node",TESTS/"scorecard.cjs"])
+        # Exercise the original translated ring wait with the same register
+        # writer the Android runtime builds. This requires no retail process.
+        progress=out/"progress"
+        progress.mkdir()
+        layout=progress/"xbox_memory_layout.c"
+        shutil.copyfile(src/"kernel"/layout.name,layout)
+        subprocess.run(["git","apply","--no-index","--include=xbox_memory_layout.c",
+                        ROOT/"patches/fight-gpu-progress.patch"],cwd=progress,check=True)
+        subprocess.run(["git","apply","--no-index","--include=xbox_memory_layout.c",
+                        ROOT/"patches/fight-fence-wait.patch"],cwd=progress,check=True)
+        writer=layout.read_text(encoding="utf8")
+        start=writer.index("static int have_ring_position;")
+        end=writer.index("static int s_nv2a_trace",start)
+        (progress/"gpu_progress_writer.inc").write_text(writer[start:end],encoding="utf8")
+        start=writer.index("            if (g_lockstep_fence_waiters &&")
+        end=writer.index("\n            }",start)+len("\n            }")
+        (progress/"gpu_wait_interrupt.inc").write_text(writer[start:end],encoding="utf8")
+        translated=(args.build/"gen/recomp_0241.c").read_text(encoding="utf8")
+        start=translated.index("void sub_0043B390(void)\n{")
+        end=translated.index("\n}",start)+2
+        (progress/"gpu_progress_consumer.inc").write_text(translated[start:end],encoding="utf8")
+        run([args.cc,"-O2","-I",args.build/"gen","-I",progress,TESTS/"gpu_progress.c","-o",progress/"check.exe"])
+        run([progress/"check.exe"])
         # controller_bus includes ohci.c directly. Exercise the controller built by build_host.py.
         shutil.copyfile(src/"usb/ohci.c",out/"ohci.c")
         subprocess.run(["git","apply","--no-index","--whitespace=nowarn",ROOT/"patches/fight-controller.patch"],
@@ -94,7 +124,11 @@ def main():
             'void stop_clock(uint32_t);void sub_0046CCEA(void);\n'+source[start:source.index("\n}",start)+2],encoding="utf-8")
         route_voice_stop(out)
         run([args.cc,*flags,"-I",args.build/"gen",TESTS/"voice_stop.c",stop,ROOT/"native/fight_data.c","-o",out/"voice_stop.exe"])
-        run([out/"voice_stop.exe"])
+        run([out/"voice_stop.exe", *(["--benchmark"] if args.bench_voice_stop else [])])
+        if args.vulkan_include:
+            gpu=out/"gpu-compatibility.exe"
+            run([args.cc,"-O2","-I",args.vulkan_include,TESTS/"gpu_compatibility.c","-o",gpu])
+            run([gpu])
         names=["menu_dpad","flip_pacing","corner_camera","menu_cancel","audio_ring","audio_route","audio_control","audio_startup","voice_list","voice_rate","fight_texture_layout","frame_publish",
                "mesh_cache","front_surfaces","pushbuffer_wrap","texture_hash","controller_bus","ring_events","trax_filter"]
         for name in names:
@@ -107,7 +141,7 @@ def main():
         peer=out/"corner-link.exe"
         run([args.cc,"-DCORNER_LINK_ONLY",ROOT/"native/corner_pipe.c","-o",peer])
         run([java,"-cp",cp,"org.oxideshift.corner.LinkSmoke",peer])
-        print(f"Passed {len(java_suites)} Java suites, {len(names)+2} native suites, scorecard and host link with {len(frames)} menu/ring captures.")
+        print(f"Passed {len(java_suites)} Java suites, {len(names)+3} native suites, scorecard and host link with {len(frames)} menu/ring captures.")
 
 if __name__=="__main__":
     main()

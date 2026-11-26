@@ -19,16 +19,55 @@ public final class CornerSession {
     private final java.util.function.LongSupplier uptime;
     private Process process;
     private boolean sleeping;
+    private boolean supervised, generalShaders, gpuInitFailed, gpuDeviceLost, noAdapter, reaped;
+    private int childExit;
+    volatile boolean finishedBackup;
+    private LaunchRecovery boot;
+    private BootJournal journal;
+    private String kitIdentity,attempt;
+    private long bootGeneration;
+    private boolean noStartupFrame,bootDrawn,drawReceiptWritten,userRetry;
+    void superviseGraphics(boolean general){supervised=true;generalShaders=general;}
+    void journalLaunch(File files,String kit,boolean retry){
+        journal=new BootJournal(files);kitIdentity=kit;userRetry=retry;
+        attempt=UUID.randomUUID().toString();
+    }
+    private void writeBoot(String stage){
+        if(journal==null)return;
+        String mode=software?"software":generalShaders?"general":"vulkan";
+        try{journal.record(attempt,kitIdentity,mode,stage,userRetry,!"starting".equals(stage));}
+        catch(Exception ex){record("Launch journal unavailable");}
+    }
+    synchronized void observeStartup(long guest,long drawn,boolean gameSurface){
+        if(boot==null || bootDrawn || cancelled || terminal || process==null || !process.isAlive())return;
+        LaunchRecovery.Action action=boot.sample(bootGeneration,uptime.getAsLong(),guest,drawn,gameSurface);
+        if(action==LaunchRecovery.Action.PLAYING){bootDrawn=true;return;}
+        if(action==LaunchRecovery.Action.REQUEST_STOP && !inLiveBout() && !sleeping){
+            noStartupFrame=true;reason="No advancing picture during startup";process.destroyForcibly();
+        }
+    }
+    synchronized boolean retryGraphics(){
+        return reaped && terminal && !cancelled && !noAdapter && !generalShaders && !software &&
+                !bootDrawn && (noStartupFrame || (gpuInitFailed && childExit==74 && lastFrame==null)
+                        || (gpuDeviceLost && childExit==75 && lastFrame==null));
+    }
+    /** The renderer reported VK_ERROR_DEVICE_LOST and exited 75: a GPU driver reset, not a guest fault. */
+    synchronized boolean deviceLost(){return gpuDeviceLost && childExit==75;}
+    synchronized boolean startupTimedOut(){return noStartupFrame;}
+    synchronized boolean unsupportedGraphics() { return noAdapter && gpuInitFailed && childExit==74; }
     private ScheduledExecutorService clock;
     private ScheduledFuture<?> heartbeat;
 
     synchronized void setSleeping(boolean value){
         if(sleeping==value || terminal || cancelled)return;
         sleeping=value;
+        if(boot!=null)boot.pause(bootGeneration,uptime.getAsLong(),value);
         syncTrack();
         commands.offer(value?"SLEEP":"WAKE");
         if(!value){
             received=System.nanoTime();
+            if(playlist==Playlist.REQUESTED){playlistRequestedAt=uptime.getAsLong();commands.offer("PLAYLIST 1");}
+            if(playlist==Playlist.CANCELLING)commands.offer("PLAYLIST CANCEL");
             padPending=padState!=null;
             flushPad();
         }
@@ -70,7 +109,20 @@ public final class CornerSession {
         }catch(IOException | android.system.ErrnoException ignored){/* The host can still publish to frameFile. */}
     }
     private int renderHeight=480, samples=1, anisotropy=2;
-    private boolean software;
+    private boolean software,sharedFrames;
+    File sealedModule;
+    volatile boolean moduleRejected;
+    void requestSharedFrames(boolean value){sharedFrames=value;}
+    private boolean pipelinedFrames;
+    private volatile int playerSide=-1;
+    /** 0 blue, 1 red, -1 unknown or no human corner (from the retail PLAYERSTATS record). */
+    int playerSide(){return playerSide;}
+    private volatile int[] playerKnockdowns;
+    /** {knockdowns scored, knockdowns suffered} for the human corner this bout, or null when unknown. */
+    int[] playerKnockdowns(){return playerKnockdowns;}
+    void requestPipelinedFrames(boolean value){pipelinedFrames=value;}
+    boolean allowGpuScanout(){return !software && !generalShaders;}
+    boolean useSharedFrames(){return sharedFrames && allowGpuScanout();}
     private boolean widescreen=true;
     private volatile FightBroadcast.Fighters fighters;
     FightBroadcast.Fighters fighters(){return fighters;}
@@ -94,6 +146,7 @@ public final class CornerSession {
     FightBroadcast.Fighters lastNames(){return lastNames;}
     private final BoutAnnouncements announcements=new BoutAnnouncements();
     BoutAnnouncements.Notice callout(){return announcements.current(uptime.getAsLong());}
+    boolean fightCueVisible(){return announcements.ownsDisplay(uptime.getAsLong());}
     volatile boolean lowerCallouts;
     private BoutAnnouncements.Notice lastPulse;
     synchronized void calloutShown(BoutAnnouncements.Notice notice){
@@ -104,23 +157,37 @@ public final class CornerSession {
         if(motors!=null)motors.callout();
     }
     volatile boolean cabinetOpen;
-    volatile boolean retailMusicRoute,browsingTrax;
+    volatile boolean browsingTrax;
     private boolean cabinetRequested,musicRequested;
-    static final int FRONT_ROOT=-3, FRONT_OTHER=-2, FRONT_TRAX=-1;
+    static final int FRONT_PLAYNOW=-4, FRONT_ROOT=-3, FRONT_OTHER=-2, FRONT_TRAX=-1;
     volatile int frontPage=FRONT_OTHER;
-    private boolean playlistPending,playlistFromMusic,returningToMusic;
+    private enum Playlist { IDLE, REQUESTED, CANCELLING, DISPATCHED, RETAIL }
+    private Playlist playlist=Playlist.IDLE;
+    private boolean returningToMusic;
+    private long playlistRequestedAt;
     boolean atRoot(){return frontPage==FRONT_ROOT || frontPage>=0;}
     synchronized boolean requestPlaylist(){
-        if(!running || sleeping || terminal || !retailMusicRoute || !cabinetOpen || playlistPending)return false;
-        playlistPending=true;commands.offer("PLAYLIST 1");return true;
+        if(!running || sleeping || terminal || !cabinetOpen || playlist!=Playlist.IDLE)return false;
+        if(browsingTrax){playlist=Playlist.RETAIL;return true;}
+        if(!atRoot())return false;
+        playlist=Playlist.REQUESTED;playlistRequestedAt=uptime.getAsLong();
+        commands.offer("PLAYLIST 1");return true;
     }
-    synchronized void cancelPlaylistRequest(){
-        if(playlistPending){playlistPending=false;commands.offer("PLAYLIST 0");}
+    synchronized boolean waitingForPlaylist(){
+        // The original menu owns input as soon as its action handler consumes
+        // Open. The separate FRONT receipt can arrive after the first input.
+        return playlist==Playlist.REQUESTED || playlist==Playlist.CANCELLING;
     }
+    synchronized void checkPlaylistArrival(){
+        if(playlist!=Playlist.REQUESTED || sleeping || uptime.getAsLong()-playlistRequestedAt<8000)return;
+        // Only the guest can tell whether its action handler has consumed this request.
+        playlist=Playlist.CANCELLING;commands.offer("PLAYLIST CANCEL");
+    }
+    synchronized void leaveMusicParent(){returningToMusic=false;}
     synchronized boolean takePlaylistReturn(){
         boolean pending=returningToMusic;returningToMusic=false;return pending;
     }
-    synchronized boolean playlistOpening(){return playlistFromMusic;}
+    synchronized boolean playlistOpening(){return playlist==Playlist.RETAIL || playlist==Playlist.DISPATCHED;}
     private Runnable frontListener;
     synchronized void onFrontChanged(Runnable listener){frontListener=listener;}
     private void front(int page){
@@ -162,6 +229,8 @@ public final class CornerSession {
     synchronized void reachedMenu(){advance(Milestone.MENU);starting=false;introMovie=0;if(!inLiveBout())lastEvent="MENU";}
     private long lastSongEvent;
     private RoundMusic musicPlayer;
+    private int trackMask=-1;
+    private final RoundMusic.ExpandedStart expandedStart=new RoundMusic.ExpandedStart();
     private boolean fightMusic,expandedMusic,bankReady,musicMenu=true;
     private boolean roundStarted;
     boolean fullMusicLevel(){return !roundStarted;}
@@ -194,14 +263,21 @@ public final class CornerSession {
             if(musicPlayer!=null)musicPlayer.close();
             musicPlayer=null;commands.offer("TRAXVOICE 0");publishSong(null);return;
         }
-        musicPlayer=new RoundMusic(menuDisc,musicAssets,expanded,new RoundMusic.Listener(){
+        musicPlayer=new RoundMusic(menuDisc,musicAssets,expanded,expandedStart,trackMask,new RoundMusic.Listener(){
             public void prepared(RoundMusic player){
                 synchronized(CornerSession.this){if(player==musicPlayer)commands.offer("TRAXVOICE 1");}
             }
             public void audible(RoundMusic player,String stem){
                 synchronized(CornerSession.this){
+                    if(stem.isEmpty()){
+                        if(player==musicPlayer)publishSong(null);
+                        return;
+                    }
                     FightBroadcast.Song track=FightBroadcast.song(stem);
-                    if(player==musicPlayer && bankReady && track!=null)publishSong(track.at(uptime.getAsLong()));
+                    if(player==musicPlayer && bankReady && track!=null){
+                        if(timingLog!=null)timingLog.accept("EA Trax audible "+track.title+" / "+track.artist);
+                        publishSong(track.at(uptime.getAsLong()));
+                    }
                 }
             }
             public void failed(RoundMusic player){
@@ -277,6 +353,9 @@ public final class CornerSession {
     }
     public synchronized void controller(String state){
         if(state.equals(padState))return;
+        if(timingLog!=null && atRoot() && state.startsWith("PAD ") && state.length()>=6
+                && android.util.Log.isLoggable("FightNightInput",android.util.Log.DEBUG))
+            android.util.Log.d("FightNightInput","Root buttons "+state.substring(4,6));
         padState=state;
         padPending=true;
         if(running && !terminal)flushPad();
@@ -297,6 +376,7 @@ public final class CornerSession {
     }
 
     private synchronized void ping() {
+        if(bootDrawn && !drawReceiptWritten){drawReceiptWritten=true;writeBoot("playing");}
         if (!hello || sleeping || terminal || cancelled || process == null || sequence != replies) return;
         sent=System.nanoTime();
         commands.offer("PING " + (++sequence));
@@ -333,8 +413,16 @@ public final class CornerSession {
             else if(exit==42 && s.unsupportedPc!=null){pc=s.unsupportedPc;kind="guest_instruction";}
             else if(!"unknown".equals(s.faultPc)){pc=s.faultPc;kind="native_module_offset";}
             details.put("address_kind",kind);
+            if(s.faultModule!=null){
+                details.put("fault_module",s.faultModule);
+                details.put("module_pc",s.moduleOffset);
+            }
+            if(s.externalFault){
+                details.put("fault_location","outside_game_module");
+                if(s.nativeReturn!=null)details.put("native_return_offset",s.nativeReturn);
+            }
             if(s.renderer.equals("Vulkan"))details.put("active_renderer","vulkan");
-            if(s.renderer.equals("software (Vulkan unavailable)"))details.put("active_renderer","software");
+            if(s.renderer.equals("software (Vulkan unavailable)") || s.renderer.equals("software (requested)"))details.put("active_renderer","software");
             if(exit>128 && exit<=192)details.put("signal_from_exit",exit-128);
             if(s.bridge.matches("[0-9]{1,6}/[0-9]{1,6}"))details.put("kernel_imports",s.bridge);
             if(s.bout!=null && s.bout.seconds>=0)details.put("round_seconds",s.bout.seconds);
@@ -349,7 +437,8 @@ public final class CornerSession {
     }
     interface CrashListener {void stopped(int exit,String pc,String lastEvent,int round,int height,boolean software,CrashState state);}
     private CrashListener crashListener;
-    private String lastEvent="STARTUP",faultPc="unknown";
+    private String lastEvent="STARTUP",faultPc="unknown",nativeReturn,faultModule,moduleOffset;
+    private boolean externalFault;
     private String callTarget;
     private String guestReturn="unknown";
     private String unsupportedPc;
@@ -358,43 +447,77 @@ public final class CornerSession {
     private Motors motors;
     synchronized void motors(Motors listener){motors=listener;}
     synchronized void line(String line) throws IOException {
+        if(line.equals("FNR3/1 GPU_NO_ADAPTER")){noAdapter=true;return;}
+        if(line.equals("FNR3/1 GPU_INIT_FAILED")){gpuInitFailed=true;reason="Vulkan initialization failed";return;}
+        if(line.equals("FNR3/1 GPU_DEVICE_LOST")){gpuDeviceLost=true;reason="GPU driver reset (Vulkan device lost)";record(reason);return;}
+        if(line.startsWith("FNR3/1 GPU_PROBE ") || line.startsWith("FNR3/1 GPU_CREATE_RESULT ") ||
+                line.startsWith("FNR3/1 GPU_DESCRIPTORS ") || line.startsWith("FNR3/1 GPU_BIND_FAILED ")){
+            record(line.substring(7));return;
+        }
         if(line.equals("FNR3/1 MUSICSCENE 0") || line.equals("FNR3/1 MUSICSCENE 1")){
             musicMenu=line.endsWith("1");
             if(musicMenu)roundStarted=false;
             syncTrack();return;
         }
+        if(timingLog!=null && (line.startsWith("FNR3/1 FRONT ") || line.startsWith("FNR3/1 PLAYLIST ") ||
+                line.equals("FNR3/1 MUSICMENU OPEN") || line.equals("FNR3/1 CABINET OPEN") ||
+                line.startsWith("[Fight Night] Android shared GPU images ") || line.startsWith("[Fight Night] soft targets ") ||
+                line.startsWith("[Fight Night] Current color target sampled at "))){
+            timingLog.accept(line);
+        }
         if(line.startsWith("FNR3/1 MAINHOVER ")){
+            if(timingLog!=null && android.util.Log.isLoggable("FightNightInput",android.util.Log.DEBUG))
+                android.util.Log.d("FightNightInput",line);
             if(line.length()==18 && line.charAt(17)>='0' && line.charAt(17)<='7')front(line.charAt(17)-'0');
             return;
         }
         if(line.equals("FNR3/1 FRONT 0")){front(FRONT_OTHER);return;}
+        if(line.equals("FNR3/1 FRONT 3")){leaveResults();front(FRONT_PLAYNOW);return;}
         if(line.equals("FNR3/1 FRONT 1")){
+            boolean leftPlaylist=playlist==Playlist.RETAIL ||
+                    (playlist==Playlist.DISPATCHED && frontPage==FRONT_OTHER);
             browsingTrax=false;
-            if(playlistFromMusic){
-                playlistFromMusic=false;returningToMusic=true;musicRequested=true;
-                if(cabinetListener!=null)cabinetListener.run();
-            }
-            front(FRONT_ROOT);return;
+            if(musicPlayer!=null)musicPlayer.endPreview();
+            if(leftPlaylist){playlist=Playlist.IDLE;returningToMusic=true;musicRequested=true;}
+            front(FRONT_ROOT);
+            if(leftPlaylist && cabinetListener!=null)cabinetListener.run();
+            return;
         }
         if(line.equals("FNR3/1 FRONT 2")){
-            if(playlistPending){playlistFromMusic=true;playlistPending=false;}
-            browsingTrax=true;
-            front(FRONT_TRAX);return;
+            if(waitingForPlaylist() || playlist==Playlist.DISPATCHED){playlist=Playlist.RETAIL;musicRequested=false;returningToMusic=false;}
+            browsingTrax=true;front(FRONT_TRAX);return;
         }
         if(line.equals("FNR3/1 PLAYLIST OPENING")){
-            if(playlistPending){
-                playlistPending=false;playlistFromMusic=true;
+            if(playlist==Playlist.REQUESTED || playlist==Playlist.CANCELLING){
+                playlist=Playlist.DISPATCHED;
                 if(frontListener!=null)frontListener.run();
             }
             return;
         }
+        if(line.equals("FNR3/1 PLAYLIST CANCELLED")){
+            if(playlist==Playlist.CANCELLING)playlist=Playlist.IDLE;
+            return;
+        }
         if(line.equals("FNR3/1 MUSICMENU OPEN")){
-            if(!cabinetOpen && !cabinetRequested && !musicRequested){musicRequested=true;if(cabinetListener!=null)cabinetListener.run();}
+            if(!browsingTrax && !atRoot())front(FRONT_ROOT);
+            if(playlist==Playlist.IDLE && !cabinetOpen && !cabinetRequested && !musicRequested){musicRequested=true;if(cabinetListener!=null)cabinetListener.run();}
             return;
         }
         if(line.equals("FNR3/1 CABINET OPEN")){
             if(!cabinetOpen && !cabinetRequested){cabinetRequested=true;if(cabinetListener!=null)cabinetListener.run();}
             return;
+        }
+        if(line.startsWith("FNR3/1 MODULE_PC ")){
+            String site=line.substring("FNR3/1 MODULE_PC ".length());
+            if(site.matches("[GSR] [0-9a-f]{16}")){
+                faultModule=site.charAt(0)=='G'?"game":site.charAt(0)=='S'?"shader":"runner";
+                moduleOffset=site.substring(2);
+            }
+            return;
+        }
+        if(line.equals("FNR3/1 FAULT EXTERNAL")){externalFault=true;return;}
+        if(line.startsWith("FNR3/1 RETURN ") && line.substring(14).matches("[0-9a-f]{8}")){
+            nativeReturn=line.substring(14);return;
         }
         if(line.startsWith("FNR3/1 FAULT ") && line.substring(13).matches("[0-9a-f]{8}")){
             faultPc=line.substring(13);return;
@@ -441,14 +564,15 @@ public final class CornerSession {
             return;
         }
         if(line.startsWith("FNR3/1 PLAYERSTATS ")){
+            String[] fields=line.substring("FNR3/1 PLAYERSTATS ".length()).split(" ");
+            int side=-1,scored=0,suffered=0,haymakers=0;
+            if(fields.length==4)try{
+                side=Integer.parseInt(fields[0]);scored=Integer.parseInt(fields[1]);
+                suffered=Integer.parseInt(fields[2]);haymakers=Integer.parseInt(fields[3]);
+            }catch(NumberFormatException e){side=-1;}
+            if((side!=0 && side!=1) || scored<0 || suffered<0 || haymakers<0)side=-1;
+            playerSide=side;playerKnockdowns=side<0?null:new int[]{scored,suffered};
             if(achievements!=null && boutNumber>0){
-                String[] fields=line.substring("FNR3/1 PLAYERSTATS ".length()).split(" ");
-                int side=-1,scored=0,suffered=0,haymakers=0;
-                if(fields.length==4)try{
-                    side=Integer.parseInt(fields[0]);scored=Integer.parseInt(fields[1]);
-                    suffered=Integer.parseInt(fields[2]);haymakers=Integer.parseInt(fields[3]);
-                }catch(NumberFormatException e){side=-1;}
-                if((side!=0 && side!=1) || scored<0 || suffered<0 || haymakers<0)side=-1;
                 achievements.playerStats(side,scored,suffered,haymakers);
                 achievements.result(result,finish,achievementRound);
             }
@@ -456,23 +580,29 @@ public final class CornerSession {
         }
         if(line.startsWith("FNR3/1 CALLOUT ")){
             String event=line.substring(15);
-            if(event.matches("DOWN|GETUP|KO|TKO|HAYMAKER|STAGGER|WON|LOST|FINAL"))lastEvent=event;
+            if(event.equals("FINAL") && hasResult())return;
+            if(event.matches("DOWN|GETUP|KO|TKO|HAYMAKER|STAGGER|ROCKED|WON|LOST|FINAL"))lastEvent=event;
             if(event.equals("WON") || event.equals("LOST")){cameraShot=0;result=event+"!!";}
             if(event.equals("FINAL")){cameraShot=0;result="Final bell";}
             if(event.equals("KO") || event.equals("TKO")){cameraShot=0;finish=event;}
             if(achievements!=null && boutNumber>0 && (event.equals("WON") || event.equals("KO") || event.equals("TKO")))
                 achievements.result(result,finish,achievementRound);
             if(achievements!=null && boutNumber>0 && event.equals("STAGGER"))achievements.stagger();
-            if(announcements.event(event,uptime.getAsLong()) && !lowerCallouts && !retailRumble && motors!=null &&
-                    (event.equals("DOWN") || event.equals("GETUP") || event.equals("KO") || event.equals("TKO")))
-                motors.changed(49000,32000,145);
+            if(announcements.event(event,uptime.getAsLong())){
+                if(songObserver!=null)songObserver.run();
+                if(!lowerCallouts && !retailRumble && motors!=null &&
+                        (event.equals("DOWN") || event.equals("GETUP") || event.equals("KO") || event.equals("TKO")))
+                    motors.changed(49000,32000,145);
+            }
             return;
         }
         if(line.startsWith("FNR3/1 COUNT ")){
             try{
                 int n=Integer.parseInt(line.substring(13));
                 if(n>=1 && n<=10)lastEvent="COUNT";
+                boolean wasVisible=fightCueVisible();
                 if(announcements.count(n,uptime.getAsLong()) && motors!=null)motors.count(n);
+                if(wasVisible!=fightCueVisible() && songObserver!=null)songObserver.run();
             }catch(NumberFormatException ignored){}
             return;
         }
@@ -574,6 +704,16 @@ public final class CornerSession {
             }
             return;
         }
+        if(line.startsWith("FNR3/1 TRACKMASK ")){
+            try{
+                int mask=Integer.parseInt(line.substring("FNR3/1 TRACKMASK ".length()));
+                if(mask>=0 && mask<=0xfff){
+                    trackMask=mask;
+                    if(musicPlayer!=null)musicPlayer.trackMask(mask);
+                }
+            }catch(NumberFormatException ignored){}
+            return;
+        }
         if(line.startsWith("FNR3/1 SONG ")){
             String stem=line.substring("FNR3/1 SONG ".length());
             if(FightBroadcast.song(stem)!=null){
@@ -614,11 +754,11 @@ public final class CornerSession {
         if (line.equals("FNR3/1 LINK-CHECK")) { phase = "Link check"; record("Native link check active"); return; }
         if(line.startsWith("[Fight Night] renderer ")){renderer=line.substring(23);return;}
         if(line.startsWith("[Fight Night] pad received ")){
-            if(timingLog!=null && line.matches("\\[Fight Night\\] pad received [0-9]+ sampled [0-9]+"))
+            if(timingLog!=null && line.matches("\\[Fight Night\\] pad received [0-9]+ sampled [0-9]+(?: player1 [0-9]+)?"))
                 timingLog.accept(line.substring(14));
             return;
         }
-        if(line.startsWith("[Fight Night] slow flip ") || line.startsWith("[Fight Night] audio stream error ") || line.startsWith("[Fight Night] voice stop completed ")){
+        if(line.startsWith("[Fight Night] slow flip ") || line.startsWith("[Fight Night] audio stream error ") || line.startsWith("[Fight Night] voice stop completed ") || line.startsWith("[Fight Night] voice stop recovered ")){
             if(timingLog!=null)timingLog.accept(line.substring(14));
             return;
         }
@@ -660,8 +800,12 @@ public final class CornerSession {
         }
         int exit = -1;
         try {
-            if(menuDisc!=null)try{RetailMenu.install(menuDisc.toPath(),DiscFonts.ogxStencil(menuDisc));retailMusicRoute=true;}
-            catch(IOException e){synchronized(this){record("Main menu extensions unavailable: "+e.getMessage());}}
+            if(sealedModule!=null && !DiscBuild.verifyPayload(sealedModule)){
+                moduleRejected=true;
+                throw new IOException("Prepared game integrity check failed. Tap Prepare game to rebuild it from the installed disc.");
+            }
+            if(menuDisc!=null)try{RetailMenu.install(menuDisc.toPath(),null);}
+            catch(IOException e){String problem="Main menu extensions unavailable: "+e.getMessage();synchronized(this){record(problem);}if(timingLog!=null)timingLog.accept(problem);}
             if(menuDisc!=null)try{AndroidDeviceText.install(menuDisc.toPath());}
         catch(IOException e){synchronized(this){record("Device text unavailable: "+e.getMessage());}}
             if(menuDisc!=null && thorGuide!=null)try{RetailMenu.installThorGuide(menuDisc.toPath(),thorGuide.load("thor-guide.dxt3",ThorLoadingGuide.ART_BYTES));}
@@ -678,16 +822,37 @@ public final class CornerSession {
                 }
             }
             if(frameFile!=null)builder.environment().put("FNR3_FRAME_PATH",frameFile.getAbsolutePath());
-            if(frameFile!=null)builder.environment().put("FNR3_PIPELINE_CACHE",new File(frameFile.getParentFile(),"fight-v4.vkcache").getAbsolutePath());
+            if(supervised)builder.environment().put("FNR3_SUPERVISED_BOOT","1");
+            if(useSharedFrames())builder.environment().put("FNR3_SHARED_FRAMES","1");
+            builder.environment().put("FNR3_SYNC_READBACK",pipelinedFrames?"0":"1");   /* opt-in, default synchronous */
+            if(generalShaders){
+                builder.environment().put("FNR3_GENERAL_SHADERS","1");
+                builder.environment().put("FNR3_LEGACY_SCANOUT","1");
+            }
+            if(frameFile!=null && !generalShaders)builder.environment().put("FNR3_PIPELINE_CACHE",new File(frameFile.getParentFile(),"fight-v4.vkcache").getAbsolutePath());
             builder.environment().put("FNR3_VIDEO_ASPECT",widescreen?"16:9":"4:3");
             builder.environment().put("FNR3_RENDERER",software?"software":"vulkan");
             builder.environment().put("RECOMP_RES",Integer.toString(renderHeight));
             builder.environment().put("RECOMP_MSAA",Integer.toString(samples));
             builder.environment().put("RECOMP_ANISO",Integer.toString(anisotropy));
             if(frameFile!=null && android.os.Build.VERSION.SDK_INT>=33)builder.environment().put("FNR3_FRAME_SOCKET","1");
+            if(journal!=null){
+                try{
+                    org.json.JSONObject previous=journal.previous();
+                    if(previous!=null && !"closed".equals(previous.optString("stage")))
+                        synchronized(this){record("Previous launch ended without a close receipt");}
+                }catch(IOException ignored){}
+                writeBoot("starting");
+            }
             Process child=builder.start();
             synchronized (this) {
                 process = child;
+                if(supervised){
+                    boot=new LaunchRecovery(software?LaunchRecovery.Mode.SOFTWARE:
+                            generalShaders?LaunchRecovery.Mode.VULKAN_GENERAL:LaunchRecovery.Mode.VULKAN,userRetry);
+                    bootGeneration=boot.begin(uptime.getAsLong());
+                    if(sleeping)boot.pause(bootGeneration,uptime.getAsLong(),true);
+                }
                 if (cancelled) child.destroyForcibly();
             }
             Thread writer=new Thread(()->{
@@ -709,12 +874,26 @@ public final class CornerSession {
             synchronized(this){clock=Executors.newSingleThreadScheduledExecutor();updateHeartbeat();}
             readLines(child.getInputStream());
             exit=child.waitFor();
-            diagnostics.join();
+            synchronized(this){reaped=true;childExit=exit;}
+            diagnostics.join(1500);
+            if(diagnostics.isAlive())child.getErrorStream().close();
         } catch (Exception e) {
             synchronized (this) { if (!cancelled) reason = e.getMessage(); }
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
         } finally {
             commands.close();
+            Process remaining;
+            synchronized(this){remaining=process;}
+            if(remaining!=null && !reaped){
+                remaining.destroyForcibly();
+                boolean interrupted=false;
+                for(;;){
+                    try{exit=remaining.waitFor();break;}
+                    catch(InterruptedException ignored){interrupted=true;}
+                }
+                synchronized(this){reaped=true;childExit=exit;}
+                if(interrupted)Thread.currentThread().interrupt();
+            }
             synchronized (this) {
                 if(clock!=null){clock.shutdownNow();clock=null;}
                 if(motors!=null)motors.changed(0,0,0);
@@ -730,6 +909,7 @@ public final class CornerSession {
                     crashListener.stopped(exit,state.pc,lastEvent,round,renderHeight,software,state);
                 }
                 crashListener=null;
+                writeBoot("closed");
                 record(phase);
             }
         }

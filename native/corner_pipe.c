@@ -28,13 +28,15 @@ static int answer_ping(const char *line) {
         queue_audio_control(1,line[6]);
         return 1;
     }
-    if(!strcmp(line,"PLAYLIST 1\n") || !strcmp(line,"PLAYLIST 1\r\n")){fight_arm_playlist(1);return 1;}
-    if(!strcmp(line,"PLAYLIST 0\n") || !strcmp(line,"PLAYLIST 0\r\n")){fight_arm_playlist(0);return 1;}
     if (!strcmp(line,"MENUCANCEL\n") || !strcmp(line,"MENUCANCEL\r\n")){fight_request_menu_cancel();return 1;}
     if (!strcmp(line,"WAKE\n")) { queue_audio_control(0,0); puts("FNR3/1 AWAKE"); fflush(stdout); return 1; }
 #endif
 #ifndef CORNER_LINK_ONLY
-    extern void fight_trax_route(int);
+    extern void fight_arm_playlist(int),fight_trax_route(int);
+    extern void fight_cancel_playlist(void);
+    if(!strcmp(line,"PLAYLIST CANCEL\n") || !strcmp(line,"PLAYLIST CANCEL\r\n")){fight_cancel_playlist();return 1;}
+    if(!strcmp(line,"PLAYLIST 1\n") || !strcmp(line,"PLAYLIST 1\r\n")){fight_arm_playlist(1);return 1;}
+    if(!strcmp(line,"PLAYLIST 0\n") || !strcmp(line,"PLAYLIST 0\r\n")){fight_arm_playlist(0);return 1;}
     extern void fight_music_voice(int),fight_music_cues(int);
     if (!strcmp(line,"TRAXCUES 1\n") || !strcmp(line,"TRAXCUES 1\r\n")) { fight_music_cues(1); return 1; }
     if (!strcmp(line,"TRAXCUES 0\n") || !strcmp(line,"TRAXCUES 0\r\n")) { fight_music_cues(0); return 1; }

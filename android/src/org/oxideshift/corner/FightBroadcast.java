@@ -32,6 +32,20 @@ final class FightBroadcast {
         }
         int last(){for(int i=rows.length-1;i>=0;i--)if(rows[i]!=null)return i;return -1;}
         int total(int judge,int side){int value=0;for(int[] row:rows)if(row!=null)value+=row[judge*2+side];return value;}
+        /** Filed rounds won {blue, red}: a round goes to the fighter at least two of the three judges scored higher. */
+        int[] roundsWon(){
+            int[] won=new int[2];
+            for(int[] row:rows){
+                if(row==null)continue;
+                int blue=0,red=0;
+                for(int judge=0;judge<3;judge++){
+                    if(row[judge*2]>row[judge*2+1])blue++;
+                    else if(row[judge*2+1]>row[judge*2])red++;
+                }
+                if(blue>=2)won[0]++;else if(red>=2)won[1]++;
+            }
+            return won;
+        }
     }
 
     static final class Bout {
@@ -184,9 +198,9 @@ final class FightBroadcast {
         }
 
     }
-    static final String[] EXPANDED={"Blood + Sweat","Body Shots","Corner Talk","Heavy Hands","Knockout City","No Mercy","The Contender"};
+    static final String[] EXPANDED=ExpandedTracks.TITLES;
     static Song song(String stem){
-        for(String title:EXPANDED)if(title.equals(stem))return new Song(title,"FN3OGX",0);
+        if(ExpandedTracks.index(stem)>=0)return new Song(stem,ExpandedTracks.ARTIST,0);
         switch(stem){
         case "SEANBIG1":return new Song("Never Gonna Get It","Sean Biggs feat. Akon & Topic",0);
         case "ATMOSPH1":return new Song("The Arrival","Atmosphere",0);

@@ -10,6 +10,9 @@ final class MenuContext {
             this.title=title;this.heading=heading;this.tips=tips;this.edges=edges;
         }
     }
+    static final Page PLAYLIST=new Page("EA Trax", "Set your rotation", new String[]{
+            "Use the arrows beside a song to change whether it plays in the rotation."},
+            0xedc0a35L, 0xc558e31L, 0xc558e21L, 0xc5d8035L, 0xd558029L, 0xd558069L);
     private static final Page[] PAGES={
         new Page("Play Now", "Jump straight into the ring.", new String[]{
             "Choose two boxers and a venue for a single exhibition fight. Pick your corner and take the opening bell."},
@@ -70,18 +73,15 @@ final class MenuContext {
             "Remember your corner color. It matches the health and stamina panel during a fight.",
             "Switch sides on the next exhibition to practice reading the ring from the opposite corner."},
             0x3a55aa46295L, 0x297faa29695L, 0x2979aa29693L, 0x1a35a220a96L, 0x291faa29694L, 0x2919aa29691L),
-        new Page("Select Venue", "Give the gym room", new String[]{"On Thor, 720p with High \u00b7 no MSAA held 59.9 FPS in our Windy City punch test.",
-            "Use the same pair of fighters when comparing venues so you can feel what the arena changes.",
+        new Page("Select Venue", "Pick your ring", new String[]{"Take the rivalry from a quiet gym to the lights at Madison Square Garden.",
+            "Choose The Warehouse for a gym fight or take your boxers to a packed arena.",
             "The crowd and music vary by venue. In Audio, you can turn the crowd down to hear the corner."},
             0x3bd6a46295L, 0xbc2a29695L, 0xbc2a29693L, 0x1be6c20a96L, 0xbf2c29694L, 0xbf2c29691L),
         new Page("Options", "Hear your trainer", new String[]{"In Audio, Speech Volume controls voices. Lower Crowd Volume if the arena is drowning out your corner.",
             "Check Gameplay for round length, then play a short exhibition to try it.",
             "Visit Music on the main menu and open EA Trax to set your song rotation."},
             0x5558d5L, 0x555955L, 0x175955L, 0x375955L, 0x675915L, 0x555915L),
-        new Page("EA Trax", "Set your rotation", new String[]{"Choose the songs in your rotation. The lower banner shows the artist and title when a track plays.",
-            "Look closely at the lettering down here. The port reads the original stencil font straight from your disc.",
-            "The soundtrack has its own volume setting. You can keep the ring and corner voices louder."},
-            0xedc0a35L, 0xc558e31L, 0xc558e21L, 0xc5d8035L, 0xd558029L, 0xd558069L),
+        PLAYLIST,
         new Page("Audio", "Bring the voice forward", new String[]{"Raise Speech Volume for the coach between rounds. If the crowd competes with the dialogue, bring Crowd Volume down.",
             "Crowd volume and speech have separate controls. Try a change in the same venue to hear the difference.",
             "Open Music on the main menu to choose which EA Trax songs are in rotation."},
@@ -114,6 +114,14 @@ final class MenuContext {
     private static final long[] OPTIONS_BELOW={0x140,0x2854a,0x1416a,0x96c,0x296a,0x22b6a};
     private static final long[] OPTIONS_BELOW_HD={0x4a,0x4552,0x1454a,0x54c,0x2542,0x22142};
     private static final long[] ACHIEVEMENTS_ABOVE={0x60a542140L,0x54a524942L,0x1428544150L,0x42a525b40L,0x16a5b5942L,0x5285a4152L};
+    // Visible custom-row lettering at guest and presentation resolutions.
+    // For the short Music caption, ignore the moving film beyond the last letter.
+    private static final long[][] MUSIC_CAPTION={
+        {0x1a94b66L,0x1ab6b6fL,0x52ceb6fL,0x29ab4fL,0x1ab6b57L,0x5ab6b57L},
+        {0x1e95b6cL,0x5ab5b6dL,0x568db6dL,0x699b6dL,0x1ab5b55L,0x5ab6b55L}};
+    private static final long[][] AWARDS_CAPTION={
+        {0x2a5aac93556adcL,0x6c936ecb656a5dL,0xa8d6acc1556b55L,0x32da2955554955L,0x6adb2b4dd56b57L,0x68daab55956b17L},
+        {0x2a5aacb2554a98L,0x68d26c9b4d4addL,0xbcd62dab454a55L,0x34d2adb9156855L,0x44db6b8dc54a55L,0x16cdaaaa5b56a37L}};
     private final long[] sample=new long[6];
 
     private static int light(int pixel){
@@ -223,10 +231,16 @@ final class MenuContext {
         }
         return score>=62 && score-runner>=5?(best==ROOT_PAGES?ACHIEVEMENTS:PAGES[best]):null;
     }
-    Page identify(LiveFrame frame){
+    Page identify(LiveFrame frame){return identify(frame,false);}
+    Page identify(LiveFrame frame,boolean root){
         int best=-1,score=0,second=0;
-        for(int group=0;group<2;group++){
+        for(int group=0;group<(root?1:2);group++){
             read(frame,group==0);
+            if(root){
+                int resolution=frame.width>640?1:0;
+                if(likeness(MUSIC_CAPTION[resolution],0x7ffffffL)>=78)return MUSIC;
+                if(likeness(AWARDS_CAPTION[resolution],-1L)>=78)return ACHIEVEMENTS;
+            }
             for(int i=group==0?0:ROOT_PAGES;i<(group==0?ROOT_PAGES:PAGES.length);i++){
                 int overlap=0,union=0;
                 for(int k=0;k<sample.length;k++){

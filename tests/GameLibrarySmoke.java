@@ -16,9 +16,9 @@ public class GameLibrarySmoke {
         long size=Files.size(original),modified=Files.getLastModifiedTime(original).toMillis();
         byte[] before=digest(original);
         try(InputStream in=Files.newInputStream(original)){GameLibrary.importDisc(in,size,root,s->{});}
-        if(!Arrays.equals(before,digest(root.resolve("retail/source.iso"))) || Files.size(original)!=size ||
+        if(Files.exists(root.resolve("retail/source.iso")) || Files.size(original)!=size ||
            Files.getLastModifiedTime(original).toMillis()!=modified || !Arrays.equals(before,digest(original)))throw new AssertionError("Disc copy changed");
-        System.out.println("ISO original before/after and private copy have identical SHA-256; original modification time preserved.");
+        System.out.println("Stream import removed its staging ISO and preserved the selected disc hash and modification time.");
         try(java.util.stream.Stream<Path> game=Files.walk(root.resolve("retail/game"))){
             if(game.filter(Files::isRegularFile).count()!=901)throw new AssertionError("Disc asset inventory");
         }

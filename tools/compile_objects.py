@@ -1,10 +1,63 @@
 """Compile translated Xbox guest sources and merge the Android objects for the native host."""
 import argparse
+import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 from pathlib import Path
 import subprocess
 import re
+import struct
+
+
+def valid_guest_object(path, expected_size=None):
+    try:
+        size = path.stat().st_size
+        if expected_size is not None and size != expected_size:
+            return False
+        with path.open("rb") as stream:
+            header = stream.read(64)
+            if len(header) != 64 or header[:7] != b"\x7fELF\x02\x01\x01":
+                return False
+            kind, machine, version = struct.unpack_from("<HHI", header, 16)
+            section_offset, = struct.unpack_from("<Q", header, 40)
+            header_size, _, _, entry_size, count, names = struct.unpack_from("<6H", header, 52)
+            return (kind == 1 and machine == 183 and version == 1 and header_size == 64
+                    and section_offset >= header_size and entry_size == 64 and 0 < names < count
+                    and section_offset + count * entry_size <= size)
+    except OSError:
+        return False
+
+
+def object_digest(path):
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def unit_receipt(source, obj):
+    return object_digest(source) + " " + object_digest(obj)
+
+
+def object_inventory(out):
+    try:
+        manifest = json.loads((out / "inventory.json").read_text())
+        if manifest.get("version") != 2:
+            return None
+        entries = manifest["objects"]
+        if "recomp_dispatch.o" not in entries:
+            return None
+        canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode()
+        if hashlib.sha256(canonical).hexdigest() != manifest["inventory_sha256"]:
+            return None
+        for name, value in entries.items():
+            if not re.fullmatch(r"recomp_(?:[0-9]+|dispatch|stubs_unresolved)\.o", name):
+                return None
+            if type(value["bytes"]) is not int or not valid_guest_object(out / name, value["bytes"]):
+                return None
+            if object_digest(out / name) != value["sha256"]:
+                return None
+        return entries
+    except (KeyError, ValueError, OSError, TypeError, AttributeError):
+        return None
 
 
 def main():
@@ -33,10 +86,8 @@ def main():
     if args.relink:
         if not args.device_kit:
             parser.error("--relink requires --device-kit")
-        inventory = json.loads((out / "inventory.json").read_text())
-        if not inventory or "recomp_dispatch.o" not in inventory or any(
-                not re.fullmatch(r"recomp_(?:\d+|dispatch|stubs_unresolved)\.o", name) or
-                (out / name).stat().st_size != size for name, size in inventory.items()):
+        inventory = object_inventory(out)
+        if inventory is None:
             raise ValueError("Incomplete guest object cache")
         sources = [Path(name).with_suffix(".c") for name in sorted(inventory)]
     android = args.target.startswith("android")
@@ -74,8 +125,10 @@ def main():
 
     def compile_one(source):
         obj = out / (source.stem + ".o")
-        if args.device_kit and obj.is_file():
-            return source.name, 0, False
+        receipt = obj.with_suffix(".sha256")
+        if args.device_kit and receipt.is_file() and valid_guest_object(obj):
+            if receipt.read_bytes() == unit_receipt(source, obj).encode("ascii"):
+                return source.name, 0, False
         # The translated CPU uses integer wraparound and aliases guest memory by width.
         # The x86-64 OHCI fault handler requires standalone MOV instructions.
         # On ARM64 the optimizer still emits separate scalar loads and stores.
@@ -83,7 +136,14 @@ def main():
         pending = obj.with_suffix(".pending")
         job = subprocess.run([*compiler, *flags, *use_pch, "-c", source, "-o", pending], capture_output=True)
         if job.returncode == 0:
+            if args.device_kit and not valid_guest_object(pending):
+                return source.name, 1, True
             pending.replace(obj)
+            if args.device_kit:
+                # An interrupted publish leaves no matching receipt for the changed bytes.
+                record = receipt.with_suffix(".receipt-pending")
+                record.write_text(unit_receipt(source, obj), encoding="ascii")
+                record.replace(receipt)
         if job.stderr or job.returncode or not args.device_kit:
             (out / (source.stem + ".log")).write_bytes(job.stderr)
         crashed = (job.returncode < 0 or b"failed due to signal" in job.stderr
@@ -110,12 +170,20 @@ def main():
     (out / "results.json").write_text(json.dumps(results, indent=2))
     failed = [name for name, code in results.items() if code]
     if failed:
-        print((out / (Path(failed[0]).stem + ".log")).read_text(errors="replace")[-2000:], flush=True)
+        diagnostic = out / (Path(failed[0]).stem + ".log")
+        if diagnostic.is_file():
+            print(diagnostic.read_text(errors="replace")[-2000:], flush=True)
         raise SystemExit(f"{len(failed)}/{len(sources)} failed: {', '.join(failed)}")
     print(f"Compiled {len(sources)} units for {args.target}.", flush=True)
     if android:
         if args.device_kit and not args.relink:
-            inventory = {s.stem+".o": (out/(s.stem+".o")).stat().st_size for s in sources}
+            objects = {}
+            for source in sources:
+                path = out / (source.stem + ".o")
+                objects[path.name] = {"bytes": path.stat().st_size, "sha256": object_digest(path)}
+            canonical = json.dumps(objects, sort_keys=True, separators=(",", ":")).encode()
+            inventory = {"version": 2, "objects": objects,
+                         "inventory_sha256": hashlib.sha256(canonical).hexdigest()}
             pending = out / "inventory.pending"
             pending.write_text(json.dumps(inventory))
             pending.replace(out / "inventory.json")

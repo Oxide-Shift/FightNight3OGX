@@ -47,6 +47,8 @@ final class CrashReports {
             if(time<=since || !activity.getPackageName().equals(exit.getProcessName()))continue;
             latest=Math.max(latest,time);
             int reason=exit.getReason();
+            if(reason==ApplicationExitInfo.REASON_LOW_MEMORY &&
+                    exit.getImportance()>=ActivityManager.RunningAppProcessInfo.IMPORTANCE_CACHED)continue;
             if(reason==ApplicationExitInfo.REASON_CRASH || reason==ApplicationExitInfo.REASON_CRASH_NATIVE
                     || reason==ApplicationExitInfo.REASON_ANR || reason==ApplicationExitInfo.REASON_LOW_MEMORY){
                 Map<String,Object> history=new LinkedHashMap<>();
@@ -266,8 +268,22 @@ final class CrashReports {
                 boolean detailed=report.has("context");
                 String endpoint=importing?"imports":detailed?"crashes":"reports";
                 boolean rich=report.has("details");
-                int response=post((rich?"v2/":"v1/")+endpoint,body);
-                ok=response==201;
+                int response=post((rich?"v3/":"v1/")+endpoint,body);
+                boolean reduced=false;
+                if(rich && response==404){
+                    JSONObject details=report.getJSONObject("details");
+                    reduced=details.getJSONObject("device").has("host_page_bytes")
+                            || details.getJSONObject("device").has("presentation_displays")
+                            || details.getJSONObject("failure").has("fault_location")
+                            || details.getJSONObject("failure").has("native_return_offset");
+                    details.getJSONObject("device").remove("host_page_bytes");
+                    details.getJSONObject("device").remove("presentation_displays");
+                    details.getJSONObject("failure").remove("fault_location");
+                    details.getJSONObject("failure").remove("native_return_offset");
+                    response=post("v2/"+endpoint,report.toString());
+                }
+                ok=response==201 && !reduced;
+                summary=response==201 && reduced;
                 if(rich && response==404){
                     report.remove("details");
                     response=post("v1/"+endpoint,report.toString());

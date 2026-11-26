@@ -11,9 +11,6 @@ final class TraxBanner extends Drawable {
     private final Path shape=new Path(),wear=new Path();
     private final Rect source=new Rect();
     private final RectF target=new RectF();
-    private final ColorFilter tabInk=new ColorMatrixColorFilter(new float[]{
-        0,0,.68f,0,64, 0,0,.50f,0,45, 0,0,.27f,0,25, 0,0,0,1,0
-    });
     private final float maxBadge;
     private Shader field;
     private float badge,top,bottom;
@@ -57,7 +54,6 @@ final class TraxBanner extends Drawable {
         canvas.restoreToCount(strip);
         if(sprites!=null){
             paint.setColor(0xffffffff);paint.setColorFilter(tint);
-            paint.setColorFilter(tint!=null?tint:tabInk);
             canvas.save();canvas.translate(badge*.27f,top+badge*.96f);canvas.rotate(-90);
             sprite(canvas,2,16,33,0,0,badge*.24f,badge*.51f);
             canvas.restore();paint.setColorFilter(tint);

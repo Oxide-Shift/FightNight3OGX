@@ -36,6 +36,7 @@ public final class RetailMenuStartupSmoke {
             at=following(at,op);
         }
         ByteBuffer words=ByteBuffer.wrap(menu).order(ByteOrder.LITTLE_ENDIAN);
+        if(menu[0xce54]!=0)throw new AssertionError("Carousel skipped displacement before reaching the selected row");
         if(at!=target || (menu[at]&255)!=0x96 || words.getInt(0xd118)!=1 || words.getInt(0xd11c)!=0xed14)
             throw new AssertionError("Startup constant operand was skipped");
         // The title and profile picker also work with a broken carousel. Check the
@@ -43,6 +44,20 @@ public final class RetailMenuStartupSmoke {
         byte[] setup=Arrays.copyOfRange(menu,0xcb4f,0xcb86);
         if(!RetailMenu.digest(setup).equals("86b11b5140b43fea74eb98d31fa344a6d2d473796386225728dae90e7a9c3f22"))
             throw new AssertionError("Retail carousel setup changed");
+        // Music must return immediately after signaling its parent page. The
+        // independent, app-only SELECT action is the sole shortcut to EA Trax.
+        byte[] music={(byte)0x59,0x43,(byte)0xa3,0x2f,1,(byte)0xa3,0x31,1,0x4f,0x76,0x3e};
+        if(!Arrays.equals(music,Arrays.copyOfRange(menu,0xce70,0xce70+music.length)) ||
+                (menu[0xd0e8]&255)!=0x99 || 0xd0f0+words.getInt(0xd0ec)!=0xd075)
+            throw new AssertionError("Music parent and playlist must have separate input handlers");
+        byte[] pool=TraxArt.textureBank(game.toFile(),"overlay.viv","screengroups/mainmenu/mainmenu.big","mainmenu.const",2*1024*1024);
+        ByteBuffer constants=ByteBuffer.wrap(pool).order(ByteOrder.LITTLE_ENDIAN);
+        int indices=words.getInt(0xaf04),count=words.getInt(0xaf00);
+        int last=words.getInt(indices+(count-1)*4);
+        int record=constants.getInt(28)+last*8, label=constants.getInt(record+4);
+        if(last!=constants.getInt(24)-1 || constants.getInt(record)!=1 ||
+                !Arrays.equals(Arrays.copyOfRange(pool,label,label+6),new byte[]{'t','i','m','e','r',0}))
+            throw new AssertionError("Root carousel timer did not resolve to its own property");
         byte[] first=Files.readAllBytes(overlay);RetailMenu.install(game,tag);
         if(!Arrays.equals(first,Files.readAllBytes(overlay)))throw new AssertionError("Repeated repair modified the archive");
         System.out.println("Startup script reaches the title constant after install and repeat launch");

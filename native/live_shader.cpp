@@ -126,11 +126,22 @@ static size_t cached(unsigned kind, const uint32_t *words, size_t n, uint32_t **
     return bytes;
 }
 
+#include "vertex_worker.h"
+
 extern "C" __attribute__((visibility("default")))
 size_t fight_fragment_cached(unsigned full, const uint32_t *source, size_t bytes,
                              const uint32_t *states, uint32_t **out) {
-    return cached(32 + full, states, 39, out, [&]{return fight_compile_fragment(source, bytes, states, out);});
+    if (!source || !states || !out || bytes < 20 || (bytes & 3) || bytes > 1024 * 1024) return 0;
+    // Version the transform and include the exact shader template. The disk reader
+    // compares the full key even when two filenames have the same hash.
+    std::vector<uint32_t> key = { 1u, (uint32_t)(bytes / 4) };
+    key.insert(key.end(), source, source + bytes / 4);
+    key.insert(key.end(), states, states + 39);
+    static thread_local VertexCompiler worker;
+    return cached(32 + full, key.data(), key.size(), out,
+                  [&]{return worker.fragment(source, bytes, states, out);});
 }
+
 
 struct VertexJob {
     std::vector<uint32_t> words;
@@ -151,6 +162,7 @@ class VertexQueue {
     std::thread worker;
 public:
     VertexQueue() : worker([this] {
+        VertexCompiler compiler;
         std::unique_lock<std::mutex> lock(mutex);
         for (;;) {
             changed.wait(lock, [this]{return stopping || !jobs.empty();});
@@ -160,7 +172,7 @@ public:
             lock.unlock();
             auto &w = job->words;
             job->bytes = cached(job->inputs, w.data(), w.size(), &job->code, [&]{
-                return fight_compile_vertex(w.data(), w.size()/8, job->inputs, &job->code);
+                return compiler.compile(w.data(), w.size()/8, job->inputs, &job->code);
             });
             job->ready.store(true, std::memory_order_release);
             lock.lock();

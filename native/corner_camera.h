@@ -25,6 +25,22 @@ static float camera_subpixel(int left,int mid,int right){
     int curvature=left+right-2*mid;
     return curvature>0?(left-right)*.5f/curvature:0;
 }
+static int camera_cost(const uint8_t last[PATCH_H][PATCH_W],
+                       const uint8_t current[PATCH_H][PATCH_W],int sx,int sy){
+    int sum=0;
+    for(int y=5;y<PATCH_H-5;y+=2)for(int x=5;x<PATCH_W-5;x+=2)
+        sum+=abs(last[y][x]-current[y+sy][x+sx]);
+    return sum;
+}
+static int camera_bounded_cost(const uint8_t last[PATCH_H][PATCH_W],
+                               const uint8_t current[PATCH_H][PATCH_W],int sx,int sy,int limit){
+    int sum=0;
+    for(int y=5;y<PATCH_H-5;y+=2){
+        for(int x=5;x<PATCH_W-5;x+=2)sum+=abs(last[y][x]-current[y+sy][x+sx]);
+        if(sum>limit)break;
+    }
+    return sum;
+}
 static void camera_step(CornerCamera *c,const uint8_t *pixel,int w,int h,int stride,int seq,int shot){
     uint32_t gap=(uint32_t)seq-(uint32_t)c->sequence;
     int first=c->shot!=shot || !c->sequence || gap>4;
@@ -38,23 +54,24 @@ static void camera_step(CornerCamera *c,const uint8_t *pixel,int w,int h,int str
             for(int x=0;x<PATCH_W;x++)current[y][x]=row[((2*(x+x0)+1)*w/512)*stride];
         }
         if(!first){
-            int cost[9][9],smallest=INT32_MAX,bx=0,by=0,contrast=0;
+            int bx=0,by=0,contrast=0;
             for(int y=5;y<PATCH_H-5;y+=2)for(int x=5;x<PATCH_W-5;x+=2)
                 contrast+=abs(c->last[p][y][x+1]-c->last[p][y][x])+abs(c->last[p][y+1][x]-c->last[p][y][x]);
             if(contrast>165){
-                for(int sy=-RADIUS;sy<=RADIUS;sy++)for(int sx=-RADIUS;sx<=RADIUS;sx++){
-                    int sum=0;
-                    for(int y=5;y<PATCH_H-5;y+=2)for(int x=5;x<PATCH_W-5;x+=2)
-                        sum+=abs(c->last[p][y][x]-current[y+sy][x+sx]);
-                    cost[sy+4][sx+4]=sum;
-                    if(sum<smallest || (sum==smallest && abs(sx)+abs(sy)<abs(bx)+abs(by))){
-                        smallest=sum;bx=sx;by=sy;
+                int smallest=camera_cost(c->last[p],current,0,0);
+                if(smallest!=0){
+                    for(int sy=-RADIUS;sy<=RADIUS;sy++)for(int sx=-RADIUS;sx<=RADIUS;sx++){
+                        if(!sx && !sy)continue;
+                        int sum=camera_bounded_cost(c->last[p],current,sx,sy,smallest<380?smallest:379);
+                        if(sum<smallest || (sum==smallest && abs(sx)+abs(sy)<abs(bx)+abs(by))){
+                            smallest=sum;bx=sx;by=sy;
+                        }
                     }
                 }
                 if(smallest<380 && abs(bx)<RADIUS && abs(by)<RADIUS){
-                    int x=bx+4,y=by+4;
-                    xs[count]=dx[count]=bx+camera_subpixel(cost[y][x-1],smallest,cost[y][x+1]);
-                    ys[count]=dy[count]=by+camera_subpixel(cost[y-1][x],smallest,cost[y+1][x]);
+                    // Exact neighboring costs retain the original subpixel fit.
+                    xs[count]=dx[count]=bx+camera_subpixel(camera_cost(c->last[p],current,bx-1,by),smallest,camera_cost(c->last[p],current,bx+1,by));
+                    ys[count]=dy[count]=by+camera_subpixel(camera_cost(c->last[p],current,bx,by-1),smallest,camera_cost(c->last[p],current,bx,by+1));
                     count++;
                 }
             }

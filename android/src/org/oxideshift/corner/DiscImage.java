@@ -28,13 +28,13 @@ public final class DiscImage {
 
     static void checkContainer(byte[] prefix) throws IOException {
         if (Arrays.equals(prefix, new byte[]{0x37, 0x7a, (byte)0xbc, (byte)0xaf, 0x27, 0x1c}))
-            throw new DiscImport.Failure(DiscImport.Reason.ARCHIVE,"This is a 7z archive. Extract it, then choose the .iso or .xiso.iso file inside.").format("7z");
+            throw new DiscImport.Failure(DiscImport.Reason.ARCHIVE,"Unsupported container: this is a 7z archive. Extract it, then choose the .iso or .xiso.iso file inside.").format("7z");
         if (Arrays.equals(prefix, new byte[]{'R','a','r','!',0x1a,7}))
-            throw new DiscImport.Failure(DiscImport.Reason.ARCHIVE,"This is a RAR archive. Extract it, then choose the Xbox ISO inside.").format("rar");
+            throw new DiscImport.Failure(DiscImport.Reason.ARCHIVE,"Unsupported container: this is a RAR archive. Extract it, then choose the Xbox ISO inside.").format("rar");
         String header = new String(prefix, StandardCharsets.US_ASCII);
         String format=header.startsWith("MCompr")?"chd":header.startsWith("CCIM")?"cci":header.startsWith("CISO")?"cso":header.startsWith("ZISO")?"ziso":null;
         if (format!=null)
-            throw new DiscImport.Failure(DiscImport.Reason.COMPRESSED,"This is a "+format.toUpperCase(Locale.ROOT)+" compressed disc image. Convert it to a single Xbox ISO or XISO first.").format(format);
+            throw new DiscImport.Failure(DiscImport.Reason.COMPRESSED,"Unsupported container: this is a "+format.toUpperCase(Locale.ROOT)+" compressed disc image. Convert it to a single Xbox ISO or XISO first.").format(format);
     }
 
     private byte[] read(long offset, int size) throws IOException {
@@ -65,7 +65,8 @@ public final class DiscImage {
         if (length >= 6) checkContainer(read(0, 6));
         facts.put("container",container);
         byte[] magic = "MICROSOFT*XBOX*MEDIA".getBytes(StandardCharsets.US_ASCII);
-        for (long candidate : new long[]{0, 0xFD90, 0x30600, 0xFD90000, 0x18300000}) {
+        // 0x2080000 is the Xbox 360 XGD3 game partition: recognizing it lets a 360 disc get the wrong-platform message.
+        for (long candidate : new long[]{0, 0xFD90, 0x30600, 0xFD90000, 0x18300000, 0x2080000}) {
             long at = candidate + 65536;
             if (at + 28 > length || !Arrays.equals(magic, read(at, 20))) continue;
             base = candidate;
@@ -78,16 +79,20 @@ public final class DiscImage {
             for (String name : files.keySet()) if (name.equalsIgnoreCase("default.xbe")) executable = name;
             if(executable==null){
                 if(names.contains("default.xex"))throw new DiscImport.Failure(DiscImport.Reason.WRONG_PLATFORM,
-                        "This image contains the Xbox 360 executable (default.xex). Choose the original Xbox edition of Fight Night Round 3.");
+                        "Wrong platform: this image contains the Xbox 360 executable (default.xex). Choose the original Xbox edition of Fight Night Round 3.");
                 throw new DiscImport.Failure(DiscImport.Reason.MISSING_XBE,"This Xbox image has no default.xbe at its root. Choose the original Xbox game disc.");
             }
             long[] entry=files.get(executable);
             try{verifiedExecutable=verifyExecutable(entry);}
             catch(DiscImport.Failure rejected){
+                String rejectedHash=sourceDigest==null?null:hex(sourceDigest);
                 if(sourceDigest==null && entry[1]<=64L*1024*1024){
                     MessageDigest sha=DiscFacts.digest();copy(entry,null,sha);
-                    facts.put("source_xbe_sha256",DiscFacts.hex(sha.digest()));
+                    rejectedHash=DiscFacts.hex(sha.digest());
+                    facts.put("source_xbe_sha256",rejectedHash);
                 }
+                // Copy details prints the failure's hash: every refused executable must carry it.
+                if(rejected.hash==null)rejected.hash=rejectedHash;
                 throw rejected;
             }
             long[] menu=null;
@@ -101,7 +106,7 @@ public final class DiscImage {
             byte[] volume=read(32768,40);
             if(volume[0]==1 && new String(volume,1,5,StandardCharsets.US_ASCII).equals("CD001")
                     && new String(volume,8,32,StandardCharsets.US_ASCII).trim().equals("PLAYSTATION"))
-                throw new DiscImport.Failure(DiscImport.Reason.WRONG_PLATFORM,"This is a PlayStation disc image. Choose the original Xbox edition of Fight Night Round 3.");
+                throw new DiscImport.Failure(DiscImport.Reason.WRONG_PLATFORM,"Wrong platform: this is a PlayStation disc image. Choose the original Xbox edition of Fight Night Round 3.");
         }
         throw new DiscImport.Failure(DiscImport.Reason.FILESYSTEM,"No Xbox disc filesystem found. Choose an uncompressed original Xbox ISO or XISO.");
     }
@@ -157,7 +162,7 @@ public final class DiscImage {
         int title = certificate.getInt(8);
         facts.certificate(certificate);
         if (title != 0x45410086)
-            throw new DiscImport.Failure(DiscImport.Reason.WRONG_TITLE,String.format(Locale.ROOT, "This is Xbox title %08X. Choose original Xbox Fight Night Round 3 (45410086).", title))
+            throw new DiscImport.Failure(DiscImport.Reason.WRONG_TITLE,String.format(Locale.ROOT, "Different game: this is Xbox title %08X. Choose original Xbox Fight Night Round 3 (45410086).", title))
                     .xbe(title,certificate.getInt(0xa0),certificate.getInt(0xac),null);
 
         MessageDigest sha = MessageDigest.getInstance("SHA-256");
@@ -204,7 +209,7 @@ public final class DiscImage {
             // Catalog MD5 identifies the pressing for display only.
             edition = PAL_XBE_MD5.equals(hex(md5.digest())) ? "Europe/PAL, EA13401E" : "PAL";
         }
-        throw new DiscImport.Failure(DiscImport.Reason.REVISION,"Fight Night Round 3 (" + edition + "), Xbox title 45410086, XBE version "
+        throw new DiscImport.Failure(DiscImport.Reason.REVISION,"Unrecognized disc revision: Fight Night Round 3 (" + edition + "), Xbox title 45410086, XBE version "
                 + Integer.toUnsignedLong(certificate.getInt(0xac)) + ". This executable has no supported game build yet."
                 + "\n\ndefault.xbe SHA-256\n" + originalHash).xbe(title,region,certificate.getInt(0xac),originalHash);
     }

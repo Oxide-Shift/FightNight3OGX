@@ -4,6 +4,11 @@
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <time.h>
+#endif
 #include "xbox_memory_layout.h"
 #include "fight_data.h"
 
@@ -17,10 +22,40 @@ static const uint8_t *guest(uint32_t a, size_t n) {
     return XBOX_HOST(a);
 }
 static uint32_t word(const uint8_t *p) { uint32_t v; memcpy(&v,p,4); return v; }
+/* The interrupt can retire a voice between polls. Check early completions
+ * immediately, then give the mixer short slices of CPU while the stop is pending.
+ * The caller takes a fresh clock and rechecks guest ownership after each wait. */
+static void wait_pending_voice(uint64_t elapsed, uint64_t remaining) {
+    if (elapsed < 1000) return; /* first 100 us */
+    static _Thread_local int allow_wait;
+    if (!allow_wait) {
+        const char *lock = getenv("RECOMP_GUEST_LOCK");
+        allow_wait = lock && *lock == '1' ? -1 : 1;
+    }
+    if (allow_wait < 0) return; /* the optional serialized guest must yield through its scheduler */
+    /* Leave the last quarter millisecond for the ordinary poll to limit
+     * deadline overshoot. Guest time is in units of 100 ns. */
+    if (remaining <= 2500) return;
+    remaining -= 2500;
+    uint64_t slice = remaining < 5000 ? remaining : 5000;
+#ifdef _WIN32
+    HANDLE timer = CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                                          TIMER_MODIFY_STATE | SYNCHRONIZE);
+    if (!timer) return;
+    LARGE_INTEGER due;
+    due.QuadPart = -(LONGLONG)slice;
+    if (SetWaitableTimer(timer, &due, 0, NULL, NULL, FALSE))
+        WaitForSingleObject(timer, INFINITE);
+    CloseHandle(timer);
+#else
+    struct timespec duration = {0, (long)(slice * 100)};
+    nanosleep(&duration, NULL);
+#endif
+}
 /* The synchronous DirectSound stop waits for an idle interrupt before it can
  * rebind a buffer. VOICE_OFF clears ACTIVE for each hardware channel. Only
  * run the title's locked cleanup early when the voice still owns those slots. */
-int fight_voice_stopped(uint32_t address){
+int fight_voice_stop_ready(uint32_t address,uint64_t now){
     const uint8_t *voice=guest(address,0x80);
     if(!voice || (voice[0x12]&1)==0 || (voice[0x13]&0x80)==0)return 0;
     unsigned count=voice[0x64];
@@ -32,7 +67,8 @@ int fight_voice_stopped(uint32_t address){
     if(table>=0xf0000000u && table-0xf0000000u<g_xbox_total_ram)
         table=0x80000000u+(table-0xf0000000u);
     const uint8_t *hardware=guest(table,256*128);
-    if(!owner || !hardware || word(owner+0x84))return 0;
+    if(!owner || !hardware)return 0;
+    int idle=word(owner+0x84)==0;
     for(unsigned i=0;i<count;i++){
         uint16_t slot;
         memcpy(&slot,voice+0xc+i*2,sizeof(slot));
@@ -40,8 +76,27 @@ int fight_voice_stopped(uint32_t address){
         const uint8_t *channel=hardware+slot*128;
         /* MCPX PAR_STATE.ACTIVE applies to each channel. The retail idle ISR
          * also excludes CFG_FMT.PERSIST on its final notification handle. */
-        if(word(channel+0x54)&(1u<<21))return 0;
-        if(i+1==count && (word(channel+4)&(1u<<23)))return 0;
+        if(word(channel+0x54)&(1u<<21))idle=0;
+        if(i+1==count && (word(channel+4)&(1u<<23)))idle=0;
+    }
+    // A synchronous Stop has already been requested. An active or persistent
+    // channel can miss its idle notification and leave the caller spinning for
+    // 500 ms per sound. Allow two 256-sample mixer blocks before invoking the
+    // same locked cleanup used by the retail watchdog, only for owned slots.
+    if(!idle){
+        const uint64_t two_blocks=(2ULL*256*10000000+48000-1)/48000;
+        uint64_t requested=((uint64_t)word(voice+0x7c)<<32)|word(voice+0x78);
+        if (now < requested) return 0;
+        uint64_t elapsed = now - requested;
+        if (elapsed < two_blocks) {
+            wait_pending_voice(elapsed, two_blocks - elapsed);
+            return 0;
+        }
+        static atomic_uint recovered;
+        unsigned n=atomic_fetch_add_explicit(&recovered,1,memory_order_relaxed)+1;
+        if(n==1 || (n&127)==0)
+            fprintf(stderr,"[Fight Night] voice stop recovered count=%u channels=%u\n",n,count);
+        return 1;
     }
     static atomic_uint completed;
     unsigned n=atomic_fetch_add_explicit(&completed,1,memory_order_relaxed)+1;
@@ -232,8 +287,23 @@ void fight_store_price(int32_t price) {
     }
 }
 
-static atomic_int playlist_armed;
-void fight_arm_playlist(int enabled){atomic_store(&playlist_armed,enabled);}
+extern void fight_pad_playlist(int),fight_pad_menu(int);
+enum { PLAYLIST_IDLE, PLAYLIST_ARMED, PLAYLIST_COMMITTED };
+static atomic_int playlist_action;
+void fight_arm_playlist(int enabled){
+    int expected=enabled?PLAYLIST_IDLE:PLAYLIST_ARMED;
+    int desired=enabled?PLAYLIST_ARMED:PLAYLIST_IDLE;
+    if(atomic_compare_exchange_strong(&playlist_action,&expected,desired) || expected==desired)
+        fight_pad_playlist(enabled);
+}
+
+void fight_cancel_playlist(void){
+    int expected=PLAYLIST_ARMED;
+    if(atomic_compare_exchange_strong(&playlist_action,&expected,PLAYLIST_IDLE) || expected==PLAYLIST_IDLE){
+        fight_pad_playlist(0);
+        puts("FNR3/1 PLAYLIST CANCELLED");fflush(stdout);
+    }
+}
 
 int fight_career_property(uint32_t key,uint32_t value) {
 #ifdef __ANDROID__
@@ -269,7 +339,9 @@ int fight_career_property(uint32_t key,uint32_t value) {
 #ifdef __ANDROID__
             fight_bind_menu_thread();
 #endif
-            int open=atomic_exchange(&playlist_armed,0);
+            int expected=PLAYLIST_ARMED;
+            int open=atomic_compare_exchange_strong(&playlist_action,&expected,PLAYLIST_COMMITTED);
+            if(open)fight_pad_playlist(0);
             puts(open?"FNR3/1 PLAYLIST OPENING":"FNR3/1 MUSICMENU OPEN");fflush(stdout);
             // Keep the previous imported script usable until its archive upgrade completes.
             return !strcmp(page,"fnr3/open?")?open:!open;
@@ -283,14 +355,12 @@ int fight_career_property(uint32_t key,uint32_t value) {
             static int previous=-1;
             if(page && strlen(page)>1 && !strncmp(page+1,"screengroups/",13)){
                 int front=!strcmp(page,"2screengroups/mainmenu/mainmenu")?1:
-                          !strcmp(page,"5screengroups/options/options")?2:0;
+                          !strcmp(page,"5screengroups/options/options")?2:
+                          !strcmp(page+1,"screengroups/playnow/playnow")?3:0;
                 if(previous!=front){
                     previous=front;
-                    atomic_store(&playlist_armed,0);
-#ifdef __ANDROID__
-                    extern void fight_pad_menu(int enabled);
+                    atomic_store(&playlist_action,PLAYLIST_IDLE);
                     fight_pad_menu(front==1);
-#endif
                     printf("FNR3/1 FRONT %d\n",front);fflush(stdout);
                 }
             }
@@ -435,6 +505,26 @@ static atomic_int finished_callout;
 // The retail result screen reads the winner from the round manager at +0x24.
 static int reported_winner, recent_scorer=-1, hit_age, stagger_window;
 static atomic_int referee_count, stumble_cue;
+static unsigned ko_moment_mask;
+
+/* Retail 00023930 reads both boxers with 000454A0 / 0002C290.
+ * A set byte enters director state 4 and dispatches Sce_KnockMoment.
+ * The boxer sets and clears this byte at 000349FA and 00034A5E. */
+static unsigned ko_moment_entries(const uint8_t *root) {
+    const uint8_t *pair = guest(word(root + 0x0c), 8);
+    if (!pair) return 0;
+    unsigned mask = 0;
+    for (unsigned side = 0; side < 2; ++side) {
+        const uint8_t *boxer = guest(word(pair + side * 4), 0x334);
+        if (!boxer) return 0;
+        const uint8_t *condition = guest(word(boxer + 0x330), 4);
+        if (!condition || word(condition) != 0x48ae80 || boxer[0x25c] > 1) return 0;
+        mask |= (unsigned)boxer[0x25c] << side;
+    }
+    unsigned entered = mask & ~ko_moment_mask;
+    ko_moment_mask = mask;
+    return entered;
+}
 static uint32_t landed_total[2];
 
 static int player_side(void) {
@@ -500,32 +590,40 @@ unsigned fight_present_interval(void){
 }
 
 void fight_cinematic(uint32_t sequence) {
-    /* BWR, DQ win, KOW and referee stoppage clips from the retail sequence table.
-     * The existing interval for these and the coach scripts comes from the title. */
-    int winner=(sequence>=60 && sequence<=69) || (sequence>=75 && sequence<=77) ||
-               (sequence>=82 && sequence<=85) || (sequence>=100 && sequence<=112) ||
-               (sequence>=125 && sequence<=135);
+    /* The retail result director cuts between winner and loser scripts. BLR, DQ losses,
+     * KOL and TKOL use the same authored timing field as the winning angles. */
+    int outcome=(sequence>=57 && sequence<=112) || (sequence>=125 && sequence<=136);
     /* BCS_BLU_01 through BCS_BLU_13, including the four venue variants,
      * occupy slots 0-16. Slot 17 begins the entrance scripts. */
     int coach=sequence<=16;
+    /* The between-round card presenter uses the director's display interval
+     * too. Slot 113 belongs to the referee's get-up sequence. */
+    int round_card=sequence>=114 && sequence<=124;
     int entrance=(sequence>=17 && sequence<=56) || (sequence>=137 && sequence<=143);
     uint32_t director=0;
-    if(g_ecx && (g_ecx&3)==0 && (entrance || coach || winner))
+    if(g_ecx && (g_ecx&3)==0 && (entrance || coach || round_card || outcome))
         director=g_ecx | (entrance?1u:0u);
     atomic_store(&paced_director,director);
-    const char *result = sequence >= 100 && sequence <= 112 ? "KO" :
-                         sequence >= 125 && sequence <= 136 ? "TKO" : NULL;
-    if (!callout_bout || finished_callout) return;
-    if (!result) {
-        if(sequence<32 || (sequence>=113 && sequence<=124)){
+    if (!callout_bout) return;
+    if (!outcome) {
+        if(!finished_callout && (sequence<32 || (sequence>=113 && sequence<=124))){
             printf("FNR3/1 SHOT %u\n",sequence);fflush(stdout);
         }
         return;
     }
     const uint8_t *root = guest(word(XBOX_HOST(0x576aa0)), 0x30);
     if (!root || word(root + 0x14) != callout_bout) return;
-    if (atomic_exchange(&finished_callout, 1)) return;
-    printf("FNR3/1 CALLOUT %s\n", result);
+    /* Play Now can show the judges' cards with GetWinner still returning -1.
+     * The result director establishes that the bout ended. The camera angle
+     * does not establish the player's side or earn a win. */
+    if (sequence < 86) {
+        int active=0;
+        if (!atomic_compare_exchange_strong(&finished_callout,&active,1)) return;
+        puts("FNR3/1 CALLOUT FINAL");
+    } else {
+        if (atomic_exchange(&finished_callout,2)==2) return;
+        puts(sequence<=112 ? "FNR3/1 CALLOUT KO" : "FNR3/1 CALLOUT TKO");
+    }
     fflush(stdout);
 }
 
@@ -545,7 +643,7 @@ static void sample_player_stats(const uint8_t *root) {
 }
 
 static void sample_knockdowns(const uint8_t *root, int round) {
-    if (!round || !root) { callout_bout = 0; finished_callout = 0; referee_count=0; stumble_cue=0; return; }
+    if (!round || !root) { callout_bout = 0; finished_callout = 0; referee_count=0; stumble_cue=0; ko_moment_mask=0; return; }
     uint32_t id = word(root + 0x14);
     const uint8_t *stats = guest(id, 0x1d14 + 56 * 4);
     if (!stats || word(stats) != 0x47fb60) return;
@@ -582,8 +680,9 @@ static void sample_knockdowns(const uint8_t *root, int round) {
         if (score[0] == knockdowns[0] + 1 && score[1] == knockdowns[1]) scorer = 0;
         if (score[1] == knockdowns[1] + 1 && score[0] == knockdowns[0]) scorer = 1;
     }
-    if (id != callout_bout) finished_callout = 0;
+    if (id != callout_bout) { finished_callout = 0; ko_moment_mask = 0; }
     callout_bout = id;
+    unsigned rocked = ko_moment_entries(root);
     memcpy(knockdowns, score, sizeof score);
     if (scorer < 0) {
         // The mat stumble cue is positional. Require a recent hit credited only
@@ -593,6 +692,9 @@ static void sample_knockdowns(const uint8_t *root, int round) {
             puts("FNR3/1 CALLOUT STAGGER");fflush(stdout);stagger_window=0;
         } else if (stagger_window) stagger_window--;
         if (hay) { puts("FNR3/1 CALLOUT HAYMAKER"); fflush(stdout); }
+        if (rocked && !finished_callout && !reported_winner && !atomic_load(&referee_count)) {
+            puts("FNR3/1 CALLOUT ROCKED"); fflush(stdout);
+        }
         return;
     }
     stagger_window=0;
@@ -673,6 +775,19 @@ int fight_sample_counters(uint32_t *identity,uint32_t *tick,uint32_t *thrown,uin
 static atomic_int posted_round;
 int fight_round_break(void){return atomic_load_explicit(&posted_round,memory_order_relaxed)!=0;}
 
+static void sample_playlist(void) {
+    /* The settings singleton (sub_0013A020) is shared by the EA Trax menu
+     * and the stock song chooser. sub_001607B0 tests bits 3..14 in row order. */
+    static int previous = -1;
+    if (!(word(XBOX_HOST(0x5ad9c8)) & 1)) return;
+    int enabled = (word(XBOX_HOST(0x5ac8a0 + 0x168)) >> 3) & 0xfff;
+    if (enabled != previous) {
+        printf("FNR3/1 TRACKMASK %d\n", enabled);
+        fflush(stdout);
+        previous = enabled;
+    }
+}
+
 void fight_score_sample(void) {
 #ifdef __ANDROID__
     extern void fight_service_menu_cancel(void);
@@ -681,6 +796,7 @@ void fight_score_sample(void) {
     static unsigned flip;
     static char previous[512];
     if (++flip % 4) return;
+    sample_playlist();
     char line[512]; int used=0,round=0;
     const uint8_t *root=guest(word(XBOX_HOST(0x576aa0)),0x30),*judges=NULL,*clock=NULL;
     if(root){

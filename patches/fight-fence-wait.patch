@@ -1,0 +1,75 @@
+--- a/kernel_bridge.c
++++ b/kernel_bridge.c
+@@ -1591,7 +1591,7 @@
+ }
+ 
+ /* ── KeWaitForSingleObject (ordinal 159) ─────────────────── */
+-static void bridge_KeWaitForSingleObject(void)
++static void bridge_wait_for_single_object_body(void)
+ {
+     uint32_t object = STACK_ARG(0);
+     uint32_t wait_reason = STACK_ARG(1);
+@@ -1632,6 +1632,18 @@
+     g_eax = (uint32_t)xbox_KeWaitForSingleObject(
+         h, wait_reason, wait_mode,
+         (BOOLEAN)alertable, XBOX_TO_NATIVE(timeout_ptr));
++}
++
++/* A retail D3D fence can arm its interrupt after the lockstep scanner has
++ * passed the patched packet. Keep the guest wait and ISR semantics intact. */
++static void bridge_KeWaitForSingleObject(void)
++{
++    extern int xbox_Nv2aArmFenceWait(uint32_t object);
++    extern void xbox_Nv2aDisarmFenceWait(void);
++    int armed = STACK_ARG(1) == 6 && STACK_ARG(2) == 1 && !STACK_ARG(4)
++        && xbox_Nv2aArmFenceWait(STACK_ARG(0));
++    bridge_wait_for_single_object_body();
++    if (armed) xbox_Nv2aDisarmFenceWait();
+ }
+ 
+ /* ── NtWaitForSingleObject (ordinal 233) ─────────────────── */
+--- a/xbox_memory_layout.c
++++ b/xbox_memory_layout.c
+@@ -885,6 +885,22 @@
+                 *fence = put;
+         }
+     }
++}
++
++static volatile LONG g_lockstep_fence_waiters;
++
++int xbox_Nv2aArmFenceWait(uint32_t object)
++{
++    if (nv2a_async() || !fence_readable(0x004461B8u, 4)) return 0;
++    uint32_t dev = *(volatile uint32_t *)XBOX_HOST(0x004461B8u);
++    if (!dev || object != dev + 0x1dccu || !fence_readable(object, 16)) return 0;
++    InterlockedIncrement(&g_lockstep_fence_waiters);
++    return 1;
++}
++
++void xbox_Nv2aDisarmFenceWait(void)
++{
++    InterlockedDecrement(&g_lockstep_fence_waiters);
+ }
+ 
+ static int s_nv2a_trace = 0;
+@@ -1249,6 +1265,19 @@
+                             g == put ? "" : "  (GPU behind)");
+                 }
+                 fflush(stderr);
++            }
++            /* The scan above publishes GET only after executing the batch.
++             * Reissue the missed NOP(5) via the guest's own interrupt handler
++             * only while D3D is actually waiting and all submitted work ran. */
++            if (g_lockstep_fence_waiters && last_put == put &&
++                    *(volatile uint32_t *)((char *)regs + NV2A_USER_DMA_GET) == put &&
++                    *(volatile uint32_t *)((char *)regs + NV2A_USER_DMA_PUT) == put) {
++                static DWORD last_fence_interrupt;
++                if (now_ms - last_fence_interrupt >= 16) {
++                    extern void xbox_Nv2aIdleWake(void);
++                    last_fence_interrupt = now_ms;
++                    xbox_Nv2aIdleWake();
++                }
+             }
+         }
+         if (s_nv2a_trace) {

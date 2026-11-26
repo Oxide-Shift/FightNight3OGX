@@ -83,6 +83,17 @@ After an import failure or crash, **Copy details** gives you the same diagnostic
 
 If you upgrade an existing installation, the launcher can still read its installed XBE and certificate. In the report preview, choose **More options → Check installed game files** to compare the whole installed game with the tested USA copy. This reads the files locally and returns you to the preview. Original container details require a fresh import. Your disc image, filenames, saves and raw logs stay on the device.
 
+## What's new in Alpha 80
+
+- **A controller is required.** Fight Setup now says so when no gamepad is connected. There are no touch controls for boxing.
+- **Lower-screen timekeeper:** one centered line, `1:42 | R1`, with a larger clock and tally-mark flanks.
+- **Between rounds** the lower screen shows the next round, both fighters' health and stamina, punches, accuracy, your knockdowns, and up to two corner tips worked out from those numbers.
+- **Steadier menu companion:** the lower screen no longer flashes "From your corner" while a submenu such as Play Now is open.
+- **Clearer import messages:** a refused disc is labelled **Wrong platform**, **Different game**, **Unrecognized disc revision** or **Unsupported container**, and **Copy details** includes the `default.xbe` SHA-256.
+- **Graphics driver resets** now return to Fight Setup with a plain message instead of an unexplained crash.
+- **Pipelined frames** (Advanced graphics, off by default): the GPU renders one frame while the game prepares the next. On the Thor it raised live-round averages to about 59.5 FPS, but it adds one frame of display delay and had a worse single slowest frame in one venue, so it's opt-in.
+- Crash and import dialogs use the standard Android font.
+
 ## Getting started
 
 You’ll need **ARM64 Android 11 or newer**. The **AYN Thor** is the only handheld tested for dual-screen play. On a single-screen device, menu prompts stay on the main display.
@@ -92,14 +103,27 @@ You’ll need **ARM64 Android 11 or newer**. The **AYN Thor** is the only handhe
 3. Tap **Choose Xbox ISO** and select your disc image. Keep Fight Setup open while the app extracts and compiles the game. If **Prepare game** appears, tap it to finish. A local file the app can read directly avoids a second full-size ISO copy. If your file provider streams the ISO, allow about **11 GB free** in addition to the disc image.
 4. Choose your picture settings and tap **Enter the ring**. Later launches reuse the prepared game. Use **Check for updates** in Fight Setup for future releases.
 
-**Updating to Alpha 73?** Install the APK over your existing version. Fight Setup keeps your imported disc and career saves. If it offers **Prepare game**, let it finish before launching.
+**Updating an existing installation.** Install the new APK over the existing copy using the same Android profile. Keep your game data in place. A changed runtime can require **Prepare game** once. A soundtrack-only update reuses the prepared game. Use **Export save** or your chosen backup folder before changing devices.
+
+### Startup and recovery
+
+| What you see | What to do |
+| --- | --- |
+| Android refuses to install the APK | Use the complete release APK on a device with a 64-bit ARM Android system, API 30 or later. An update also needs the same package signature. Keep the installed copy and export your save if moving between differently signed builds. |
+| The picker opens, but the disc cannot be read | Use Android's file picker to choose a single supported image. If the provider cannot keep the file available, copy it into local storage and choose that copy. Fight Setup requests access to the selected file. |
+| **Wrong platform**, **Different game**, **Unrecognized disc revision** or **Unsupported container** | Wrong platform means an Xbox 360 or PlayStation image; Unsupported container means a 7z, RAR, compressed (CSO-style), split or ZAR file that must become a single ISO/XISO first. Check the edition and the SHA-256 of the **default.xbe inside the image** against Supported game. A whole-image hash can differ across valid repacks. Use **Copy details** to share the detected revision. |
+| Preparation stops, or Android closes Fight Setup | Reopen the launcher and tap **Prepare game**. It can reuse the extracted disc. Free internal storage for a space error, or close other large apps if Android stopped the compiler. Keep the launcher open through the final check. |
+| The screen goes black or the game returns to Fight Setup | Reopen Fight Setup and review the crash preview. Record whether you saw the logos, title screen, profile picker or first menu. Try Low graphics quality and 480p. Use **Copy details** or **Send report** with the original settings so the failure can be compared. |
+| The lower screen is missing | Use the main display. The launcher routes supported prompts and controls according to the displays Android exposes. Full physical single-screen and non-Thor dual-screen coverage is still pending. |
+
+The AYN Thor has been tested on Android 13. An Alpha 73 report from a Retroid Pocket 6 on Android 13 rendered 4,620 frames with Vulkan during startup and subsequently crashed. Verification of the newer candidate on that model remains open. Android version, ARM64 support and advertised graphics features alone do not establish that a particular device runs the game reliably.
 
 <details>
 <summary>See Fight Setup and picture settings</summary>
 
 <p align="center"><img src="docs/screenshots/fight-setup.jpg" width="760" alt="Fight Setup after disc import, with Enter the ring, Check for updates, frame rate, graphics quality, resolution and aspect ratio."></p>
 
-The launcher offers **30, 45 and 60 FPS** targets, VSync, widescreen and original 4:3. The example uses Vulkan at **1080p, High**, with sharpening, 4× filtering and 2× MSAA. Under **Advanced graphics**, you can change edge smoothing or turn on **Show FPS counter**. It starts off. When enabled, small neon-green digits in the upper-left of the game screen show the displayed frame rate. Pause menus and the lower-screen results stay clear. Frame rate varies by venue and can dip during exchanges.
+The launcher offers **30, 45 and 60 FPS** targets, VSync, widescreen and original 4:3. The example uses Vulkan at **1080p, High**, with sharpening, 4× filtering and 2× MSAA. Under **Advanced graphics**, you can change edge smoothing, try **Pipelined frames** (smoother averages, one frame of extra display delay; off by default), or turn on **Show FPS counter**. It starts off. When enabled, small neon-green digits in the upper-left of the game screen show the displayed frame rate. Pause menus and the lower-screen results stay clear. Frame rate varies by venue and can dip during exchanges.
 
 **Why stop at 60 FPS?** The original round timer counts game updates. In an isolated test at normal clock speed, doubling the update rate made a three-minute round run out in 90 seconds. The port keeps the original fight timing. The intro, fighter entrances, highlights, coach’s corner and post-fight sequences use 30 FPS pacing.
 
@@ -160,7 +184,7 @@ Open **Music** from the game's main menu. The two music toggles start **off** on
 | Music menu | What it does |
 | --- | --- |
 | **Music during fights** | The song carries through loading, walkouts and announcements. When the opening round clock starts, the music fades to 12% volume. |
-| **FN3 Expanded Music** | Seven tracks by FN3OGX join the EA Trax rotation, including *Blood + Sweat*, *Corner Talk* and *The Contender*. |
+| **FN3 Expanded Music** | The private Alpha 78 candidate includes nine tracks credited to FN3OGX. *Still Want the Crown* opens the expanded selection on a fresh game launch, then the rotation shuffles. |
 | **EA Trax** | Choose which original soundtrack tracks are in rotation. |
 
 <details>

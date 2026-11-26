@@ -25,9 +25,11 @@ final class DiscFonts {
     }
 
     static DiscFonts load(File game) {
-        return new DiscFonts(read(game, "05_title.ttf", FALLBACK.title),
-                read(game, "05_body.ttf", FALLBACK.body),
-                read(game,"gunplay.ttf",null),read(game,"eraser.ttf",null));
+        Typeface gunplay=read(game,"gunplay.ttf",null);
+        if(gunplay!=null)return new DiscFonts(gunplay,gunplay,gunplay,gunplay);
+        Typeface title=read(game,"05_title.ttf",FALLBACK.title);
+        Typeface body=read(game,"05_body.ttf",FALLBACK.body);
+        return title==FALLBACK.title && body==FALLBACK.body?FALLBACK:new DiscFonts(title,body,null,null);
     }
 
     /** Rasterize the O and X outlines from the imported stencil font at a common scale. */

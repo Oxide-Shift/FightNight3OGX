@@ -42,7 +42,6 @@ public final class SessionSleepSmoke {
         if(s.frontPage!=receipt)throw new AssertionError("Missing post-wake input receipt "+receipt);
     }
     private static void checkPlaylistNavigation(CornerSession s)throws Exception{
-        s.retailMusicRoute=true;
         s.line("FNR3/1 FRONT 2");s.line("FNR3/1 FRONT 1");
         if(s.takeMusicRequest())throw new AssertionError("An unrelated exit opened Music");
         s.line("FNR3/1 MUSICMENU OPEN");
