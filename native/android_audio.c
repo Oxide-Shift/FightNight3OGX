@@ -1,6 +1,7 @@
 #include <aaudio/AAudio.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <math.h>
 #include "audio_ring.h"
 
 static AAudioStream *stream;
@@ -96,9 +97,20 @@ void fight_audio_check_route(void){
     pthread_mutex_unlock(&output_lock);
 }
 int xa2_is_active(void){return atomic_load(&online);}
+/* The game's own mix (EA Trax plays separately on the Java side), metered every 3 s of audio so a silent game
+ * can be told apart from a quiet one in logs. */
+static unsigned level_frames;static int level_peak;static double level_sum;
+static void meter_level(const int16_t *pcm,int frames){
+    for(int i=0;i<frames*2;i++){int v=pcm[i]<0?-pcm[i]:pcm[i];if(v>level_peak)level_peak=v;level_sum+=(double)v*v;}
+    if((level_frames+=(unsigned)frames)>=48000*3){
+        printf("FNR3/1 AUDIOLEVEL peak=%d rms=%d\n",level_peak,(int)sqrt(level_sum/(level_frames*2.0)));fflush(stdout);
+        level_frames=0;level_peak=0;level_sum=0;
+    }
+}
 int xa2_submit_samples(const int16_t *pcm,int frames){
     if(frames<=0 || !atomic_load(&online))return 0;
     pthread_mutex_lock(&output_lock);
+    meter_level(pcm,frames);
     int ok=stream && ring_write(&queue,pcm,(unsigned)frames);
     if(ok && (submitted+=(unsigned)frames)>=48000){
         atomic_store(&device_xruns,AAudioStream_getXRunCount(stream));submitted=0;

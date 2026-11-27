@@ -22,11 +22,15 @@ final class VenueCaption {
         if(words==null || words.length==0)return null;
         for(int v=0;v<NAMES.length;v++){
             int[] want=LETTERS[v];
-            if(want.length!=words.length)continue;
+            // A trademark sign (MADISON SQUARE GARDEN™, STAPLES CENTER™; seen on the Thor) reads as one or two more
+            // marks on the last word (the superscript T and M), or, when it sits a little apart, as a word of its own.
+            boolean apart=words.length==want.length+1 && words[words.length-1]<=2;
+            if(want.length!=words.length && !apart)continue;
             boolean same=true;
             for(int i=0;i<want.length && same;i++){
                 boolean last=i==want.length-1;
-                same=words[i]==want[i] || (last && words[i]==want[i]+1);
+                int extra=words[i]-want[i];
+                same=extra==0 || (last && !apart && (extra==1 || extra==2));
             }
             if(same)return NAMES[v];
         }

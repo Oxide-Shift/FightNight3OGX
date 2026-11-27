@@ -126,6 +126,8 @@ public final class CornerSession {
     private boolean widescreen=true;
     /** The boxers highlighted on the Play Now select screens (latest SELECTION report). */
     private volatile PlayNowPick pick;
+    /** The game's own audio level (peak and RMS over the last 3 s), from the runtime. */
+    private volatile String audioLevel="";
     PlayNowPick pick(){return pick;}
     private volatile FightBroadcast.Fighters fighters;
     FightBroadcast.Fighters fighters(){return fighters;}
@@ -738,6 +740,7 @@ public final class CornerSession {
             if(achievements!=null)achievements.record(camp);
             return;
         }
+        if(line.startsWith("FNR3/1 AUDIOLEVEL ")){audioLevel=line.substring(18);if(timingLog!=null)timingLog.accept(line);return;}
         if(line.startsWith("FNR3/1 SELECTION ")){
             PlayNowPick next=PlayNowPick.parse(line.substring("FNR3/1 SELECTION ".length()));
             if(next!=null)pick=next;

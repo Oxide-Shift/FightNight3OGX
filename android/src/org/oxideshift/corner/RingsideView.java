@@ -957,7 +957,8 @@ final class RingsideView extends LinearLayout {
             // then drop it, so a stale name never stays on a venue that cannot be read; drop it when the page changes.
             boolean onVenues=currentPage!=null && "Select Venue".equals(currentPage.title);
             venueMisses=venueRead!=null || !onVenues?0:venueMisses+1;
-            String nextVenue=!onVenues?null:venueRead!=null?venueRead:venueMisses>=4?null:venue;
+            // About a second of reads (menu reads run every ~80 ms) before an unreadable caption clears the name.
+            String nextVenue=!onVenues?null:venueRead!=null?venueRead:venueMisses>=12?null:venue;
             boolean venueChanged=nextVenue==null?venue!=null:!nextVenue.equals(venue);
             venue=nextVenue;
             if(currentPage!=previous || careerFocus!=previousFocus || venueChanged)describeMenu();

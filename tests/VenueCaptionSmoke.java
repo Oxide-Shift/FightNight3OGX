@@ -21,6 +21,11 @@ public final class VenueCaptionSmoke {
         check("Windy City Boxing Gym".equals(VenueCaption.match(VenueCaption.words(caption(9,5,4,6,3),6))),"Windy City");
         check("The Warehouse".equals(VenueCaption.match(new int[]{3,9})) && "Aragon Ballroom".equals(VenueCaption.match(new int[]{6,8})),"two-word venues");
         check("Madison Square Garden".equals(VenueCaption.match(new int[]{7,6,7})) && "Staples Center".equals(VenueCaption.match(new int[]{7,7})),"registered mark");
+        check("Madison Square Garden".equals(VenueCaption.match(new int[]{7,6,6,1})) && "Staples Center".equals(VenueCaption.match(new int[]{7,6,1})),"registered mark apart");
+        // As read on the Thor: the trademark sign adds two marks to the last word.
+        check("Madison Square Garden".equals(VenueCaption.match(new int[]{7,6,8})) && "Staples Center".equals(VenueCaption.match(new int[]{7,8})),"trademark attached");
+        check("Madison Square Garden".equals(VenueCaption.match(new int[]{7,6,6,2})),"trademark apart");
+        check(VenueCaption.match(new int[]{7,6,6,3})==null && VenueCaption.match(new int[]{7,6,9})==null,"no wider tails");
         check("Everlast Boxing Center".equals(VenueCaption.match(new int[]{8,6,6})) && "State Palace Theatre".equals(VenueCaption.match(new int[]{5,6,7})),"three-word venues");
         check(VenueCaption.match(new int[]{3,8})==null && VenueCaption.match(new int[]{})==null && VenueCaption.match(null)==null,"no guesses");
         // A one-column scratch adds nothing; a letter that thins out for a column stays one letter.
