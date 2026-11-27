@@ -32,6 +32,8 @@ final class FightMenu extends LinearLayout {
     final Spinner rumble;
     final Spinner renderer,resolution,aspect,displayRoute;
     Runnable displayRouteChanged;
+    /** Runs after the player changes the button map; the new map is already in prefs ("padMap"). */
+    Runnable padMapChanged;
     final PresetStrip quality,pacing;
     final Switch antiAlias;
     final ToggleButton vsync;
@@ -137,6 +139,7 @@ final class FightMenu extends LinearLayout {
         LinearLayout strength=new LinearLayout(c);details.addView(strength);
         rumble=choice(strength,"Controller rumble",new String[]{"Off","Light","Medium","Full"},
                 "rumbleLevel",prefs.getBoolean("rumble",true)?3:0);
+        disclosure("Controller buttons",new ButtonMapSection(c,prefs,faces.body,()->{if(padMapChanged!=null)padMapChanged.run();}));
         card=button("Open scorecard",onCard,false);panel.addView(card);
         applyFonts(panel);
         arrange(c.getResources().getConfiguration().orientation==2);

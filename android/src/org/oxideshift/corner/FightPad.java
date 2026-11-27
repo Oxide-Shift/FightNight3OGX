@@ -37,15 +37,42 @@ final class FightPad {
     }
     void clear(){devices.clear();Arrays.fill(state,(byte)0);}
     private static long magnitude(short x,short y){return (long)x*x+(long)y*y;}
+    private PadMap map=PadMap.standard();
+    PadMap map(){return map;}
+    /** Takes effect at once. Held controls stay held under their new meaning and still release normally. */
+    boolean map(PadMap next){
+        PadMap chosen=next==null?PadMap.standard():next;
+        if(chosen.encode().equals(map.encode()))return false;
+        byte[] before=state.clone();map=chosen;combine();
+        return !Arrays.equals(before,state);
+    }
+    /** A trigger counts as a button press past half travel when it is sent to a non-trigger control. */
+    private static final int TRIGGER_PRESS=128;
+    private void remapped(Source s){
+        int held=((s.keys|s.hat)&255)|(s.buttons<<8);
+        if(s.leftTrigger>=TRIGGER_PRESS)held|=1<<PadMap.LT;
+        if(s.rightTrigger>=TRIGGER_PRESS)held|=1<<PadMap.RT;
+        for(int p=0;p<PadMap.SLOTS;p++){
+            int slot=map.slot(p),value=(held&(1<<p))!=0?255:0;
+            // Trigger to trigger keeps its pressure; a held trigger key still reads as fully pressed.
+            if(p>=PadMap.LT && slot>=PadMap.LT && value==0)value=p==PadMap.LT?s.leftTrigger:s.rightTrigger;
+            if(value==0)continue;
+            if(slot<8)state[0]|=(byte)(1<<slot);
+            else state[slot-6]=(byte)Math.max(state[slot-6]&255,value);
+        }
+    }
     private void combine(){
         Arrays.fill(state,(byte)0);
         long left=0,right=0;
+        boolean standard=map.isStandard();
         for(int i=0;i<devices.size();i++){
             Source s=devices.get(i);
-            state[0]|=(byte)(s.keys|s.hat);
-            for(int n=0;n<8;n++)if((s.buttons & (1<<n))!=0)state[2+n]=(byte)255;
-            state[8]=(byte)Math.max(state[8]&255,s.leftTrigger);
-            state[9]=(byte)Math.max(state[9]&255,s.rightTrigger);
+            if(standard){
+                state[0]|=(byte)(s.keys|s.hat);
+                for(int n=0;n<8;n++)if((s.buttons & (1<<n))!=0)state[2+n]=(byte)255;
+                state[8]=(byte)Math.max(state[8]&255,s.leftTrigger);
+                state[9]=(byte)Math.max(state[9]&255,s.rightTrigger);
+            }else remapped(s);
             long l=magnitude(s.lx,s.ly),r=magnitude(s.rx,s.ry);
             if(l>left){left=l;words.putShort(10,s.lx);words.putShort(12,s.ly);}
             if(r>right){right=r;words.putShort(14,s.rx);words.putShort(16,s.ry);}
@@ -110,23 +137,17 @@ final class FightPad {
                 (sources & InputDevice.SOURCE_JOYSTICK)==InputDevice.SOURCE_JOYSTICK;
         boolean direction=code>=KeyEvent.KEYCODE_DPAD_UP && code<=KeyEvent.KEYCODE_DPAD_RIGHT;
         if(!controller && code!=KeyEvent.KEYCODE_BUTTON_B && !(direction && (sources & InputDevice.SOURCE_DPAD)==InputDevice.SOURCE_DPAD))return false;
-        int mask=0,index=-1;
-        switch(code){
-            case KeyEvent.KEYCODE_DPAD_UP:mask=1;break;case KeyEvent.KEYCODE_DPAD_DOWN:mask=2;break;
-            case KeyEvent.KEYCODE_DPAD_LEFT:mask=4;break;case KeyEvent.KEYCODE_DPAD_RIGHT:mask=8;break;
-            case KeyEvent.KEYCODE_BUTTON_START:mask=16;break;case KeyEvent.KEYCODE_BUTTON_SELECT:mask=32;break;
-            case KeyEvent.KEYCODE_BUTTON_THUMBL:mask=64;break;case KeyEvent.KEYCODE_BUTTON_THUMBR:mask=128;break;
-            case KeyEvent.KEYCODE_BUTTON_A:index=2;break;case KeyEvent.KEYCODE_BUTTON_B:index=3;break;
-            case KeyEvent.KEYCODE_BUTTON_X:index=4;break;case KeyEvent.KEYCODE_BUTTON_Y:index=5;break;
-            case KeyEvent.KEYCODE_BUTTON_R1:index=6;break;case KeyEvent.KEYCODE_BUTTON_L1:index=7;break;
-            case KeyEvent.KEYCODE_BUTTON_L2:index=8;break;case KeyEvent.KEYCODE_BUTTON_R2:index=9;break;
-            default:return false;
-        }
+        // Physical 0-7 are the first packet byte's bits, 8-15 the pressure buttons A B X Y Black White LT RT.
+        int physical=PadMap.physicalKey(code);
+        if(physical<0)return false;
         Source s=source(id);
-        if(index>=0){
-            int bit=1<<(index-2);
+        if(physical>=8){
+            int bit=1<<(physical-8);
             s.buttons=down?s.buttons|bit:s.buttons&~bit;
-        }else s.keys=down?s.keys|mask:s.keys&~mask;
+        }else{
+            int mask=1<<physical;
+            s.keys=down?s.keys|mask:s.keys&~mask;
+        }
         combine();
         return true;
     }

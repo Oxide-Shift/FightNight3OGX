@@ -137,6 +137,9 @@ public class CornerActivity extends Activity implements DisplayManager.DisplayLi
             prefs.edit().remove("save").apply();engine.note="Default save selected";
         },updates::tap);
         menu.displayRouteChanged=this::layout;
+        // Player button map applies at once, also while Fight Setup sits over a live bout.
+        pad.map(PadMap.decode(prefs.getString(ButtonMapSection.KEY,"")));
+        menu.padMapChanged=()->{if(pad.map(PadMap.decode(prefs.getString(ButtonMapSection.KEY,""))))sendRelease();};
         rumble=new PadRumble(this);
         menu.soundtrack.setOnCheckedChangeListener((v,on)->{prefs.edit().putBoolean("music",on).apply();syncMusic();});
         menu.saveFolder.setOnClickListener(v->chooseBackupFolder());

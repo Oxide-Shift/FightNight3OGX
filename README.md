@@ -85,6 +85,7 @@ If you upgrade an existing installation, the launcher can still read its install
 
 ## What's new in Alpha 81
 
+- **Remap your buttons (81.5).** Fight Setup → **Controller buttons** lists every Xbox control with the button that presses it. Choose one, press the button you want, and the two swap, so no control is ever left without a button. It works with face buttons, shoulders, the D-pad and analog triggers, applies at once (also over a paused bout), and **Reset to default buttons** puts everything back. The game's own Options → Controller setting still decides what each Xbox control does.
 - **Damage by region.** During rounds, between rounds and on the pause screen, the lower screen shows where each boxer has been hit: both eyes, nose, mouth, both jaws and both sides of the body, read from the game's own damage data. Each boxer is a rim-lit silhouette in a high guard (redrawn in 81.4 with real boxer proportions) whose face zones and both sides of the body start green and heat through yellow and orange to red as their health falls, with the most-hit area hottest and the colours recovering between rounds as health returns. Under each name: the boxer's health and the area taking the most punishment.
 - **Your handheld on screen (81.4).** Hovering Options shows an AYN Thor, a Retroid Pocket Duo and a phone with a controller in turn, drawn in the style of the disc's controller photo. The loading-screen controls guide is drawn for one of the three on each launch. Lower screens also adapt to shorter second screens, such as the Retroid Pocket Duo's 4:3 panel (checked in layout renders, not on that device).
 - **Stutter fix (81.4).** Fixes the stutter that built up during a fight: choppy commentary first, then dropped frames and rough fight audio. When the game stopped a sound, its sound engine waited about 10 ms for the emulated audio chip, and the game itself waited on the sound engine. Over a Burger King fight that happened about three times a second. On the Thor, the longest frames (over 34 ms) dropped from 0.26% to 0.02% of frames in the same fight.
@@ -105,7 +106,7 @@ If you upgrade an existing installation, the launcher can still read its install
 
 <p align="center"><img src="docs/screenshots/transition-mirror-81.jpg" width="760" alt="Nine frames of the lower screen during a transition: red and orange bars close in from both sides, a LOADING plate opens while the top screen loads, then the bars pull away to reveal the next page. Rendered on a PC from the app's own drawing code with the transition from a retail disc."></p>
 
-<p align="center"><sub>Lower-screen transition, frame by frame. This and the redesigned menu and career images below are rendered on a PC from the app's own screens with sample data; the fight, health, Options, loading-guide and cutman images are captured on a Thor.</sub></p>
+<p align="center"><sub>Lower-screen transition, frame by frame. This and the redesigned menu and career images below are rendered on a PC from the app's own screens with sample data; the fight, health, Options, loading-guide, cutman and Controller buttons images are captured on a Thor.</sub></p>
 
 <details>
 <summary>What was new in Alpha 80</summary>
@@ -173,6 +174,12 @@ On a Thor, the purple handheld marks Player 1 on **Select Corner**. Move it to b
 The red-orange loading guide follows the control configuration you selected in the game. In configurations 1–4, **R2 blocks**. In 5–6, **R2 punches** and the **right stick blocks**. Each launch draws it for an AYN Thor, a Retroid Pocket Duo or a phone with a controller. The Thor version adds a second face-button diagram so you can read the guide in either Thor or Xbox button order.
 
 **What the D-pad does depends on that configuration.** In configuration 1 it moves your boxer like the left stick, and taunt, clinch and illegal blow are on the face buttons. In configuration 3, D-pad up clinches, left taunts and right throws an illegal blow. Change it in **Options → Controller**.
+
+**To move a control to a different button**, use Fight Setup → **Controller buttons** (Alpha 81.5 and later). Pick the Xbox control, press the button you want for it, and that button swaps places with the one it replaces. For example, give A to your Y button and Y moves to A. Changes apply straight away, including when you open Fight Setup during a game, and are kept across updates.
+
+<p align="center"><img src="docs/screenshots/controller-buttons-81.jpg" width="520" alt="Fight Setup's Controller buttons section, captured on an AYN Thor. A note reads A is now on Y. Y moved to A. Under the headings Xbox control and Your button, the rows read A: Y and Y: A in gold, then B: B, X: X, Black: R1, White: L1 and Left trigger: L2."></p>
+
+<p align="center"><sub>Controller buttons after swapping A and Y (captured on a Thor).</sub></p>
 
 <details>
 <summary>See the Thor controls for configuration 3</summary>
