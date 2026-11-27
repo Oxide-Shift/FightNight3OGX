@@ -86,7 +86,7 @@ final class FightMenu extends LinearLayout {
           progressDetail=label("",13,MUTED);progressDetail.setPadding(0,dp(4),0,dp(8));
           progressDetail.setVisibility(GONE);panel.addView(progressDetail);
         play=button("Enter the ring",launch,true);panel.addView(play);
-        disc=button("Choose original Xbox ISO or ZIP",pick,true);panel.addView(disc);
+        disc=button("Choose original Xbox ISO, ZIP or 7z",pick,true);panel.addView(disc);
         updates=button("Check for updates",checkUpdates,false);panel.addView(updates);
 
         LinearLayout rateHeader=row();rateHeader.setGravity(Gravity.CENTER_VERTICAL);
@@ -155,6 +155,17 @@ final class FightMenu extends LinearLayout {
         rumble=choice(strength,"Controller rumble",new String[]{"Off","Light","Medium","Full"},
                 "rumbleLevel",prefs.getBoolean("rumble",true)?3:0);
         disclosure("Controller buttons",new ButtonMapSection(c,prefs,faces.body,()->{if(padMapChanged!=null)padMapChanged.run();}));
+        LinearLayout privacy=column();disclosure("Privacy",privacy);
+        Switch usage=new Switch(c);
+        usage.setText("Anonymous player count");usage.setTextColor(PAPER);usage.setTypeface(faces.body);
+        usage.setPadding(dp(9),0,dp(6),0);usage.setMinHeight(dp(48));
+        usage.setChecked(DeviceCheckin.enabled(prefs));
+        usage.setOnCheckedChangeListener((button,on)->prefs.edit().putBoolean(DeviceCheckin.SETTING,on).apply());
+        privacy.addView(usage);
+        TextView usageNote=label("While the app is open, it tells the project server every 10 minutes that a copy is running: a random "
+                +"install ID, the app and Android versions, the device type (Thor, phone, tablet…) and whether the game is running. "
+                +"No name, account, location, model or saves.",13,MUTED);
+        usageNote.setPadding(dp(9),0,dp(6),dp(6));privacy.addView(usageNote);
         card=button("Open scorecard",onCard,false);panel.addView(card);
         applyFonts(panel);
         arrange(c.getResources().getConfiguration().orientation==2);
@@ -392,7 +403,7 @@ final class FightMenu extends LinearLayout {
         play.setVisibility((ready&&!repair)||active||startupFailed?VISIBLE:GONE);play.setEnabled(active||((ready||startupFailed)&&!busy&&canPlay));
         String action=startupFailed?"Startup details":active?"Resume bout":needsBuild?"Prepare game":"Enter the ring";if(!action.contentEquals(play.getText()))play.setText(action);
         disc.setVisibility(active||!ready||repair?VISIBLE:GONE);disc.setEnabled(active||!busy);
-        String pick=active?"End session":repair?"Repair disc installation":"Choose original Xbox ISO or ZIP";
+        String pick=active?"End session":repair?"Repair disc installation":"Choose original Xbox ISO, ZIP or 7z";
         if(!pick.contentEquals(disc.getText()))disc.setText(pick);
         if(active!=disc.isSelected()){
             disc.setSelected(active);disc.setBackground(new RippleDrawable(ColorStateList.valueOf(0x44f8d58a),

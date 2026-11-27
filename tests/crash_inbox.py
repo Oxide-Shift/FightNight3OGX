@@ -181,6 +181,55 @@ class Reports(unittest.TestCase):
             v4_import=dict(details,device=v4_device,failure={})
             self.assertEqual(request("POST","/v4/imports",dict(issue,id=str(uuid.uuid4()),details=v4_import))[0],201)
             self.assertEqual(request("POST","/v3/imports",dict(issue,id=str(uuid.uuid4()),details=v4_import))[0],400)
+            # Alpha 83: discs unpacked from a 7z archive report that container.
+            sevenz=dict(issue,id=str(uuid.uuid4()),format="7z",details=dict(import_details,rom=dict(import_details["rom"],container="7z")))
+            self.assertEqual(request("POST","/v4/imports",sevenz)[0],201)
+            self.assertEqual(request("POST","/v4/imports",dict(sevenz,id=str(uuid.uuid4()),
+                             details=dict(import_details,rom=dict(import_details["rom"],container="rar"))))[0],400)
+
+
+class Checkins(unittest.TestCase):
+    def test_anonymous_device_count(self):
+        with tempfile.TemporaryDirectory() as tmp, inbox_transport() as (server, request):
+            server.database = Path(tmp)/"inbox.sqlite3"
+            server.reader = "fixture-reader"
+            with closing(sqlite3.connect(server.database)) as db, db:
+                inbox.initialize(db)
+            thor = dict(id=str(uuid.uuid4()), version="0.4.0-alpha.83", version_code=105, android=33,
+                        device="thor", displays=2, playing=False)
+            self.assertEqual(request("POST", "/v1/checkin", thor)[0], 204)
+            self.assertEqual(request("POST", "/v1/checkin", dict(thor, playing=True))[0], 204)
+            phone = dict(thor, id=str(uuid.uuid4()), device="phone", displays=1)
+            self.assertEqual(request("POST", "/v1/checkin", phone)[0], 204)
+            # Only the fixed schema: no model names, free text, serials or extra fields.
+            for change in ({"device": "SM-S918B"}, {"model": "Thor"}, {"id": "not-a-uuid"}, {"playing": 1},
+                           {"displays": 0}, {"version": "free text"}, {"android": 29}, {"version_code": True}):
+                self.assertEqual(request("POST", "/v1/checkin", dict(thor, **change))[0], 400)
+            self.assertEqual(request("POST", "/v1/checkin", {k: v for k, v in thor.items() if k != "playing"})[0], 400)
+            self.assertEqual(request("GET", "/v1/devices")[0], 401)
+            rows = json.loads(request("GET", "/v1/devices", auth=server.reader)[1])
+            total = next(r for r in rows if r["grouping"] == "all")
+            self.assertEqual((total["ever"], total["active_24h"], total["open_now"], total["playing_now"], total["new_7d"]), (2, 2, 2, 1, 2))
+            self.assertEqual({r["name"]: r["active_30d"] for r in rows if r["grouping"] == "device"}, {"thor": 1, "phone": 1})
+            self.assertTrue(all("id" not in r for r in rows))
+            # Windows and expiry, with a controlled clock.
+            now = 2_000_000_000
+            path = Path(tmp)/"clock.sqlite3"
+            with closing(sqlite3.connect(path)) as db, db:
+                inbox.initialize(db)
+            old = dict(thor, id=str(uuid.uuid4()))
+            inbox.checkin(path, old, now - 200*86400)
+            inbox.checkin(path, dict(thor, id=str(uuid.uuid4())), now - 20*86400)
+            inbox.checkin(path, dict(phone, id=str(uuid.uuid4()), playing=True), now - 3*86400)
+            inbox.checkin(path, dict(phone, id=str(uuid.uuid4())), now - 60)
+            # Every write expires installs unseen for 180 days, so the 200-day-old install is already gone.
+            total = inbox.device_rows(path, now)[0]
+            self.assertEqual((total["ever"], total["active_30d"], total["active_7d"], total["active_24h"], total["open_now"], total["playing_now"]),
+                             (3, 3, 2, 1, 1, 0))
+            inbox.checkin(path, dict(phone, id=str(uuid.uuid4())), now)
+            self.assertEqual(inbox.device_rows(path, now)[0]["ever"], 4)
+            with closing(sqlite3.connect(path)) as db:
+                self.assertIsNone(db.execute("SELECT 1 FROM devices WHERE id=?", (old["id"],)).fetchone())
 
 if __name__ == "__main__":
     unittest.main()

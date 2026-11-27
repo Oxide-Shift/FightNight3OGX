@@ -42,6 +42,7 @@ public class CornerActivity extends Activity implements DisplayManager.DisplayLi
     android.graphics.Typeface customFace(){return menu==null?DiscFonts.FALLBACK.stencil:menu.fonts().stencil;}
     private ReleaseUpdates updates;
     private CrashReports crashReports;
+    private DeviceCheckin checkin;
     private PadRumble rumble;
     private boolean resumed,awake,screenOff,hingeClosed;
     private SensorManager sensors;
@@ -102,6 +103,7 @@ public class CornerActivity extends Activity implements DisplayManager.DisplayLi
             catch(IOException e){android.util.Log.i("FightNight","Interrupted import cleanup will retry",e);}
         },"Fight Night import cleanup").start();
         crashReports=new CrashReports(this);
+        checkin=new DeviceCheckin(this,prefs,this::active);
         backups=SaveBackups.get(this);
         if(!active() && !backups.selectionPending())backups.snapshot(saves());
         inputs=getSystemService(InputManager.class);
@@ -412,7 +414,7 @@ public class CornerActivity extends Activity implements DisplayManager.DisplayLi
             crashReports.record("launcher",startupExit,"unknown","LAUNCHER",0,0,"none",null,0);
             return LaunchAction.RUNTIME_UNAVAILABLE;
         }
-        if(!xbe.isFile()){engine.note="Choose your original Xbox ISO or ZIP to install Fight Night.";return LaunchAction.IMPORT_REQUIRED;}
+        if(!xbe.isFile()){engine.note="Choose your original Xbox ISO, ZIP or 7z to install Fight Night.";return LaunchAction.IMPORT_REQUIRED;}
         try{DiscImage.checkInstalledMenu(disc.toPath());}
         catch(IOException e){
             DiscImport attempt=new DiscImport(message->engine.note=message);
@@ -981,11 +983,12 @@ public class CornerActivity extends Activity implements DisplayManager.DisplayLi
         if(angle!=null)sensors.registerListener(hinge,angle,SensorManager.SENSOR_DELAY_NORMAL,main);
         inputs.registerInputDeviceListener(this,main);displays.registerDisplayListener(this,main);
         layout();syncPower();
+        checkin.start();
     }
     @Override protected void onResume(){super.onResume();resumed=true;syncPower();}
     @Override protected void onPause(){resumed=false;syncPower();super.onPause();}
     @Override protected void onStop(){
-        foreground=false;syncPower();unregisterReceiver(powerEvents);
+        foreground=false;syncPower();unregisterReceiver(powerEvents);checkin.stop();
         if(sensors!=null)sensors.unregisterListener(hinge);
         inputs.unregisterInputDeviceListener(this);displays.unregisterDisplayListener(this);closeLower();super.onStop();
     }

@@ -103,7 +103,7 @@ Press **Android Back** in a game to open Fight Setup, then **Resume bout** or **
 | Game | Fight Night Round 3 |
 | Platform | Original Xbox (not Xbox 360 or PS2) |
 | Region | USA / NTSC-U, disc `EA13402A`, title ID `45410086` |
-| Formats | Full-size Xbox disc image (7.29 GiB) or compact XISO (2.24 GiB), or a ZIP holding one of them |
+| Formats | Full-size Xbox disc image (7.29 GiB) or compact XISO (2.24 GiB), or a ZIP or 7z holding one of them |
 
 SHA-256 of `default.xbe` inside the image: `cfaf2d2c1c338a6e4e7135466c8dcb80fdf7da63682e71cfecdcba65b3682064`
 
@@ -113,7 +113,8 @@ SHA-256 of `default.xbe` inside the image: `cfaf2d2c1c338a6e4e7135466c8dcb80fdf7
 | Your copy | What to do |
 | --- | --- |
 | Full disc or compact XISO | Select the uncompressed `.iso`, `.xiso` or `.xiso.iso` directly. |
-| ZIP, 7z or RAR archive | A ZIP with a single ISO or XISO works directly. Extract 7z or RAR first. |
+| ZIP or 7z archive | An archive holding a single ISO or XISO works directly. A 7z is unpacked on the device, which takes a few minutes for a full-size disc and needs free space for the whole ISO while it installs. Extract it on a computer first if it's password-protected or packed with BCJ2, PPMd or BZip2; the app tells you if so. |
+| RAR archive | Extract it first, then select the ISO or XISO inside. |
 | Compressed (`.cci`, `.cso`, `.chd`, `.zar`) or Games on Demand | Convert to a single uncompressed XISO first. |
 | Split image (`.1.iso`, `.2.iso`, …) | Join the set with an Xbox image tool, then select the XISO. |
 | Extracted game folder | Rebuild an XISO from the folder containing `default.xbe`. |
@@ -133,12 +134,14 @@ Fight Setup can restore a renamed dashboard title, edited disc-access or region 
 | --- | --- |
 | Android refuses to install the APK | Use the complete release APK on 64-bit ARM Android 11 (API 30) or later. Updates need the same signature; export your save before switching between differently signed builds. |
 | The disc can't be read | Choose a single supported image with Android's file picker. If your provider can't keep it available, copy it to local storage first. |
-| **Wrong platform**, **Different game**, **Unrecognized disc revision** or **Unsupported container** | Check the edition and the `default.xbe` hash above (a whole-image hash differs across valid repacks). Convert 7z, RAR, compressed or split images to one ISO/XISO. **Copy details** shows the detected revision. |
+| **Wrong platform**, **Different game**, **Unrecognized disc revision** or **Unsupported container** | Check the edition and the `default.xbe` hash above (a whole-image hash differs across valid repacks). Convert RAR, compressed or split images to one ISO/XISO. **European (PAL) edition** means a genuine disc from a release this app doesn't run yet; use a USA/Canada copy. **Copy details** shows the detected revision. |
 | Preparation stops or Fight Setup closes | Reopen it and tap **Prepare game**; it reuses the extracted disc. Free storage or close large apps if needed. |
 | Black screen or back to Fight Setup | Review the crash preview, note the last screen you saw, try Low quality at 480p, and send or copy the report. |
 | The lower screen is missing | Play on the main display. Dual-screen layouts are tested on the AYN Thor only. |
 
 **Crash and import reports** are only sent when you tap **Send**, and you see exactly what's in them first: app version, device model, Android and GPU details, the game's last milestone and recent log lines with paths and anything like an email address removed. Your disc, filenames and saves never leave the device. **Copy details** copies the same report and **Skip** dismisses it.
+
+**Anonymous player count.** So the project knows roughly how many people play, the app checks in with the project server every 10 minutes while it's open. Each check-in carries a random install ID made on first launch (not linked to your device, Google account or you), the app version, your Android version, the device type the app already shows art for (Thor, RP Duo, RP6, Odin, phone or tablet), the number of screens, and whether the game is running. Nothing else is sent: no device model, name, location, disc or save data, and the server doesn't store IP addresses. It keeps only when each ID was first and last seen, and forgets IDs not seen for 180 days. Turn it off in Fight Setup → **Privacy**. Reinstalling or clearing app data makes a new ID.
 
 </details>
 
@@ -155,4 +158,4 @@ Fight Setup can restore a renamed dashboard title, edited disc-access or region 
 
 </details>
 
-[Development notes, build instructions and tool credits](docs/DEVELOPMENT.md) · [Achievement bell credit and license](third-party/BoxingBell.txt)
+[Development notes, build instructions and tool credits](docs/DEVELOPMENT.md) · [Achievement bell credit and license](third-party/BoxingBell.txt) · [7z decoder: XZ for Java (0BSD)](third-party/xz-java/NOTICE.md)

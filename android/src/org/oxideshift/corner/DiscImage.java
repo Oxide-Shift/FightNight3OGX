@@ -208,6 +208,12 @@ public final class DiscImage {
             copy(entry, null, md5);
             // Catalog MD5 identifies the pressing for display only.
             edition = PAL_XBE_MD5.equals(hex(md5.digest())) ? "Europe/PAL, EA13401E" : "PAL";
+            // The disc is a genuine copy, just a different build: say so plainly instead of calling it unrecognized.
+            throw new DiscImport.Failure(DiscImport.Reason.REVISION,"European (PAL) edition: this is a genuine Fight Night Round 3 disc ("
+                    + edition + "; Xbox title 45410086, XBE version " + Integer.toUnsignedLong(certificate.getInt(0xac))
+                    + "), but the app only runs the North American (USA/Canada, NTSC-U) release so far. "
+                    + "PAL support isn't available yet. Choose a USA/Canada copy to play."
+                    + "\n\ndefault.xbe SHA-256\n" + originalHash).xbe(title,region,certificate.getInt(0xac),originalHash);
         }
         throw new DiscImport.Failure(DiscImport.Reason.REVISION,"Unrecognized disc revision: Fight Night Round 3 (" + edition + "), Xbox title 45410086, XBE version "
                 + Integer.toUnsignedLong(certificate.getInt(0xac)) + ". This executable has no supported game build yet."

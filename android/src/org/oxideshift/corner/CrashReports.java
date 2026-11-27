@@ -108,8 +108,6 @@ final class CrashReports {
                 message+=" Check that the image is complete and all split parts have been joined.";
             if(failure.reason==DiscImport.Reason.SPACE)message+=" Free device storage and retry.";
             if(failure.reason==DiscImport.Reason.INVALID_XBE)message+=" Try an intact backup of the original Xbox disc.";
-            if(failure.reason==DiscImport.Reason.REVISION && "00000004".equals(failure.region))
-                message+=" The launcher currently supports the USA/Canada release.";
             body.put("display",message);
             savePending(body);
         }catch(org.json.JSONException e){throw new IllegalStateException(e);}
@@ -145,10 +143,12 @@ final class CrashReports {
         if(!c.isNull("call_target"))out+="\nAttempted Xbox call 0x"+c.getString("call_target");
         return out;
     }
-    private javax.net.ssl.SSLSocketFactory inboxTls;
-    private synchronized HttpURLConnection open(String path)throws IOException{
+    private static javax.net.ssl.SSLSocketFactory inboxTls;
+    private HttpURLConnection open(String path)throws IOException{return openInbox(activity,path);}
+    /** A connection to the project server that trusts only its bundled certificate (also used by DeviceCheckin). */
+    static synchronized HttpURLConnection openInbox(Context context,String path)throws IOException{
         HttpURLConnection connection=(HttpURLConnection)new URL(BASE+path).openConnection();
-        if(inboxTls==null)try(InputStream pem=activity.getAssets().open("crash-inbox.pem")){
+        if(inboxTls==null)try(InputStream pem=context.getAssets().open("crash-inbox.pem")){
             java.security.KeyStore keys=java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType());
             keys.load(null,null);
             keys.setCertificateEntry("inbox",java.security.cert.CertificateFactory.getInstance("X.509").generateCertificate(pem));

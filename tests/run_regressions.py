@@ -33,13 +33,15 @@ def main():
         java=args.jdk/"bin/java.exe"
         java_suites=["GraphicsStartupSmoke","LaunchRecoveryTest","CornerControlsSmoke","FightBroadcastSmoke","RingsidePromptSmoke","CutmanStrokeSmoke",
                "HakuSaveSmoke","ProfileSavesSmoke","DisplayCadenceSmoke","MenuStripSmoke","ControllerInputSmoke","FightEventsSmoke","CommandPipeSmoke","SessionSleepSmoke","ReleaseVersionSmoke","ReleaseAssetSmoke","DiscTraxSmoke","AchievementsSmoke","CalloutRumbleSmoke","BetweenRoundsSmoke","DiagnosticTailSmoke","LoadingCardSmoke","FightRecordSmoke","PlayNowPickSmoke","DeviceMatchSmoke","VenueCaptionSmoke"]
-        paths=[TESTS/(name+".java") for name in java_suites+["LinkSmoke","DiscInstallSmoke","RetailMenuStartupSmoke","CareerMenuSmoke"]]
-        run([javac,"--release","8","-encoding","UTF-8","-cp",args.android_jar,"-d",out,*JAVA.glob("*.java"),*paths])
+        paths=[TESTS/(name+".java") for name in java_suites+["LinkSmoke","DiscInstallSmoke","SevenZipSmoke","RetailMenuStartupSmoke","CareerMenuSmoke"]]
+        vendored=sorted((ROOT/"android/src/org/tukaani").rglob("*.java"))
+        run([javac,"--release","8","-encoding","UTF-8","-cp",args.android_jar,"-d",out,*JAVA.glob("*.java"),*vendored,*paths])
         cp=os.pathsep.join(map(str,(out,args.android_jar)))
         frames=[f for d in args.frames for f in sorted(d.glob("*.raw")) if f.name.startswith(("boxer","main","round","career-central","contract-","editor-"))]
         for name in java_suites:
             run([java,"-cp",cp,"org.oxideshift.corner."+name,*(frames if name=="RingsidePromptSmoke" else [])])
         run([java,"-cp",cp,"org.oxideshift.corner.DiscInstallSmoke",args.build/"default.xbe"])
+        run([java,"-cp",cp,"org.oxideshift.corner.SevenZipSmoke",args.build/"default.xbe"])
         for n,archive in enumerate(args.menu_archive):
             run([java,"-cp",cp,"org.oxideshift.corner.RetailMenuStartupSmoke",archive,out/("menu-"+str(n))])
             run([java,"-cp",cp,"org.oxideshift.corner.CareerMenuSmoke",Path(archive).parent.parent,out/("career-"+str(n))])

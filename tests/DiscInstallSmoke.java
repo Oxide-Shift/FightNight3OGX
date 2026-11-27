@@ -284,7 +284,8 @@ public class DiscInstallSmoke {
                         || !"2".equals(failure.revision) || failure.hash.length()!=64 || !"verify".equals(attempt.stage) || !"xiso".equals(attempt.format))
                     throw new AssertionError("Missing structured verification diagnostics");
             }
-            reject(unknown,archive,"7z archive","Extract");
+            // A bare 7z signature now reaches the 7z reader, which reports the archive as cut short.
+            reject(unknown,archive,"7z archive","ended");
             Path wrapped=Files.write(temp.resolve("archive"),archive);
             try(FileChannel file=FileChannel.open(wrapped)){
                 try{new DiscImage(file);throw new AssertionError("Accepted compressed archive");}

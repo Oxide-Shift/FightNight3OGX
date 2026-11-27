@@ -36,8 +36,9 @@ final class DiscImport implements GameLibrary.Status {
     @Override public void update(String text){display.update(text);}
     @Override public void stage(String value){stage=value;}
     @Override public void format(String value){
+        // The archive format wins over the ISO layout found inside it.
         if(!zipContainer)format=value;
-        if(value.equals("zip"))zipContainer=true;
+        if(value.equals("zip") || value.equals("7z"))zipContainer=true;
     }
     void filenameHint(String name){
         if(name==null)return;

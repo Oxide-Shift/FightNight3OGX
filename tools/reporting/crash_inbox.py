@@ -23,6 +23,12 @@ IMPORT_FIELDS = {"id", "version", "android", "reason", "stage", "format", "bytes
 IMPORT_FORMATS = {"unknown", "iso", "xiso", "img", "zip", "7z", "rar", "chd", "cci", "cso", "ziso", "zar", "split", "xbe", "xex"}
 CONTEXT_FIELDS = {"manufacturer", "model", "abi", "milestone", "elapsed_ms", "last_frame", "call_target", "msaa", "anisotropy", "fps_limit"}
 MILESTONES = {"launch", "linked", "kernel", "guest", "frame", "intro", "menu", "bout"}
+# Anonymous player count (DeviceCheckin.java): a random install ID, never an IP address or device identifier.
+CHECKIN_FIELDS = {"id", "version", "version_code", "android", "device", "displays", "playing"}
+DEVICE_TYPES = {"thor", "duo", "rp6", "odin", "phone", "tablet"}
+CHECKIN_KEEP_DAYS = 180
+CHECKIN_MAX_DEVICES = 500000
+NOW_SECONDS = 15*60  # the app checks in every 10 minutes while open
 
 # Each optional field has a defined type and range. Partial imports have only the observations reached so far.
 def log_tail_ok(value):
@@ -49,7 +55,7 @@ def validate_details(details, importing, report, extended=False, v4=False):
                       display_count=(0,64), lower_display=r"[0-9]{1,5}x[0-9]{1,5}@[0-9]{1,7}",
                       controllers=r"none|[0-9a-f]{4}:[0-9a-f]{4}(?:,[0-9a-f]{4}:[0-9a-f]{4}){0,5}")
     rom = dict.fromkeys(("selected_bytes","image_bytes","partition_offset","payload_bytes","source_xbe_bytes","installed_xbe_bytes"),size)
-    rom.update(origin={"import","installed_only"}, container={"raw","zip"}, layout={"xiso","partitioned"}, files=(0,25000),
+    rom.update(origin={"import","installed_only"}, container={"raw","zip","7z"}, layout={"xiso","partitioned"}, files=(0,25000),
                title=hex8, region=hex8, media_mask=hex8, disc_number=uint, revision=uint,
                source_xbe_sha256=hash256, installed_xbe_sha256=hash256, disc_files_sha256=hash256,
                image_sha1=r"[0-9a-f]{40}", selected_sha1=r"[0-9a-f]{40}",
@@ -148,6 +154,57 @@ def validate(report, importing=False):
             raise ValueError(key)
 
 
+def validate_checkin(report):
+    if not isinstance(report, dict) or set(report) != CHECKIN_FIELDS:
+        raise ValueError("schema")
+    if not isinstance(report["id"], str) or str(uuid.UUID(report["id"], version=4)) != report["id"]:
+        raise ValueError("id")
+    if not isinstance(report["version"], str) or not re.fullmatch(
+            r"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(?:-(?:alpha|beta|rc)\.[0-9]{1,5}(?:\.[0-9]{1,3})?)?", report["version"]):
+        raise ValueError("version")
+    for key, low, high in (("version_code", 1, 2**31-1), ("android", 30, 100), ("displays", 1, 16)):
+        if type(report[key]) is not int or not low <= report[key] <= high:
+            raise ValueError(key)
+    if report["device"] not in DEVICE_TYPES:
+        raise ValueError("device")
+    if type(report["playing"]) is not bool:
+        raise ValueError("playing")
+
+
+def checkin(path, report, now=None):
+    validate_checkin(report)
+    now = int(time.time()) if now is None else now
+    playing = now if report["playing"] else None
+    with closing(sqlite3.connect(path, timeout=3)) as db, db:
+        db.execute("BEGIN IMMEDIATE")
+        db.execute("DELETE FROM devices WHERE last_seen < ?", (now - CHECKIN_KEEP_DAYS*86400,))
+        known = db.execute("SELECT 1 FROM devices WHERE id=?", (report["id"],)).fetchone()
+        if not known and db.execute("SELECT COUNT(*) FROM devices").fetchone()[0] >= CHECKIN_MAX_DEVICES:
+            raise OverflowError("device table full")
+        db.execute("""INSERT INTO devices (id,first_seen,last_seen,last_playing,version,version_code,android,device,displays)
+            VALUES (:id,:now,:now,:playing,:version,:version_code,:android,:device,:displays)
+            ON CONFLICT(id) DO UPDATE SET last_seen=:now, last_playing=coalesce(:playing,last_playing),
+              version=:version, version_code=:version_code, android=:android, device=:device, displays=:displays""",
+                   dict(report, now=now, playing=playing))
+
+
+def device_rows(path, now=None):
+    """Unique installs: ever (kept 180 days), active in the last 30/7/1 days, open now, and playing now."""
+    now = int(time.time()) if now is None else now
+    windows = dict(d30=now-30*86400, d7=now-7*86400, d1=now-86400, now=now-NOW_SECONDS)
+    counts = """count(*) AS ever, sum(last_seen>=:d30) AS active_30d, sum(last_seen>=:d7) AS active_7d,
+        sum(last_seen>=:d1) AS active_24h, sum(last_seen>=:now) AS open_now,
+        sum(coalesce(last_playing,0)>=:now) AS playing_now, sum(first_seen>=:d7) AS new_7d"""
+    with closing(sqlite3.connect(path.as_uri()+"?mode=ro", uri=True)) as db:
+        db.row_factory = sqlite3.Row
+        rows = [dict(row) for row in db.execute(f"SELECT 'all' AS grouping, 'all' AS name, {counts} FROM devices", windows)]
+        for column in ("version", "device"):
+            rows += [dict(row) for row in db.execute(
+                f"SELECT '{column}' AS grouping, {column} AS name, {counts} FROM devices WHERE last_seen>=:d30 "
+                f"GROUP BY {column} ORDER BY active_30d DESC, name", windows)]
+        return rows
+
+
 def initialize(db):
     db.execute("""CREATE TABLE IF NOT EXISTS reports (
         id TEXT PRIMARY KEY, received INTEGER NOT NULL, version TEXT, component TEXT,
@@ -162,6 +219,10 @@ def initialize(db):
     for child, parent in (("crash_details","reports"),("import_details","disc_imports")):
         db.execute(f"""CREATE TABLE IF NOT EXISTS {child} (
             id TEXT PRIMARY KEY REFERENCES {parent}(id) ON DELETE CASCADE, details TEXT NOT NULL)""")
+    db.execute("""CREATE TABLE IF NOT EXISTS devices (
+        id TEXT PRIMARY KEY, first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL, last_playing INTEGER,
+        version TEXT, version_code INTEGER, android INTEGER, device TEXT, displays INTEGER)""")
+    db.execute("CREATE INDEX IF NOT EXISTS devices_last_seen ON devices(last_seen)")
 
 
 def accept(path, report, importing=False, detailed=False, rich=False, extended=False, v4=False):
@@ -244,13 +305,15 @@ class Inbox(BaseHTTPRequestHandler):
         if self.path in ("/v1/health","/v2/health"):
             return self.respond(200)
         route = urlsplit(self.path)
-        if route.path not in ("/v1/digest", "/v1/import-digest", "/v1/crashes", "/v2/imports"):
+        if route.path not in ("/v1/digest", "/v1/import-digest", "/v1/crashes", "/v2/imports", "/v1/devices"):
             return self.respond(404)
         expected = "Bearer " + self.server.reader
         supplied = self.headers.get("Authorization", "")
         if not hmac.compare_digest(supplied.encode("utf8"), expected.encode("ascii")):
             return self.respond(401)
-        if route.path in ("/v1/crashes","/v2/imports"):
+        if route.path == "/v1/devices":
+            rows = device_rows(self.server.database.resolve())
+        elif route.path in ("/v1/crashes","/v2/imports"):
             try:
                 filters = parse_qs(route.query, strict_parsing=True, max_num_fields=2)
                 if set(filters)-{"version","exit"} or any(len(v)!=1 for v in filters.values()):
@@ -273,6 +336,8 @@ class Inbox(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        if self.path == "/v1/checkin":
+            return self.checkin()
         if self.path not in ("/v1/reports", "/v1/imports", "/v1/crashes", "/v2/imports", "/v2/crashes", "/v3/imports", "/v3/crashes",
                              "/v4/imports", "/v4/crashes"):
             return self.respond(404)
@@ -294,6 +359,23 @@ class Inbox(BaseHTTPRequestHandler):
         except (sqlite3.Error, OverflowError):
             return self.respond(503)
         self.respond(201)
+
+    def checkin(self):
+        if self.headers.get_content_type() != "application/json":
+            return self.respond(415)
+        # Check-ins have their own, higher budget so many players behind one carrier address are still counted.
+        if hasattr(self.server, "allow_report") and not self.server.allow_report("checkin:" + self.client_address[0], 120):
+            return self.respond(429)
+        try:
+            size = int(self.headers.get("Content-Length", "0"))
+            if not 0 < size <= 512:
+                return self.respond(413)
+            checkin(self.server.database, json.loads(self.rfile.read(size)))
+        except (ValueError, KeyError, TypeError, AttributeError, RecursionError):
+            return self.respond(400)
+        except (sqlite3.Error, OverflowError):
+            return self.respond(503)
+        self.respond(204)
 
 
 class SecureInbox(ThreadingMixIn, HTTPServer):
@@ -328,7 +410,7 @@ class SecureInbox(ThreadingMixIn, HTTPServer):
             request.close()
             self.slots.release()
 
-    def allow_report(self, address):
+    def allow_report(self, address, limit=12):
         # Short-lived burst limit. No IP address is logged or written to disk.
         now = int(time.monotonic()) // 60
         with self.rate_lock:
@@ -339,7 +421,7 @@ class SecureInbox(ThreadingMixIn, HTTPServer):
             minute, count = self.limits.get(address, (now, 0))
             count = count + 1 if minute == now else 1
             self.limits[address] = now, count
-            return count <= 12
+            return count <= limit
 
 
 def crash_rows(path, version=None, code=None):

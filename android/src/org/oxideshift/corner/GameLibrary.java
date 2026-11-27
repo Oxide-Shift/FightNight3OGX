@@ -36,9 +36,10 @@ public final class GameLibrary {
             byte[] signature = new byte[6];
             try { new DataInputStream(input).readFully(signature); }
             catch (EOFException shortInput) { throw new EOFException("The selected Xbox disc image is truncated."); }
-            DiscImage.checkContainer(signature);
+            String container=SevenZip.matches(signature)?"7z":isZip(signature)?"zip":"raw";
+            if(container.equals("raw"))DiscImage.checkContainer(signature);
             input.reset();
-            return importStream(input,length==0?-1:length,stage,target,isZip(signature),status,prepare);
+            return importStream(input,length==0?-1:length,stage,target,container,status,prepare);
         } finally { clearStage(stage); }
     }
 
@@ -55,12 +56,18 @@ public final class GameLibrary {
             try{
                 source.position(offset);
                 DataInputStream input=new DataInputStream(Channels.newInputStream(source));
-                byte[] signature=new byte[4];
+                byte[] signature=new byte[6];
                 if(length>=signature.length)input.readFully(signature);
                 if(isZip(signature)){
                     source.position(offset);
                     // Android document providers can return a slice of a larger file.
-                    return importStream(input,length,stage,target,true,status,prepare);
+                    return importStream(input,length,stage,target,"zip",status,prepare);
+                }
+                if(SevenZip.matches(signature)){
+                    // 7z keeps its index at the end: read the archive in place instead of copying it first.
+                    DiscFacts facts=new DiscFacts();
+                    facts.put("origin","import");facts.put("selected_bytes",length);status.discFacts(facts);
+                    return importSevenZip(source,offset,length,stage,target,status,prepare,facts,null);
                 }
             }finally{source.position(previous);}
             status.stage("verify");
@@ -74,12 +81,24 @@ public final class GameLibrary {
                 ((signature[2]==3 && signature[3]==4) || (signature[2]==5 && signature[3]==6));
     }
 
-    private static String importStream(InputStream input,long length,Path stage,Path target,boolean zipped,
+    private static String importStream(InputStream input,long length,Path stage,Path target,String container,
                                        Status status,Prepare prepare)throws Exception{
         Path image=stage.resolve("source.iso");
         DiscFacts facts=new DiscFacts();
         facts.put("origin","import");status.discFacts(facts);
         java.security.MessageDigest sha1=java.security.MessageDigest.getInstance("SHA-1");
+        boolean zipped=container.equals("zip");
+        if(container.equals("7z")){
+            // A pipe-backed provider: keep a seekable copy of the archive while the disc is unpacked from it.
+            status.format("7z");
+            status.stage("unpack");
+            Path archive=stage.resolve("source.7z");
+            copyImage(input,length,archive,"Reading disc 7z",status,null,sha1);
+            facts.put("selected_bytes",Files.size(archive));facts.put("selected_sha1",DiscFacts.hex(sha1.digest()));
+            try(FileChannel channel=FileChannel.open(archive,StandardOpenOption.READ)){
+                return importSevenZip(channel,0,channel.size(),stage,target,status,prepare,facts,archive);
+            }
+        }
         if(zipped){
             facts.put("container","zip");
             status.format("zip");
@@ -111,14 +130,49 @@ public final class GameLibrary {
             copyImage(input,length,image,"Copying disc",status,null,sha1);
             if(length>=0 && input.read()!=-1)throw new DiscImport.Failure(DiscImport.Reason.TRUNCATED,"The provider returned more data than the selected disc size.");
         }
+        return installImage(image,stage,target,status,prepare,facts,zipped?"zip":"raw",zipped?length:-1,sha1);
+    }
+
+    /** Unpacks the archive's one disc image into the stage, then verifies and installs it like a plain ISO. */
+    private static String importSevenZip(FileChannel source,long offset,long length,Path stage,Path target,Status status,
+                                         Prepare prepare,DiscFacts facts,Path consumed)throws Exception{
+        facts.put("container","7z");
+        status.format("7z");
+        status.stage("unpack");
+        status.update("Reading 7z archive");
+        Path image=stage.resolve("source.iso");
+        java.security.MessageDigest sha1=java.security.MessageDigest.getInstance("SHA-1");
+        try{
+            SevenZip.Entry disc=SevenZip.find(source,offset,length);
+            CRC32 checksum=disc.crc==null?null:new CRC32();
+            try(InputStream member=SevenZip.open(source,offset,length,disc)){
+                copyImage(member,disc.size,image,"Unpacking Xbox ISO from 7z",status,checksum,sha1);
+            }
+            if(checksum!=null && checksum.getValue()!=disc.crc)throw SevenZip.corrupt();
+        }catch(org.tukaani.xz.MemoryLimitException|OutOfMemoryError tooLarge){
+            throw new DiscImport.Failure(DiscImport.Reason.ARCHIVE,"This 7z was packed with a dictionary too large for this device's memory. "
+                    +"Extract the ISO on a computer, or repack it with 7-Zip's normal settings, then select it.").format("7z");
+        }catch(org.tukaani.xz.UnsupportedOptionsException unsupported){
+            throw new DiscImport.Failure(DiscImport.Reason.ARCHIVE,"This 7z uses compression settings the app can't unpack. "
+                    +"Extract the ISO on a computer, then select it.").format("7z");
+        }catch(org.tukaani.xz.XZIOException|java.util.zip.ZipException|EOFException damaged){
+            // Decoder errors here mean damaged or truncated archive data, not an unreadable document.
+            throw SevenZip.corrupt();
+        }
+        if(consumed!=null)Files.delete(consumed);
+        return installImage(image,stage,target,status,prepare,facts,"7z",length,sha1);
+    }
+
+    private static String installImage(Path image,Path stage,Path target,Status status,Prepare prepare,DiscFacts facts,
+                                       String container,long selectedBytes,java.security.MessageDigest sha1)throws Exception{
         status.update("Verifying copied disc");
         status.stage("verify");
         String imageHash=DiscFacts.hex(sha1.digest());
         facts.put("image_sha1",imageHash);
-        if(!zipped)facts.put("selected_sha1",imageHash);
+        if(container.equals("raw"))facts.put("selected_sha1",imageHash);
         java.util.concurrent.FutureTask<String> build;
         try(FileChannel channel=FileChannel.open(image,StandardOpenOption.READ)){
-            build=extract(new DiscImage(channel,0,channel.size(),status,facts,zipped?"zip":"raw",zipped?length:channel.size()),stage,status,prepare);
+            build=extract(new DiscImage(channel,0,channel.size(),status,facts,container,selectedBytes<0?channel.size():selectedBytes),stage,status,prepare);
         }
         // Streaming providers need a seekable copy only until extraction completes.
         Files.delete(image);
