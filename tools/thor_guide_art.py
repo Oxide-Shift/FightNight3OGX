@@ -93,6 +93,37 @@ def device_art(kind, scale):
         box((598, 47, 639, 82), 2, bezel, "#9da1aa")
         box((600, 49, 637, 79), 1, "#22252c")
         controls(edge, True)
+    elif kind == "rp6":
+        # A single-screen landscape handheld: slim rounded slab, 16:9 screen between the controls.
+        shell, edge = "#2c2d33", "#9a9da6"
+        box((581, 36, 656, 82), 12, shell, edge)
+        box((586, 33, 600, 37), 2, "#3a3b42", edge)
+        box((637, 33, 651, 37), 2, "#3a3b42", edge)
+        box((598, 42, 639, 68), 2, "#111215", "#5f626b")
+        screen((600, 44, 637, 66))
+        controls(edge, True)
+    elif kind == "odin":
+        # A larger single-screen handheld with sculpted grips and a near edge-to-edge screen.
+        shell, edge = "#1e1f24", "#a7aab3"
+        box((581, 34, 656, 78), 10, shell, edge)
+        oval((581, 58, 603, 86), shell, edge)
+        oval((634, 58, 656, 86), shell, edge)
+        box((583, 36, 654, 76), 9, shell)
+        box((597, 39, 640, 66), 2, "#0c0d10", "#6e717a")
+        screen((598, 40, 639, 65))
+        box((585, 31, 599, 35), 2, "#2e3036", edge)
+        box((638, 31, 652, 35), 2, "#2e3036", edge)
+        controls(edge, True)
+    elif kind == "tablet":
+        # A tablet in landscape above a separate controller.
+        box((582, 2, 655, 40), 3, "#2a2b30", "#8f929b")
+        screen((585, 5, 652, 37))
+        shell, edge = "#2d2e34", "#8f929b"
+        oval((581, 52, 605, 86), shell, edge)
+        oval((632, 52, 656, 86), shell, edge)
+        box((583, 43, 654, 78), 12, shell, edge)
+        box((585, 45, 652, 76), 11, shell)
+        controls(edge, True)
     else:
         # A phone in landscape, clamped in a telescopic controller.
         grip, edge = "#2d2e34", "#8f929b"
@@ -105,12 +136,20 @@ def device_art(kind, scale):
     return image
 
 
-def selector():
+KINDS = ("thor", "duo", "rp6", "odin", "phone", "tablet")
+
+
+def selector(kind="thor"):
     # The disc mesh maps the upper-left 68 x 54 texels of a 128 x 64 sprite.
     image = Image.new("RGBA", (128, 64))
-    device = handheld(4)
+    device = device_art(kind, 4)
+    # Trim the empty frame so single-screen devices fill the icon as fully as the clamshells.
+    # (The Thor icon keeps its shipped framing byte for byte.)
+    bounds = device.getbbox()
+    if bounds and kind != "thor":
+        device = device.crop(bounds)
     device.thumbnail((66, 51), Image.Resampling.LANCZOS)
-    image.alpha_composite(device, ((68-device.width)//2, 1))
+    image.alpha_composite(device, ((68-device.width)//2, 1 if kind == "thor" else (54-device.height)//2))
     return image
 
 
@@ -195,8 +234,7 @@ def bc2(image):
 
 
 if __name__=="__main__":
-    target=Path(__file__).resolve().parents[1]/"android/assets/thor-guide.dxt3"
-    target.write_bytes(bc2(backdrop()))
-    target.with_name("duo-guide.dxt3").write_bytes(bc2(backdrop("duo")))
-    target.with_name("phone-guide.dxt3").write_bytes(bc2(backdrop("phone")))
-    target.with_name("thor-selector.dxt3").write_bytes(bc2(selector()))
+    assets=Path(__file__).resolve().parents[1]/"android/assets"
+    for kind in KINDS:
+        assets.joinpath(kind+"-guide.dxt3").write_bytes(bc2(backdrop(kind)))
+        assets.joinpath(kind+"-selector.dxt3").write_bytes(bc2(selector(kind)))

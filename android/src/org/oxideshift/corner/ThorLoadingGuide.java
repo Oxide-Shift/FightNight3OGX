@@ -46,10 +46,14 @@ final class ThorLoadingGuide {
     /** The handheld the guide is drawn for. The art keeps the Thor's control positions, so only the title,
      *  the backdrop and the Thor-only face-letter row change. */
     enum Device {
-        THOR("AYN THOR",'T',"thor-guide.dxt3"),DUO("RETROID POCKET DUO",'D',"duo-guide.dxt3"),PHONE("PHONE + CONTROLLER",'P',"phone-guide.dxt3");
-        final String title;final char code;final String art;
-        Device(String title,char code,String art){this.title=title;this.code=code;this.art=art;}
+        THOR("AYN THOR",'T',"thor"),DUO("RETROID POCKET DUO",'D',"duo"),PHONE("PHONE + CONTROLLER",'P',"phone"),
+        RP6("RETROID POCKET 6",'R',"rp6"),ODIN("AYN ODIN 3 PORTAL",'O',"odin"),TABLET("TABLET + CONTROLLER",'B',"tablet");
+        final String title;final char code;
+        /** Loading backdrop (512x256) and corner-select icon (128x64), both BC2 assets from tools/thor_guide_art.py. */
+        final String art,selector;
+        Device(String title,char code,String kind){this.title=title;this.code=code;art=kind+"-guide.dxt3";selector=kind+"-selector.dxt3";}
         static Device random(){Device[] all=values();return all[(int)(Math.random()*all.length)];}
+        static Device of(char code){for(Device d:values())if(d.code==code)return d;return null;}
     }
     private static boolean title(String label){
         for(Device d:Device.values())if(d.title.equals(label))return true;

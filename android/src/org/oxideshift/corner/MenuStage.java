@@ -41,18 +41,33 @@ final class MenuStage extends View {
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
     }
     void spotlight(Achievements.Award next,boolean isEarned,String categoryTitle,int categoryHave,int categoryTotal,int overallHave,int overallTotal,int fightScore){
-        boolean changed=record || next!=award || isEarned!=earned;
-        record=false;spin.cancel();
+        boolean changed=record || ledger || next!=award || isEarned!=earned;
+        record=false;ledger=false;spin.cancel();
         award=next;earned=isEarned;category=categoryTitle;have=categoryHave;total=categoryTotal;allHave=overallHave;allTotal=overallTotal;score=fightScore;
         setContentDescription(next==null?categoryTitle:next.title+". "+(isEarned?"Earned. "+next.deed:"Locked. "+next.goal)+
                 " "+categoryTitle+", "+categoryHave+" of "+categoryTotal+" earned.");
         if(changed)animatePop();
         invalidate();
     }
+    // Fight Record summary state
+    private boolean ledger;
+    private String ledgerTitle="";
+    private long wins,losses,draws,stoppages,knockdowns,landed,thrown;
+    /** The Fight Record page's lower-screen card: the book's W-L-D, stoppages, knockdowns and accuracy. */
+    void recordSummary(String title,long w,long l,long d,long stops,long downs,long hit,long threw){
+        boolean changed=!ledger || !title.equals(ledgerTitle);
+        ledger=true;record=false;spin.cancel();
+        ledgerTitle=title;wins=w;losses=l;draws=d;stoppages=stops;knockdowns=downs;landed=hit;thrown=threw;
+        int accuracy=FightRecord.percent(hit,threw);
+        setContentDescription(title+": "+w+" wins, "+l+" losses, "+d+" draws. "+stops+" stoppages, "+downs+" knockdowns"
+                +(accuracy<0?".":", "+accuracy+" percent accuracy."));
+        if(changed)animatePop();
+        invalidate();
+    }
     void record(FightBroadcast.Song playing,boolean fightsOn,boolean expandedOn){record(playing,fightsOn,expandedOn,false);}
     void record(FightBroadcast.Song playing,boolean fightsOn,boolean expandedOn,boolean isPaused){
         boolean changed=!record || playing!=song && (playing==null || song==null || !playing.title.equals(song.title));
-        record=true;song=playing;fights=fightsOn;expanded=expandedOn;paused=isPaused;
+        ledger=false;record=true;song=playing;fights=fightsOn;expanded=expandedOn;paused=isPaused;
         setContentDescription(playing==null?"No track playing.":(isPaused?"Paused: ":"Now playing ")+playing.title+" by "+playing.artist+".");
         if(changed)animatePop();
         // A paused record stops where it is (the angle is kept) and picks up from there.
@@ -95,7 +110,32 @@ final class MenuStage extends View {
         ink.setShader(new RadialGradient(w*.5f,h*.38f,Math.max(w,h)*.8f,0xff3d1a10,0xff120806,Shader.TileMode.CLAMP));
         c.drawRect(0,0,w,h,ink);ink.setShader(null);
         ink.setColor(GameInk.ORANGE);c.drawRect(0,0,w,2*dp,ink);
-        if(record)drawRecord(c,w,h);else drawSpotlight(c,w,h);
+        if(ledger)drawLedger(c,w,h);else if(record)drawRecord(c,w,h);else drawSpotlight(c,w,h);
+    }
+    private void drawLedger(Canvas c,float w,float h){
+        float pad=18*dp,pop=Math.min(1f,Math.max(0f,fraction));
+        text(c,ledgerTitle,pad,pad+10*sp,stencil,13,GameInk.GOLD,Paint.Align.LEFT);
+        // The record counts up as the card pops in.
+        String line=Math.round(wins*pop)+" - "+Math.round(losses*pop)+" - "+Math.round(draws*pop);
+        float size=fit(line,stencil,64,w-2*pad);
+        ink.setShadowLayer(3*dp,0,2*dp,0xff0a0504);
+        text(c,line,w/2,h*.36f+size*sp*.35f,stencil,size,GameInk.GOLD,Paint.Align.CENTER);
+        ink.clearShadowLayer();
+        text(c,"WINS   •   LOSSES   •   DRAWS",w/2,h*.36f+size*sp*.35f+20*sp,stencil,12,GameInk.MUTED,Paint.Align.CENTER);
+        // Three stat medallions along the bottom.
+        int accuracy=FightRecord.percent(landed,thrown);
+        String[] values={String.valueOf(Math.round(stoppages*pop)),String.valueOf(Math.round(knockdowns*pop)),accuracy<0?"—":Math.round(accuracy*pop)+"%"};
+        String[] labels={"STOPPAGES","KNOCKDOWNS","ACCURACY"};
+        float cell=(w-2*pad)/3f,cy=h-pad-34*dp,r=Math.min(30*dp,cell*.3f);
+        for(int i=0;i<3;i++){
+            float cx=pad+cell*(i+.5f);
+            ink.setStyle(Paint.Style.STROKE);ink.setStrokeWidth(3*dp);ink.setColor(0xff4a2419);c.drawCircle(cx,cy,r,ink);
+            ink.setColor(0xffe8ac32);ink.setStrokeCap(Paint.Cap.ROUND);box.set(cx-r,cy-r,cx+r,cy+r);
+            c.drawArc(box,-90,360f*pop,false,ink);
+            ink.setStyle(Paint.Style.FILL);ink.setStrokeCap(Paint.Cap.BUTT);
+            text(c,values[i],cx,cy+6*sp,stencil,fit(values[i],stencil,18,r*1.7f),GameInk.TEXT,Paint.Align.CENTER);
+            text(c,labels[i],cx,cy+r+15*sp,stencil,10,GameInk.MUTED,Paint.Align.CENTER);
+        }
     }
 
     private void drawSpotlight(Canvas c,float w,float h){

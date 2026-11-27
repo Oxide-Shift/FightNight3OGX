@@ -133,8 +133,7 @@ final class ContractReport extends LinearLayout {
         if(!entering && shown==offer)return;
         shown=offer;
         if(offer!=null && isShown() && isAttachedToWindow() && ValueAnimator.areAnimatorsEnabled()){
-            opponent.animate().cancel();opponent.setTranslationX(dp(8));
-            opponent.animate().translationX(0).setDuration(200).start();
+            SheetMotion.nudge(opponent,1);
         }
         opponent.setText(offer==null?"NO OFFER YET":offer.name);
         record.setVisibility(offer==null || offer.rival!=null?VISIBLE:GONE);

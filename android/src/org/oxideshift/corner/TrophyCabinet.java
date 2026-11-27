@@ -35,7 +35,7 @@ final class TrophyCabinet extends View {
         if(moved){previous=slot;}
         mask=earned;slot=selected;
         setContentDescription(describe(earned,selected));
-        if(entering && SheetMotion.on() && isShown()){pop.cancel();fraction=0;pop.setInterpolator(SheetMotion.settle());pop.start();}
+        if(entering && SheetMotion.on() && isShown()){pop.cancel();fraction=0;pop.setInterpolator(SheetMotion.arrive());pop.start();}
         // Hover: the new selection rises with a little overshoot while the previous one settles back.
         if(moved && SheetMotion.on() && isShown()){
             raise.cancel();hover=0;raise.setInterpolator(new android.view.animation.OvershootInterpolator(1.4f));raise.start();

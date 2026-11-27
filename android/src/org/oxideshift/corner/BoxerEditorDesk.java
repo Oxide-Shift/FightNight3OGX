@@ -130,7 +130,7 @@ final class BoxerEditorDesk extends LinearLayout {
             if(fresh>=0 && SheetMotion.on() && isShown()){
                 // The newly ticked segment and its pencil tick draw themselves in.
                 grow=android.animation.ValueAnimator.ofFloat(0f,1f).setDuration(320);
-                grow.setInterpolator(SheetMotion.settle());
+                grow.setInterpolator(SheetMotion.arrive());
                 grow.addUpdateListener(a->{sweep=(float)a.getAnimatedValue();invalidate();});
                 sweep=0;grow.start();
             }else sweep=1f;

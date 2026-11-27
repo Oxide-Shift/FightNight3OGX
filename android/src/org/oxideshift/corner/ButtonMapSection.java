@@ -37,6 +37,7 @@ final class ButtonMapSection extends LinearLayout {
             LinearLayout row=new LinearLayout(c);row.setGravity(Gravity.CENTER_VERTICAL);
             row.setBackground(new RippleDrawable(ColorStateList.valueOf(0x44f8d58a),new BillSelect(density(),false),null));
             row.setFocusable(true);row.setClickable(true);row.setMinimumHeight(dp(44));row.setPadding(dp(19),0,dp(16),0);
+            row.setStateListAnimator(FightMenu.pressAndLift());
             row.addView(text(PadMap.XBOX[xbox],16,GameInk.TEXT,face),new LayoutParams(0,-2,1));
             TextView physical=text("",15,GameInk.MUTED,face);row.addView(physical);
             value[xbox]=physical;tile[xbox]=row;
@@ -49,6 +50,7 @@ final class ButtonMapSection extends LinearLayout {
         reset.setMinHeight(dp(48));reset.setMinimumHeight(dp(48));reset.setTextSize(16);reset.setTypeface(face);
         reset.setPadding(dp(19),dp(3),dp(12),dp(4));reset.setTextColor(new ColorStateList(new int[][]{{-android.R.attr.state_enabled},{}},new int[]{0x80baafa0,GameInk.TEXT}));
         reset.setOnClickListener(v->save(PadMap.standard(),"Default buttons restored. "+HINT));
+        reset.setStateListAnimator(FightMenu.pressAndLift());
         LayoutParams lp=new LayoutParams(-1,-2);lp.topMargin=dp(6);addView(reset,lp);
         refresh();
     }

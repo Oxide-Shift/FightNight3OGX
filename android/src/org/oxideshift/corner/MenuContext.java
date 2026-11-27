@@ -154,10 +154,12 @@ final class MenuContext {
     }
     // Career Central marks the focused row with a green A. Its store, trophy,
     // editor and options rows share this layout below the main fight action.
-    private static final int[] CAREER_ROWS={91,119,146,173,200};
-    int careerRow(LiveFrame frame){
+    // With FIGHT RECORD added the rows keep their spacing and a sixth (Options) follows at 227.
+    private static final int[] CAREER_ROWS={91,119,146,173,200,227};
+    int careerRow(LiveFrame frame){return careerRow(frame,CareerMenu.active);}
+    int careerRow(LiveFrame frame,boolean sixRows){
         int found=-1;
-        for(int i=0;i<CAREER_ROWS.length;i++){
+        for(int i=0;i<(sixRows?6:5);i++){
             int green=0;
             for(int y=CAREER_ROWS[i]-8;y<=CAREER_ROWS[i]+8;y+=2)for(int x=400;x<420;x+=2){
                 int c=frame.at(x,y);

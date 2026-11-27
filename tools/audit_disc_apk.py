@@ -11,9 +11,11 @@ from build_disc_kit import NATIVES
 
 def audit(apk):
     required = {"AndroidManifest.xml", "classes.dex", "resources.arsc", "res/raw/corner_unlock.wav",
-                "assets/achievement-badges.webp", "assets/crash-inbox.pem", "assets/thor-guide.dxt3", "assets/duo-guide.dxt3", "assets/phone-guide.dxt3", "assets/thor-selector.dxt3", "assets/corner.html", "assets/ring-focus-loop.ogg", "assets/BoxingBell.txt",
+                "assets/achievement-badges.webp", "assets/crash-inbox.pem", "assets/corner.html", "assets/ring-focus-loop.ogg", "assets/BoxingBell.txt",
                 "assets/disc-kit.zip", "assets/disc-kit.id"}
     required.update("assets/expanded/"+title+".mp3" for title in EXPANDED)
+    # Original controls art (tools/thor_guide_art.py): a loading backdrop and a corner icon per device.
+    required.update("assets/"+kind+"-"+part+".dxt3" for kind in ("thor","duo","rp6","odin","phone","tablet") for part in ("guide","selector"))
     required.update({"res/drawable-nodpi-v4/corner_glove.png","res/mipmap-xxxhdpi-v4/fight_night.png","res/mipmap-anydpi-v26/fight_night.xml"})
     required.update("lib/arm64-v8a/" + name for name in NATIVES)
     signatures = {"META-INF/CORNER.RSA", "META-INF/CORNER.SF", "META-INF/MANIFEST.MF"}

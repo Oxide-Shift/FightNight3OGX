@@ -126,29 +126,42 @@ final class TransitionMirror {
         float plate=frame<56?0f:frame<=m.changeFrame?Math.min(1f,(frame-56)/10f):Math.max(0f,1f-(frame-m.changeFrame)/4f);
         if(plate>0f)plate(c,w,h,stencil,dp,now,plate,reduced);
     }
+    /** The retail plate's palette: the transition movie's own bar orange and red (as its geometry draws them), with
+     *  near-black figures. Picking colours from a screenshot instead left the plate paler than the bars, because the
+     *  Thor's lower display mutes saturated colours: these source values come out exactly like the bars beside them. */
+    static final int PLATE_ORANGE=0xffff8a00,PLATE_RED=0xffa01614,FIGURE=0xff120705,FIGURE_RIM=0xffb5672a;
+    private final Sparring sparring=new Sparring();
+    /** In the retail style: two boxers sparring in silhouette on an orange strip, LOADING in orange stencil on the red
+     *  strip below. The strips open from the centre; the boxers rise in and the letters stamp down once it is open. */
     private void plate(Canvas c,int w,int h,Typeface stencil,float dp,long now,float open,boolean reduced){
-        float ph=Math.max(46*dp,h*.12f),py=(h-ph)/2f,half=w*.5f*(1f-(1f-open)*(1f-open)*(1f-open));
-        ink.setShader(null);ink.setStyle(Paint.Style.FILL);
-        ink.setColor(0xf0170a07);c.drawRect(w/2f-half,py,w/2f+half,py+ph,ink);
-        ink.setColor(0xffaa642a);float rule=Math.max(1f,1.5f*dp);
-        c.drawRect(w/2f-half,py,w/2f+half,py+rule,ink);c.drawRect(w/2f-half,py+ph-rule,w/2f+half,py+ph,ink);
+        float ph=Math.max(92*dp,h*.24f),py=(h-ph)/2f,split=py+ph*.6f;
+        float half=w*.5f*(1f-(1f-open)*(1f-open)*(1f-open));
+        ink.setShader(null);ink.setStyle(Paint.Style.FILL);ink.setAlpha(255);
+        ink.setColor(PLATE_ORANGE);c.drawRect(w/2f-half,py,w/2f+half,split,ink);
+        ink.setColor(PLATE_RED);c.drawRect(w/2f-half,split,w/2f+half,py+ph,ink);
         c.save();c.clipRect(w/2f-half,py,w/2f+half,py+ph);
-        ink.setTypeface(stencil);ink.setTextAlign(Paint.Align.CENTER);ink.setTextSize(ph*.5f);ink.setLetterSpacing(.14f);
-        ink.setColor(GameInk.GOLD);
-        float base=py+ph*.5f-(ink.descent()+ink.ascent())/2f,tx=w/2f-ph*.35f;
-        c.drawText("LOADING",tx,base,ink);
-        float cx=tx+ink.measureText("LOADING")/2f+ph*.32f;
-        ink.setLetterSpacing(0f);
-        Path chevron=new Path();
-        for(int k=0;k<3;k++){
-            float pulse=reduced?.7f:.25f+.75f*Math.max(0f,1f-Math.abs(((now%900)/900f)*3f-k-.5f));
-            ink.setAlpha(Math.round(255*pulse));
-            float x0=cx+k*ph*.24f,ch=ph*.17f;
-            chevron.reset();chevron.moveTo(x0,base-ch*2.2f);chevron.lineTo(x0+ch,base-ch*1.1f);chevron.lineTo(x0,base);
-            chevron.lineTo(x0-ch*.55f,base);chevron.lineTo(x0+ch*.45f,base-ch*1.1f);chevron.lineTo(x0-ch*.55f,base-ch*2.2f);chevron.close();
-            c.drawPath(chevron,ink);
+        // The pair rises from the floor line as the strip opens, then spars.
+        float rise=Math.max(0f,Math.min(1f,(open-.35f)/.65f)),eased=1f-(1f-rise)*(1f-rise);
+        float figH=(split-py)*.86f,floor=split-(split-py)*.04f+(1f-eased)*figH*.5f;
+        c.save();c.clipRect(0,py,w,split);
+        sparring.draw(c,w/2f,floor,figH,reduced?0:now,FIGURE,FIGURE_RIM);
+        c.restore();
+        // LOADING: retail-style condensed stencil, orange on red, stamping from oversized to size as the plate opens.
+        float size=(py+ph-split)*.78f,stamp=open>=1f?1f:1f+(1f-open)*.35f;
+        ink.setTypeface(stencil);ink.setTextAlign(Paint.Align.CENTER);ink.setLetterSpacing(.02f);ink.setTextScaleX(.86f);
+        ink.setTextSize(size*stamp);ink.setColor(PLATE_ORANGE);ink.setAlpha(Math.round(255*Math.min(1f,open*1.4f)));
+        float base=split+(py+ph-split)/2f-(ink.descent()+ink.ascent())/2f;
+        c.drawText("LOADING",w/2f,base,ink);
+        // A faint heat shimmer runs through the letters while the screen holds.
+        if(!reduced && open>=1f){
+            float phase=(now%3000)/1200f;
+            if(phase<1f){
+                float word=ink.measureText("LOADING"),sx=w/2f-word/2f-size+phase*(word+size*2);
+                ink.setShader(new LinearGradient(sx-size,0,sx+size,0,new int[]{0x00ffd9a0,0x90ffd9a0,0x00ffd9a0},null,Shader.TileMode.CLAMP));
+                c.drawText("LOADING",w/2f,base,ink);ink.setShader(null);
+            }
         }
-        ink.setAlpha(255);c.restore();
+        ink.setTextScaleX(1f);ink.setLetterSpacing(0f);ink.setAlpha(255);c.restore();
     }
 
     /** Playback position, kept in step with observations. Pure logic so it can be tested off device. */

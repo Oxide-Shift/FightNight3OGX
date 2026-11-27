@@ -4,233 +4,155 @@
 
 # FightNight3OGX
 
-Play the original Xbox edition of *Fight Night Round 3* on Android. On an AYN Thor, the broadcast stays on the upper screen while the lower screen becomes your corner. See who’s winning the exchanges, work on a cut between rounds, and scout the next opponent for your career boxer.
+**The original Xbox *Fight Night Round 3*, rebuilt to run natively on Android, with a second screen that works your corner.**
 
-**[Download for Android](https://github.com/Oxide-Shift/FightNight3OGX/releases/latest)** · [Supported game](#supported-game) · [Getting started](#getting-started) · [Bring your career save](#bring-your-career-save)
+The broadcast stays on the top screen. The bottom screen is ringside: the clock, both fighters' health and stamina, every punch landed, where each boxer is getting hurt, the judges' cards, and the cutman's stool between rounds.
 
-> **Bring your own disc.** You’ll need your own North American original Xbox *Fight Night Round 3* ISO. The app recompiles `default.xbe` on your Android device. The APK and this repository omit the retail executable, fighter and arena data, and original EA Trax recordings. FightNight3OGX is an independent fan project. Electronic Arts has no affiliation with the project and does not endorse it.
+**[⬇ Download for Android](https://github.com/Oxide-Shift/FightNight3OGX/releases/latest)** · [Why not just emulate it?](#why-not-just-emulate-it) · [Getting started](#getting-started) · [What's new](#whats-new-in-alpha-82)
 
-<p align="center"><img src="docs/screenshots/fight-hud.jpg" width="640" alt="Gatti and Ward trading in round one at Aragon with 23 seconds left, captured on an AYN Thor running Alpha 81.4. The lower screen shows a centered 0:23 | R1 timekeeper with round tacks either side, both fighter cards with records, health and stamina, punch counts, and the top of the Damage this bout panel with both boxers in their guard."></p>
+<p align="center"><img src="docs/screenshots/fight-hud.jpg" width="680" alt="Gatti and Ward trading in round one at Aragon with 23 seconds left, captured on an AYN Thor. The lower screen shows a centered 0:23 | R1 timekeeper with round tacks either side, both fighter cards with records, health and stamina, punch counts, and the top of the Damage this bout panel with both boxers in their guard."></p>
 
-Round one at Aragon, 23 seconds left. The lower screen keeps the clock and round on one centered line, flanked by ten round tacks per corner that light up in the fighter's colour for each round the judges give them. Below it: both records, health and stamina, punches landed and thrown, where each boxer is being hurt, and (scroll down) every filed round on the official scorecard. Ward has landed 47 of 54.
+<p align="center"><sub>Round one at Aragon on an AYN Thor. Ward has landed 47 of 54.</sub></p>
 
-## Supported game
+> **Bring your own disc.** You need your own North American original Xbox *Fight Night Round 3* ISO. The app recompiles the game on your device; the APK and this repository contain no game code, fighters, arenas or EA Trax recordings. FightNight3OGX is an independent fan project, not affiliated with or endorsed by Electronic Arts.
 
-| Field | Tested copy |
-| --- | --- |
-| Game | Fight Night Round 3 |
-| Platform | Original Xbox (NOT Xbox 360 or PS2) |
-| Region | USA / NTSC-U |
-| Disc ID | `EA13402A` |
-| Xbox Title ID | `45410086` |
-| Release | Original (XBE Version 2) |
-| Tested image formats | Full-size Xbox XGD1 (7.29 GiB) and compact XISO (2.24 GiB) |
+## Why not just emulate it?
 
-**Verified SHA-256 of `default.xbe` inside the ISO**
+Because this isn't an emulator. FightNight3OGX translates the game's own Xbox code into native Android code on your device, then runs it directly, and builds a whole second screen around it.
 
-`cfaf2d2c1c338a6e4e7135466c8dcb80fdf7da63682e71cfecdcba65b3682064`
+- **Runs like a native game.** 60 FPS fights at up to 1080p with widescreen, VSync, sharpening, MSAA and filtering. On the AYN Thor, live rounds hold 60 FPS. The original fight timing is kept, so rounds last as long as they should.
+- **Your corner on the second screen.** A live HUD during rounds, a between-rounds report with corner tips, a damage map that heats up where each boxer is being hurt, and the official scorecard round by round.
+- **Take the cutman's stool.** Choose Manual at the bell and treat cuts and swelling by sweeping the touchscreen while you watch the boxer's face up top.
+- **A lifetime Fight Record.** Every bout counted: knockouts, knockdowns, staggers, streaks, accuracy, your punch mix and a heat map of where your punches land.
+- **The tale of the tape before every Play Now fight.** Records, reach and all eight ratings head to head, read straight from the game's roster.
+- **100 achievements**, including the eight Xbox 360 career awards, with their own shelves and a medal that strikes in when you earn one.
+- **EA Trax in the ring**, plus nine expanded tracks, with now-playing and music keys on the lower screen.
+- **Remap any button**, bring your career over from hakuX and back, back it up automatically, and update from inside the app.
+- **Made for your device.** The controls guide and the corner-select icon show your handheld, phone or tablet. It's fully tested on the AYN Thor.
 
-**Compatibility note**
+## Work the corner
 
-Fight Setup accepts both the full-size US disc and the compact US XISO. We compared an independently distributed XISO and one rebuilt locally against the full disc. All 901 game files matched by SHA-256. The independently distributed XISO is 2,405,171,200 bytes and its whole-image SHA-1 is `9c7a817964b6334869831f669af5a6be6e23fef2`. Other XISO layouts can have different sizes and hashes while containing the same game.
+During a round the lower screen is your broadcast desk: a big centred clock with round tacks that light up for each round a fighter wins on the cards, both fighter cards, punches landed and thrown, and **Damage this bout**. Each boxer's eyes, nose, mouth, jaws and body heat from green to red as they take punishment, flash where a shot lands, and recover between rounds.
 
-<details>
-<summary>Identify a full-size original Xbox disc by its hash</summary>
+<p align="center"><img src="docs/screenshots/fighter-health-81.jpg" width="560" alt="The lower screen early in round three, 1:48 on the clock, captured on an AYN Thor. Gatti, blue corner, is at 59 percent health and 100 percent stamina; Ward, red corner, at 97 and 92. Punches landed over thrown: 35 of 56 and 141 of 157. Below, Damage this bout: two boxer silhouettes in a high guard with corner-coloured gloves; Gatti's face glows yellow around the eyes and mouth, Ward's is still green."></p>
 
-Both cataloged images are 7,825,162,240 bytes and use Xbox title ID `45410086`.
+Between rounds you get the next round, health, stamina, accuracy and up to two corner tips worked out from the numbers. Choose **Manual** at the bell to take the cutman's stool: pick a side, switch between cuts and swelling, and sweep across the touchscreen.
 
-| Disc | CRC-32 | Whole-ISO MD5 | Whole-ISO SHA-1 |
-| --- | --- | --- | --- |
-| USA · `EA13402A` | `8f7ab94f` | `6fddb483d3de2723d088896919a5bb14` | `14ee949b26a77d071fc4776959e503b02f64114d` |
-| Europe (English/French) · `EA13401E` | `b6b22b8b` | `7a712165d7d628bafb2436b28e57e00a` | `dd8941f8eb702ceb1fde2d612ab00b77c6d3562e` |
+<p align="center"><img src="docs/screenshots/cutman-sweep-81.jpg" width="530" alt="Between rounds one and two at Aragon, captured on an AYN Thor. Upper screen: Gatti's face in close-up with damage readouts either side and the game's Select side, Cuts and Heal prompts. Lower screen: the Cutman pad at 0:08, a ringed sweep circle with Sweep to treat, Start anywhere, Lift to recenter, and Left side, Switch tool and Right side buttons."></p>
 
-The European PAL release has a different `default.xbe` (MD5 `4f65d6d6e3d1ba717e4a9cbf8afc0a7b`). Its Android game build is pending. [Redump disc hashes](https://github.com/libretro/libretro-database/blob/master/metadat/redump/Microsoft%20-%20Xbox.dat) · [Original Xbox title database](https://mobcat.zip/XboxIDs/)
+## Your Fight Record
 
-</details>
+**Career Central → Fight Record** keeps your lifetime record in two books, **Career** and **All bouts** (career plus Play Now). Up top: wins, losses, draws, knockouts, stoppages, streaks, knockdowns, haymakers, staggers and personal bests. Below: your accuracy against your opponents', your punch mix and where your punches land.
 
-| Your copy | What to choose in Fight Setup |
-| --- | --- |
-| Full disc or compact XISO | Select the uncompressed `.iso`, `.xiso` or `.xiso.iso` directly. |
-| ZIP, 7z or RAR archive | Choose a ZIP containing a single ISO or XISO directly. For 7z or RAR, extract the disc image first. |
-| Compressed disc (`.cci`, `.cso`, `.chd`, `.zar`) or Games on Demand (SVOD) | Convert the original Xbox backup to a single uncompressed XISO first. |
-| Split image (`.1.iso`, `.2.iso`, …) | Join the complete set using an Xbox image tool, then select the resulting XISO. |
-| Extracted or HDD-ready game folder | Rebuild an XISO from the folder containing the game's `default.xbe` and assets. |
+<p align="center"><img src="docs/screenshots/fight-record-82.jpg" width="860" alt="Fight Record captured on an AYN Thor with a sample record. Upper screen: Fight Record, 11-2-1 in 14 career bouts, with knockout wins, stoppages, rounds and streaks, then knockdowns, haymakers and opponents staggered. Lower screens: accuracy gauges at 48 percent for you and 32 for opponents with thrown, landed and taken tiles and a head and body split; and where you land, a head and torso heat map with left body most hit at 18 percent."></p>
 
-For conversion instructions, see [xemu's disc image guide](https://xemu.app/docs/disc-images/) and [XISO Studio's format guide](https://purelogiccode.github.io/XISOStudio/Usage-Guide.html). If import fails, share the exact launcher error and which image format you selected.
+<p align="center"><sub>Fight Record on both screens (captured on a Thor with a sample record).</sub></p>
 
-Fight Setup includes **Copy details** for unrecognized game revisions. It can restore a renamed dashboard title, edited disc-access or region flags, and trimmed trailing padding in its own copy of the US executable. It can also use a verified original stored as `default.xbe_orig` or `default.xbe.bak` beside an edited US executable. In every case the compiler receives the exact SHA-256 above.
+## Set up the fight
 
-If an import fails, Fight Setup explains the failure and offers **Choose another file**, **Copy details**, or **Send report**. A preparation failure offers **Prepare game** so you can retry using the installed disc. Each report requires your tap. The preview lists the app version, Android API, import stage, error code, image format and file size when available. For an unrecognized executable it also includes the available Xbox title ID, region mask, revision and SHA-256. The report contains diagnostic fields only. Your filename, game files and saves stay on your device. Approved reports can retry the next time Fight Setup is open.
+In Play Now, the lower screen lights up the corner you take, puts the two highlighted boxers' tale of the tape side by side as you browse, and bills the fight like a poster for the venue you pick.
 
-If the project server accepts only error summaries, Fight Setup sends the error code, build and Android API first. It keeps the detailed report on your device and retries when the server supports it.
+<p align="center"><img src="docs/screenshots/play-now-82.jpg" width="860" alt="Three Play Now lower screens captured on an AYN Thor. Choose your corner: blue and red halves with corner posts and ropes; the red half is lit and reads Player 1. Tale of the tape: Arturo Gatti, 39-7-0 with 30 knockouts, against Oscar De La Hoya, 37-4-0 with 29; height, reach, weight and knockout rate, then eight ratings as mirrored bars, dead even. Pick your ring: a Play Now tonight poster for Gatti versus Hoya, live from Windy City Boxing Gym, over a ring with rig lights."></p>
 
-Fight Setup also checks the disc's menu archive (`GUI/overlay.viv`) before compiling and before launching an existing installation. If the file is missing or incomplete, select a complete disc image to repair the installed game. Your career saves are stored separately and survive the repair.
+In your career, the scouting report shows the purse, any bonus objective and a tale of the tape against your next opponent. Training shows your ratings and what the drill could change, and the trophy case gives every trophy its own shape.
 
-If the game starts and the crash dialog shows **game · exit 41**, your disc passed the import check. Alpha 73 fixes a startup menu error that produced this code before Press Start on verified US discs. If you saw it on an earlier build, update and try your existing import. Include the device model, the last screen you saw, and **Copy details** from that dialog when reporting it.
+<p align="center"><img src="docs/screenshots/career-lower-81.jpg" width="820" alt="Four lower screens: a scouting report on Micky Ward with the purse and tale of the tape; Heavy Bag training with a forecast table and a radar of now versus potential; the trophy cabinet with fourteen differently shaped trophies; and Hire a Trainer, short by 700 dollars with a wallet versus fee gauge. Rendered on a PC from the app's own screens with sample data."></p>
 
-The crash dialog previews the device manufacturer, model and preferred CPU ABI. For a game crash it also shows the furthest startup or gameplay milestone reached, elapsed session time, last logged frame submission, selected frame-rate limit, anti-aliasing and filtering. For an invalid Xbox call it includes the attempted target and the guest stack return when available. **Send** delivers the displayed diagnostics to the project's private inbox. **Copy details** copies them locally, and **Skip** dismisses the report. Each submission has its own random receipt ID.
+## Chase 100 achievements and take EA Trax into the ring
 
-### What a diagnostic report can tell you
+**Achievements** in the main menu holds **100 illustrated awards worth 6,155 Fight Score** on seven shelves, including the eight Xbox 360 career awards with their original point values. *Second wind* pays 75 for getting knocked down twice and still winning; *Zero on the ledger* pays 125 for reaching 50 wins with no losses or draws.
 
-After an import failure or crash, **Copy details** gives you the same diagnostics you can preview and send to the private inbox. Each report requires your tap.
+**Music** lets the soundtrack carry into the ring (it fades down when the opening bell rings), adds nine **FN3 Expanded** tracks, and opens the original **EA Trax** playlist editor. The lower screen shows what's playing on a turning record with Back, Play/Pause and Next.
 
-| Report section | What it can tell us |
-| --- | --- |
-| Game disc | The detected image layout, ZIP or raw container, sizes, Xbox title ID, certificate region and revision, and the SHA-256 of the original and installed executables. A fresh import also records whether it used the original XBE, restored certificate fields or alignment, or found a verified backup. |
-| Game files | During extraction the launcher fingerprints the original contents of every file. The full USA ISO and compact USA XISO tested here both contain 901 files with the same combined SHA-256, `7c8ad7ead9c2dfd88d8d69fd3e1c066c2b80b53032294b4e64b6416208bbcefd`. This lets us compare repacked images. When the provider requires a full copy or ZIP unpack, the report also has SHA-1 for the complete streams read. |
-| Device | Handheld model, Android release and firmware build, security patch level, CPU and SoC details, RAM and storage availability, every display's mode, advertised Vulkan version, thermal status, power-saving state, the app's build number, and connected controllers as USB vendor:product IDs (never their names). These values are sampled when the report is created. |
-| Failure | The last event and round, observed startup milestone times, kernel imports resolved, the GPU name and driver version, renderer mode and graphics settings (including Pipelined frames), whether a fight was live or the device was asleep, recent frame timing, last logged frame and audio counters, and the last 40 lines of the game's own log with storage paths, file locations and anything resembling an email address removed. For supported failures it identifies an Xbox instruction address, an Xbox stack word, or a native code offset. For a launcher crash, hang or low-memory exit, it uses Android's previous-process exit record when available. |
+<p align="center"><img src="docs/screenshots/menus-top-81.jpg" width="860" alt="Achievements and Music menus on the upper screen. Achievements: category tabs with progress meters, an overall 35 percent ring, and award cards with gold rims for earned ones. Music: On during fights switched on, FN3 Expanded off, and EA Trax Open. Rendered on a PC from the app's own screens."></p>
 
-If you upgrade an existing installation, the launcher can still read its installed XBE and certificate. In the report preview, choose **More options → Check installed game files** to compare the whole installed game with the tested USA copy. This reads the files locally and returns you to the preview. Original container details require a fresh import. Your disc image, filenames, saves and raw logs stay on the device.
+## What's new in Alpha 82
 
-## What's new in Alpha 81
-
-- **Remap your buttons (81.5).** Fight Setup → **Controller buttons** lists every Xbox control with the button that presses it. Choose one, press the button you want, and the two swap, so no control is ever left without a button. It works with face buttons, shoulders, the D-pad and analog triggers, applies at once (also over a paused bout), and **Reset to default buttons** puts everything back. The game's own Options → Controller setting still decides what each Xbox control does.
-- **Damage by region.** During rounds, between rounds and on the pause screen, the lower screen shows where each boxer has been hit: both eyes, nose, mouth, both jaws and both sides of the body, read from the game's own damage data. Each boxer is a rim-lit silhouette in a high guard (redrawn in 81.4 with real boxer proportions) whose face zones and both sides of the body start green and heat through yellow and orange to red as their health falls, with the most-hit area hottest and the colours recovering between rounds as health returns. Under each name: the boxer's health and the area taking the most punishment.
-- **Your handheld on screen (81.4).** Hovering Options shows an AYN Thor, a Retroid Pocket Duo and a phone with a controller in turn, drawn in the style of the disc's controller photo. The loading-screen controls guide is drawn for one of the three on each launch. Lower screens also adapt to shorter second screens, such as the Retroid Pocket Duo's 4:3 panel (checked in layout renders, not on that device).
-- **Stutter fix (81.4).** Fixes the stutter that built up during a fight: choppy commentary first, then dropped frames and rough fight audio. When the game stopped a sound, its sound engine waited about 10 ms for the emulated audio chip, and the game itself waited on the sound engine. Over a Burger King fight that happened about three times a second. On the Thor, the longest frames (over 34 ms) dropped from 0.26% to 0.02% of frames in the same fight.
-- **Smoother fights (81.3).** The crowd in the stands is now drawn on the graphics chip instead of the CPU. In testing on the Thor that removed about 5 ms of work from every frame and live rounds held 60 FPS where they had dipped to around 50.
-- **Transitions on both screens.** When the game plays its red and orange transition, the lower screen plays the same bars in step with it, including on the Achievements and Music pages.
-- **Redesigned career, Achievements and Music screens** with a darker Fight Night look and motion throughout (see below).
-- **Music controls** on the lower screen: Back, Play/Pause and Next.
-- **Notifications:** a larger EA Trax now-playing badge, and achievement unlocks that wait while a fight announcement is on screen.
-- **Faster main menu** (60 FPS menus), arena lights behind the lower-screen menus, and the first song after Start comes in quickly.
-
-<p align="center"><img src="docs/screenshots/fighter-health-81.jpg" width="560" alt="The lower screen early in round three, 1:48 on the clock, captured on an AYN Thor running Alpha 81.4. Gatti, blue corner, is at 59 percent health and 100 percent stamina; Ward, red corner, at 97 and 92. Punches landed over thrown: 35 of 56 and 141 of 157. Below, Damage this bout: two boxer silhouettes in a high guard with corner-coloured gloves; Gatti's face glows yellow around the eyes and mouth, Ward's is still green."></p>
-
-<p align="center"><sub>Fighter health and damage, captured on a Thor in round three.</sub></p>
-
-<p align="center"><img src="docs/screenshots/options-devices-81.jpg" width="820" alt="Three frames of the Options plate on the lower screen, captured on an AYN Thor: a dark clamshell AYN Thor with both screens lit, a grey Retroid Pocket Duo with coloured face buttons and a 4:3 lower screen, and a phone held in a telescopic controller. Each is tilted in a three-quarter view with a floor shadow."></p>
-
-<p align="center"><sub>The Options plate cycles through the handhelds (captured on a Thor).</sub></p>
-
-<p align="center"><img src="docs/screenshots/transition-mirror-81.jpg" width="760" alt="Nine frames of the lower screen during a transition: red and orange bars close in from both sides, a LOADING plate opens while the top screen loads, then the bars pull away to reveal the next page. Rendered on a PC from the app's own drawing code with the transition from a retail disc."></p>
-
-<p align="center"><sub>Lower-screen transition, frame by frame. This and the redesigned menu and career images below are rendered on a PC from the app's own screens with sample data; the fight, health, Options, loading-guide, cutman and Controller buttons images are captured on a Thor.</sub></p>
+- **Fight Record**, a new Career Central item with your lifetime record and punch stats (records start counting from this version).
+- **Play Now lower screens**: choose your corner, the tale of the tape and a fight poster for your venue.
+- **Your device in the game**: the corner-select icon and loading controls guide match your device (AYN Thor, Retroid Pocket Duo, Retroid Pocket 6, AYN Odin 3 Portal, phone or tablet).
+- **An animation pass across every screen**: callouts land with an impact ring, the damage map flashes on every hit, numbers count up, and the lower screen's LOADING plate matches the game's own.
+- **Launcher polish** and a heavy-bag loading screen with corner tips.
+- **Crash guard** for a controller-report crash seen on a Thor.
+- **Updating:** the game runtime changed, so Fight Setup asks to **Prepare game** once after updating. Saves and settings are kept.
 
 <details>
-<summary>What was new in Alpha 80</summary>
+<summary>Earlier releases</summary>
 
-- **A controller is required.** Fight Setup now says so when no gamepad is connected. There are no touch controls for boxing.
-- **Lower-screen timekeeper:** one centered line, `1:42 | R1`, with a larger clock and tally-mark flanks.
-- **Between rounds** the lower screen shows the next round, both fighters' health and stamina, punches, accuracy, your knockdowns, and up to two corner tips worked out from those numbers.
+**Alpha 81:** button remapping (81.5); damage by region on the lower screen; handheld art on the Options page (81.4); a fix for stutter that built up during fights (81.4); the crowd drawn on the GPU for steadier 60 FPS (81.3); transitions mirrored on both screens; redesigned career, Achievements and Music screens; music keys on the lower screen; faster 60 FPS menus.
 
-<p align="center"><img src="docs/screenshots/between-rounds.jpg" width="560" alt="Between rounds one and two at Aragon on an AYN Thor running Alpha 81.4: Ward in his corner by a Burger King post on the top screen; the lower screen reads Round 2 next with both fighter cards, punch totals (12 of 23 and 63 of 70) and the top of the Damage this bout panel."></p>
-- **Steadier menu companion:** the lower screen no longer flashes "From your corner" while a submenu such as Play Now is open.
-- **Clearer import messages:** a refused disc is labelled **Wrong platform**, **Different game**, **Unrecognized disc revision** or **Unsupported container**, and **Copy details** includes the `default.xbe` SHA-256.
-- **Graphics driver resets** now return to Fight Setup with a plain message instead of an unexplained crash.
-- **Pipelined frames** (Advanced graphics, off by default, experimental): the GPU renders one frame while the game prepares the next. On the Thor it raised live-round averages to about 59.5 FPS, but it adds one frame of display delay, had a worse single slowest frame in one venue, and can make the announcer's commentary choppy. Leave it off unless you want to experiment.
-- Crash and import dialogs use the standard Android font.
+**Alpha 80:** lower-screen timekeeper; between-rounds report with corner tips; clearer disc import messages; graphics driver resets return to Fight Setup; experimental Pipelined frames.
 
 </details>
 
 ## Getting started
 
-You’ll need **ARM64 Android 11 or newer**. The **AYN Thor** is the only handheld tested for dual-screen play. On a single-screen device, menu prompts stay on the main display.
+You need **64-bit ARM Android 11 or newer**, a controller (built-in or connected), and your own US disc image. The **AYN Thor** is the tested dual-screen handheld; on a single-screen device, menu prompts stay on the main display.
 
-1. Install the APK listed under **Assets** on the [latest release](https://github.com/Oxide-Shift/FightNight3OGX/releases/latest).
+1. Install the APK from the [latest release](https://github.com/Oxide-Shift/FightNight3OGX/releases/latest).
 2. Open **Fight Setup** and choose a career backup folder you can find again after a reinstall.
-3. Tap **Choose Xbox ISO** and select your disc image. Keep Fight Setup open while the app extracts and compiles the game. If **Prepare game** appears, tap it to finish. A local file the app can read directly avoids a second full-size ISO copy. If your file provider streams the ISO, allow about **11 GB free** in addition to the disc image.
-4. Choose your picture settings and tap **Enter the ring**. Later launches reuse the prepared game. Use **Check for updates** in Fight Setup for future releases.
+3. Tap **Choose Xbox ISO** and select your disc image. Keep Fight Setup open while the game is extracted and compiled, and tap **Prepare game** if it appears. If your file provider streams the ISO, allow about **11 GB free** on top of the image.
+4. Pick your picture settings and tap **Enter the ring**. Later launches start straight away; **Check for updates** brings new releases.
 
-**Updating an existing installation.** Install the new APK over the existing copy using the same Android profile. Keep your game data in place. A changed runtime can require **Prepare game** once. A soundtrack-only update reuses the prepared game. Use **Export save** or your chosen backup folder before changing devices.
+Press **Android Back** in a game to open Fight Setup, then **Resume bout** or **End session**.
 
-### Startup and recovery
+### Supported game
+
+| Field | Tested copy |
+| --- | --- |
+| Game | Fight Night Round 3 |
+| Platform | Original Xbox (not Xbox 360 or PS2) |
+| Region | USA / NTSC-U, disc `EA13402A`, title ID `45410086` |
+| Formats | Full-size Xbox disc image (7.29 GiB) or compact XISO (2.24 GiB), or a ZIP holding one of them |
+
+SHA-256 of `default.xbe` inside the image: `cfaf2d2c1c338a6e4e7135466c8dcb80fdf7da63682e71cfecdcba65b3682064`
+
+<details>
+<summary>Disc formats, hashes and conversion</summary>
+
+| Your copy | What to do |
+| --- | --- |
+| Full disc or compact XISO | Select the uncompressed `.iso`, `.xiso` or `.xiso.iso` directly. |
+| ZIP, 7z or RAR archive | A ZIP with a single ISO or XISO works directly. Extract 7z or RAR first. |
+| Compressed (`.cci`, `.cso`, `.chd`, `.zar`) or Games on Demand | Convert to a single uncompressed XISO first. |
+| Split image (`.1.iso`, `.2.iso`, …) | Join the set with an Xbox image tool, then select the XISO. |
+| Extracted game folder | Rebuild an XISO from the folder containing `default.xbe`. |
+
+See [xemu's disc image guide](https://xemu.app/docs/disc-images/) and [XISO Studio's format guide](https://purelogiccode.github.io/XISOStudio/Usage-Guide.html) for conversions.
+
+A full-size US disc is 7,825,162,240 bytes: CRC-32 `8f7ab94f`, MD5 `6fddb483d3de2723d088896919a5bb14`, SHA-1 `14ee949b26a77d071fc4776959e503b02f64114d`. XISO repacks vary in size and hash but contain the same 901 game files (combined SHA-256 `7c8ad7ead9c2dfd88d8d69fd3e1c066c2b80b53032294b4e64b6416208bbcefd`). The European PAL release (`EA13401E`) has a different executable and isn't supported yet. [Redump hashes](https://github.com/libretro/libretro-database/blob/master/metadat/redump/Microsoft%20-%20Xbox.dat) · [Original Xbox title database](https://mobcat.zip/XboxIDs/)
+
+Fight Setup can restore a renamed dashboard title, edited disc-access or region flags, and trimmed padding in its own copy of the US executable, or use a verified original stored as `default.xbe_orig` or `default.xbe.bak`.
+
+</details>
+
+<details>
+<summary>Troubleshooting</summary>
 
 | What you see | What to do |
 | --- | --- |
-| Android refuses to install the APK | Use the complete release APK on a device with a 64-bit ARM Android system, API 30 or later. An update also needs the same package signature. Keep the installed copy and export your save if moving between differently signed builds. |
-| The picker opens, but the disc cannot be read | Use Android's file picker to choose a single supported image. If the provider cannot keep the file available, copy it into local storage and choose that copy. Fight Setup requests access to the selected file. |
-| **Wrong platform**, **Different game**, **Unrecognized disc revision** or **Unsupported container** | Wrong platform means an Xbox 360 or PlayStation image; Unsupported container means a 7z, RAR, compressed (CSO-style), split or ZAR file that must become a single ISO/XISO first. Check the edition and the SHA-256 of the **default.xbe inside the image** against Supported game. A whole-image hash can differ across valid repacks. Use **Copy details** to share the detected revision. |
-| Preparation stops, or Android closes Fight Setup | Reopen the launcher and tap **Prepare game**. It can reuse the extracted disc. Free internal storage for a space error, or close other large apps if Android stopped the compiler. Keep the launcher open through the final check. |
-| The screen goes black or the game returns to Fight Setup | Reopen Fight Setup and review the crash preview. Record whether you saw the logos, title screen, profile picker or first menu. Try Low graphics quality and 480p. Use **Copy details** or **Send report** with the original settings so the failure can be compared. |
-| The lower screen is missing | Use the main display. The launcher routes supported prompts and controls according to the displays Android exposes. Full physical single-screen and non-Thor dual-screen coverage is still pending. |
+| Android refuses to install the APK | Use the complete release APK on 64-bit ARM Android 11 (API 30) or later. Updates need the same signature; export your save before switching between differently signed builds. |
+| The disc can't be read | Choose a single supported image with Android's file picker. If your provider can't keep it available, copy it to local storage first. |
+| **Wrong platform**, **Different game**, **Unrecognized disc revision** or **Unsupported container** | Check the edition and the `default.xbe` hash above (a whole-image hash differs across valid repacks). Convert 7z, RAR, compressed or split images to one ISO/XISO. **Copy details** shows the detected revision. |
+| Preparation stops or Fight Setup closes | Reopen it and tap **Prepare game**; it reuses the extracted disc. Free storage or close large apps if needed. |
+| Black screen or back to Fight Setup | Review the crash preview, note the last screen you saw, try Low quality at 480p, and send or copy the report. |
+| The lower screen is missing | Play on the main display. Dual-screen layouts are tested on the AYN Thor only. |
 
-The AYN Thor has been tested on Android 13. An Alpha 73 report from a Retroid Pocket 6 on Android 13 rendered 4,620 frames with Vulkan during startup and subsequently crashed. Verification of the newer candidate on that model remains open. Android version, ARM64 support and advertised graphics features alone do not establish that a particular device runs the game reliably.
-
-<details>
-<summary>See Fight Setup and picture settings</summary>
-
-<p align="center"><img src="docs/screenshots/fight-setup.jpg" width="760" alt="Fight Setup after disc import, with Enter the ring, Check for updates, frame rate, graphics quality, resolution and aspect ratio."></p>
-
-The launcher offers **30, 45 and 60 FPS** targets, VSync, widescreen and original 4:3. The example uses Vulkan at **1080p, High**, with sharpening, 4× filtering and 2× MSAA. Under **Advanced graphics**, you can change edge smoothing, try **Pipelined frames** (experimental: smoother averages, one frame of extra display delay, can make commentary choppy; off by default), or turn on **Show FPS counter**. It starts off. When enabled, small neon-green digits in the upper-left of the game screen show the displayed frame rate. Pause menus and the lower-screen results stay clear. Frame rate varies by venue and can dip during exchanges.
-
-**Why stop at 60 FPS?** The original round timer counts game updates. In an isolated test at normal clock speed, doubling the update rate made a three-minute round run out in 90 seconds. The port keeps the original fight timing. The intro, fighter entrances, highlights, coach’s corner and post-fight sequences use 30 FPS pacing.
-
-</details>
-
-Press **Android Back** during a game to open Fight Setup. Choose **Resume bout** to return or **End session** to close the game. On the Thor, the **B face button** handles in-game navigation. In Options, B uses the Exit row’s save action. In Edit Boxer, it opens the game’s **Accept Changes** prompt.
-
-Highlight a main-menu item to see what it offers on the lower screen. **Play Now** keeps a single exhibition description in place, **ESPN Classic** introduces the rivalries, and **Achievements** and **Music** explain their own menus before you open them.
-
-## Work the corner
-
-At the bell, choose **Manual** to take the cutman’s stool. Watch the boxer’s face on the upper screen while you select a side, switch between treating cuts and swelling, and sweep across the lower touchscreen. Lift your finger to recenter for the next stroke.
-
-<p align="center"><img src="docs/screenshots/cutman-sweep-81.jpg" width="530" alt="Between rounds one and two at Aragon, captured on an AYN Thor. Upper screen: Gatti's face in close-up with 22.6 percent and 19.0 percent damage readouts either side and the game's Select side, Cuts and Heal prompts with 9 seconds left. Lower screen: the Cutman pad at 0:08, a ringed sweep circle with Sweep to treat, Start anywhere, Lift to recenter, and Left side, Switch tool and Right side buttons."></p>
-
-On a Thor, the purple handheld marks Player 1 on **Select Corner**. Move it to blue or red before choosing your boxer. The same handheld appears under **Select Controller** when you pause a fight.
-
-The red-orange loading guide follows the control configuration you selected in the game. In configurations 1–4, **R2 blocks**. In 5–6, **R2 punches** and the **right stick blocks**. Each launch draws it for an AYN Thor, a Retroid Pocket Duo or a phone with a controller. The Thor version adds a second face-button diagram so you can read the guide in either Thor or Xbox button order.
-
-**What the D-pad does depends on that configuration.** In configuration 1 it moves your boxer like the left stick, and taunt, clinch and illegal blow are on the face buttons. In configuration 3, D-pad up clinches, left taunts and right throws an illegal blow. Change it in **Options → Controller**.
-
-**To move a control to a different button**, use Fight Setup → **Controller buttons** (Alpha 81.5 and later). Pick the Xbox control, press the button you want for it, and that button swaps places with the one it replaces. For example, give A to your Y button and Y moves to A. Changes apply straight away, including when you open Fight Setup during a game, and are kept across updates.
-
-<p align="center"><img src="docs/screenshots/controller-buttons-81.jpg" width="520" alt="Fight Setup's Controller buttons section, captured on an AYN Thor. A note reads A is now on Y. Y moved to A. Under the headings Xbox control and Your button, the rows read A: Y and Y: A in gold, then B: B, X: X, Black: R1, White: L1 and Left trigger: L2."></p>
-
-<p align="center"><sub>Controller buttons after swapping A and Y (captured on a Thor).</sub></p>
-
-<details>
-<summary>See the Thor controls for configuration 3</summary>
-
-<p align="center"><img src="docs/screenshots/thor-controls.jpg" width="820" alt="Configuration 3 in the Thor loading guide. The face buttons throw hooks and straights, the right stick uses Total Punch Control, and R2 blocks."></p>
+**Crash and import reports** are only sent when you tap **Send**, and you see exactly what's in them first: app version, device model, Android and GPU details, the game's last milestone and recent log lines with paths and anything like an email address removed. Your disc, filenames and saves never leave the device. **Copy details** copies the same report and **Skip** dismisses it.
 
 </details>
 
 <details>
-<summary>See the phone + controller guide for configuration 1</summary>
+<summary>Controls, picture settings and saves</summary>
 
-<p align="center"><img src="docs/screenshots/loading-guide-phone-81.jpg" width="820" alt="The loading guide drawn for a phone with a controller, captured on an AYN Thor: Phone + Controller, Fight Controls, Config 1. The D-pad is camera relative movement; A is signature punch, B illegal blow, X taunt and Y clinch; only the Xbox face-button order is shown."></p>
+**Controls.** The loading-screen guide shows the control configuration you picked in the game's **Options → Controller**: in configurations 1–4, R2 blocks; in 5–6, R2 punches and the right stick blocks. What the D-pad does depends on it too (movement in configuration 1; clinch, taunt and illegal blow in configuration 3). To move a control to another button, open Fight Setup → **Controller buttons**, pick the Xbox control and press the button you want; the two swap, and **Reset to default buttons** puts everything back.
+
+<p align="center"><img src="docs/screenshots/thor-controls.jpg" width="760" alt="Configuration 3 in the Thor loading guide. The face buttons throw hooks and straights, the right stick uses Total Punch Control, and R2 blocks."></p>
+
+**Picture settings.** 30, 45 or 60 FPS targets, VSync, widescreen or original 4:3, resolution up to 1080p, and Low/Medium/High quality (sharpening, filtering, MSAA). **Advanced graphics** adds edge smoothing, an FPS counter and experimental Pipelined frames (smoother averages, one frame of extra delay, can make commentary choppy; off by default). 60 FPS is the ceiling because the game's round timer counts frames: doubling the rate made a three-minute round last 90 seconds.
+
+**Saves.** Export your Fight Night save from hakuX as a ZIP and import it under **Save & sound → Import Xbox save**; **Export save** writes a ZIP hakuX can read. Backups are timestamped per Xbox profile in your chosen folder, and selecting the same folder on a fresh install restores your newest career.
 
 </details>
-
-## Chase all 100 achievements
-
-Open **Achievements** in the game’s main menu. Seven shelves hold **100 illustrated awards worth 6,155 Fight Score**, including the eight Xbox 360 career awards with their original point values. Flip shelves with the bumpers or tap **Prev** and **Next** on the lower screen.
-
-<p align="center"><img src="docs/screenshots/menus-top-81.jpg" width="860" alt="Alpha 81 Achievements and Music menus on the upper screen. Achievements: category tabs with progress meters, an overall 35 percent ring, and award cards with gold rims for earned ones. Music: On during fights switched on, FN3 Expanded off, and EA Trax Open. Rendered on a PC from the app's own screens."></p>
-
-The lower screen spotlights the award you've highlighted, with its medal, what it takes or what you did, and your progress in that category and overall.
-
-<p align="center"><img src="docs/screenshots/menus-lower-81.jpg" width="760" alt="Two lower screens. Left: the Burger King award spotlighted with its medal, 100 Fight Score and Xbox 360 shelf progress. Right: the Music page with a spinning EA Trax record, Now playing Never Gonna Get It by Sean Biggs, and Back, Pause and Next keys. Rendered on a PC from the app's own screens."></p>
-
-*Second wind* pays **75** for getting knocked down twice and still winning. For a longer career chase, *Zero on the ledger* pays **125** for reaching 50 wins with no losses or draws. When you earn one, the medal strikes in on the lower screen and a short card shows the title, the points and what you did. If a fight announcement is on screen, the card waits for it instead of expiring unseen.
-
-## Build a career between bouts
-
-Before signing a contract, the scouting report shows the purse, any bonus objective, and a tale of the tape against your opponent. At training, an eight-point radar shows your current ratings and what the drill could change. The trophy case gives every trophy its own shape, and hiring a trainer or buying gear shows what it leaves in your wallet.
-
-<p align="center"><img src="docs/screenshots/career-lower-81.jpg" width="820" alt="Four Alpha 81 lower screens: a scouting report on Micky Ward with the purse and tale of the tape; Heavy Bag training with a forecast table and a radar of now versus potential; the trophy cabinet with fourteen differently shaped trophies; and Hire a Trainer, short by 700 dollars with a wallet versus fee gauge. Rendered on a PC from the app's own screens with sample data."></p>
-
-**Career → Edit Boxer** has a touch-only corner notebook. Pick a fight plan and mark off the tabs you’ve reviewed. The game keeps the boxer, the editing controls, and the **Accept Changes** prompt on the top screen.
-
-## Take EA Trax into the ring
-
-Open **Music** from the game's main menu. The two music toggles start **off** on a new install. Select **EA Trax → Open** on the third row to open the original playlist editor. Press **B** to return to Music and **B** again to exit to the main menu.
-
-| Music menu | What it does |
-| --- | --- |
-| **On during fights** | The song carries through loading, walkouts and announcements. When the opening round clock starts, the music fades down so punches and breathing carry. |
-| **FN3 Expanded** | Adds nine tracks credited to FN3OGX. *Still Want the Crown* opens the expanded selection on a fresh game launch, then the rotation shuffles. |
-| **EA Trax** | Choose which original soundtrack tracks are in rotation. |
-
-While the Music menu is open, the lower screen shows the song playing on a turning record, with **Back**, **Play/Pause** and **Next** keys. Back returns to the previous song, or restarts the current one.
-
-## Bring your career save
-
-- **From hakuX.** Export your Fight Night save as a ZIP. In Fight Setup, open **Save & sound → Import Xbox save** and tap **Choose ZIP**. The imported career opens in a separate slot.
-- **After reinstalling.** Select the same backup folder on a fresh install to restore the newest usable career. Backups are timestamped by Xbox profile and include shared settings and achievement progress.
-- **Back to hakuX.** Choose **Save & sound → Export save** to write a compatible ZIP. You can also import an earlier backup to return to that point in your career.
 
 [Development notes, build instructions and tool credits](docs/DEVELOPMENT.md) · [Achievement bell credit and license](third-party/BoxingBell.txt)

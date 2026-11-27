@@ -79,7 +79,10 @@ final class DamageMap extends View {
         revision=tally.revision;this.health[0]=health[0];this.health[1]=health[1];
         for(int p=0;p<2;p++){
             for(int i=0;i<Tally.AREAS.length;i++){
-                target[p][i]=tally.level(p,i,health[p]);
+                float next=tally.level(p,i,health[p]);
+                // A fresh hit on this zone (not a recovery between rounds) flashes it and rocks the boxer.
+                if(!first && next>target[p][i]+.005f)hitAt[p][i]=android.os.SystemClock.uptimeMillis();
+                target[p][i]=next;
                 if(first)shown[p][i]=target[p][i];
             }
             worst[p]=tally.worst(p);
@@ -88,6 +91,21 @@ final class DamageMap extends View {
         invalidate();
     }
     private final int[] health={-1,-1},worst={-1,-1};
+    /** When each zone last took a fresh hit (uptime ms), for the flash and flinch. */
+    private final long[][] hitAt=new long[2][Tally.AREAS.length];
+    static final long FLASH_MS=480,FLINCH_MS=280;
+    /** Zone centres and sizes in the figure's 64 x 100 unit frame (x from the centre line). */
+    private static final float[][] ZONES={{3.3f,10.2f,3.3f},{-3.3f,10.2f,3.3f},{0,13.6f,2.6f},{0,17.6f,3f},
+            {5.4f,16.2f,3.2f},{-5.4f,16.2f,3.2f},{8.5f,40f,9f},{-8.5f,40f,9f}};
+    /** Sideways flinch for boxer p at time t, away from the side that was hit. Pure, for tests. */
+    static float flinch(long[] hits,long t){
+        long best=Long.MAX_VALUE;int zone=-1;
+        for(int i=0;i<hits.length;i++){long age=t-hits[i];if(hits[i]>0 && age>=0 && age<best){best=age;zone=i;}}
+        if(zone<0 || best>=FLINCH_MS)return 0f;
+        float k=1f-best/(float)FLINCH_MS,away=ZONES[zone][0]>0?-1f:ZONES[zone][0]<0?1f:0f;
+        if(away==0f)return 0f;
+        return away*2.4f*k*k*(float)Math.cos(best*.045);
+    }
     private static final String[] AREA_NAMES={"LEFT EYE","RIGHT EYE","NOSE","MOUTH","LEFT JAW","RIGHT JAW","LEFT BODY","RIGHT BODY"};
     private String summary(int p){
         return names[p]+(health[p]>=0?": health "+health[p]+" percent":"")+(worst[p]>=0?", most hit "+AREA_NAMES[worst[p]].toLowerCase(java.util.Locale.ROOT):", untouched");
@@ -110,7 +128,16 @@ final class DamageMap extends View {
         ink.setColor(0x0affffff);
         for(float y=28*d;y<h-4*d;y+=4*d)c.drawRect(6*d,y,w-6*d,y+Math.max(1f,.6f*d),ink);
         float half=w/2f,top=30*d,figH=h-top-34*d;
-        for(int p=0;p<2;p++)figure(c,p*half,top,half,figH,p,d);
+        long now=android.os.SystemClock.uptimeMillis();boolean live=SheetMotion.on();
+        for(int p=0;p<2;p++){
+            float u=Math.min(half/64f,figH/100f);
+            float rock=live?flinch(hitAt[p],now)*u:0f;
+            c.save();c.translate(rock,0);
+            figure(c,p*half,top,half,figH,p,d);
+            if(live)moving|=flashes(c,p*half+half/2f,top+(figH-100*u)/2f,u,p,now);
+            c.restore();
+            if(rock!=0f)moving=true;
+        }
         if(moving)postInvalidateOnAnimation();
     }
     /** A boxer in a high guard: one rim-lit silhouette built from smooth curves. Tracked parts (five face zones and
@@ -238,6 +265,29 @@ final class DamageMap extends View {
         ink.setColor(health[p]>=0?heat(1f-health[p]/100f):GameInk.MUTED);c.drawText(hp,left,base+15*d,ink);
         ink.setColor(GameInk.MUTED);c.drawText(most,left+hw,base+15*d,ink);
         ink.setTextAlign(Paint.Align.CENTER);
+    }
+    /** Fresh hits: a white-hot core that cools to the zone's heat and a ring thrown outward. True while any runs. */
+    private boolean flashes(Canvas c,float cx,float oy,float u,int p,long now){
+        boolean any=false;
+        for(int i=0;i<ZONES.length;i++){
+            long age=now-hitAt[p][i];
+            if(hitAt[p][i]==0 || age<0 || age>=FLASH_MS)continue;
+            any=true;
+            float k=age/(float)FLASH_MS,x=cx+ZONES[i][0]*u,y=oy+ZONES[i][1]*u,r=ZONES[i][2]*u;
+            int hot=heat(Math.max(.6f,shown[p][i]))&0xffffff;
+            ink.setStyle(Paint.Style.FILL);
+            float core=r*(1.6f-.6f*k);
+            ink.setShader(new RadialGradient(x,y,core,new int[]{(Math.round(235*(1f-k))<<24)|0xfff6dc,(Math.round(160*(1f-k))<<24)|hot,hot},
+                    new float[]{0f,.45f,1f},Shader.TileMode.CLAMP));
+            c.drawCircle(x,y,core,ink);ink.setShader(null);
+            ink.setStyle(Paint.Style.STROKE);ink.setStrokeWidth(Math.max(1f,1.2f*u*(1f-k)));
+            ink.setColor((Math.round(220*(1f-k)*(1f-k))<<24)|0xfff0c8);
+            // Face zones are small: their ring can travel; torso zones are big, so theirs only swells a little.
+            float ring=r*(1.1f+(i>=6?.45f:2.4f)*(1f-(1f-k)*(1f-k)));
+            c.drawOval(x-ring*(i>=6?.8f:1f),y-ring*(i>=6?1.15f:.85f),x+ring*(i>=6?.8f:1f),y+ring*(i>=6?1.15f:.85f),ink);
+            ink.setStyle(Paint.Style.FILL);
+        }
+        return any;
     }
     /** The boxer's outline pieces in screen coordinates. */
     private static final class Body {final Path silhouette,head,torso,trunks;

@@ -130,8 +130,7 @@ final class TrainingSheet extends LinearLayout {
             }
         }
         if((lastPage!=page || lastDrill!=drill) && isShown() && isAttachedToWindow() && ValueAnimator.areAnimatorsEnabled()){
-            title.animate().cancel();title.setTranslationX(dp(12));title.setAlpha(.5f);
-            title.animate().translationX(0).alpha(1).setDuration(170).start();
+            SheetMotion.nudge(title,1);
         }
         lastPage=page;lastDrill=drill;lastRatings=ratings;
     }

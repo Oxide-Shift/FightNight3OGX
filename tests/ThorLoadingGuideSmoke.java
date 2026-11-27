@@ -61,6 +61,17 @@ public final class ThorLoadingGuideSmoke {
                 System.arraycopy(selector,0,before[i],offsets[i]+16,selector.length);
                 check(Arrays.equals(before[i],selectorBank(work,stems[i])),"Unexpected selector bank change in "+stems[i]);
             }
+            // Repaint for another device and back: same length, only the icon texels move.
+            long length=Files.size(custom);
+            byte[] other=selector.clone();for(int i=0;i<other.length;i++)other[i]^=0x5a;
+            RetailMenu.installSelector(work,other,ThorLoadingGuide.Device.ODIN);
+            check(Files.size(custom)==length,"Selector repaint changed the archive length");
+            for(int i=0;i<stems.length;i++){
+                byte[] bank=selectorBank(work,stems[i]);
+                check(Arrays.equals(other,Arrays.copyOfRange(bank,offsets[i]+16,offsets[i]+16+other.length)),"Repainted icon in "+stems[i]);
+            }
+            RetailMenu.installSelector(work,selector,ThorLoadingGuide.Device.THOR);
+            for(int i=0;i<stems.length;i++)check(Arrays.equals(before[i],selectorBank(work,stems[i])),"Thor icon restored in "+stems[i]);
         }
         for(String variant:VARIANTS){
             String stem="lp-"+variant+"-ContConfig";
@@ -116,7 +127,8 @@ public final class ThorLoadingGuideSmoke {
             check(Arrays.equals(artwork,Arrays.copyOfRange(bank.array(),at,at+artwork.length)),"Wrong backdrop");
         }
         // Switch the installed guide to the RP Duo and back: title changes, the Thor-only row disappears and returns.
-        for(ThorLoadingGuide.Device device:new ThorLoadingGuide.Device[]{ThorLoadingGuide.Device.DUO,ThorLoadingGuide.Device.PHONE,ThorLoadingGuide.Device.THOR}){
+        for(ThorLoadingGuide.Device device:new ThorLoadingGuide.Device[]{ThorLoadingGuide.Device.DUO,ThorLoadingGuide.Device.PHONE,
+                ThorLoadingGuide.Device.RP6,ThorLoadingGuide.Device.ODIN,ThorLoadingGuide.Device.TABLET,ThorLoadingGuide.Device.THOR}){
             RetailMenu.installThorGuide(work,artwork,device);
             for(String variant:VARIANTS){
                 ByteBuffer b=ByteBuffer.wrap(member(work,"lp-"+variant+"-ContConfig","apt")).order(ByteOrder.LITTLE_ENDIAN);

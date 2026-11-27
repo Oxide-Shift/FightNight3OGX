@@ -26,7 +26,7 @@ final class RetailMenu {
     private static final int ALIGN=128;
 
     private static byte[] ascii(String s){return s.getBytes(StandardCharsets.US_ASCII);}
-    private static ByteBuffer little(byte[] data){return ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);}
+    static ByteBuffer little(byte[] data){return ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);}
     private static int aligned(int n){return (n+ALIGN-1)&-ALIGN;}
     private static int entry(byte[] data,String name)throws IOException{
         ByteBuffer b=ByteBuffer.wrap(data);
@@ -42,14 +42,14 @@ final class RetailMenu {
         }
         throw new IOException("Missing "+name);
     }
-    private static byte[] member(byte[] data,String name)throws IOException{
+    static byte[] member(byte[] data,String name)throws IOException{
         int index=entry(data,name);ByteBuffer b=ByteBuffer.wrap(data);
         int offset=b.getInt(index),size=b.getInt(index+4);
         if(offset<0 || size<1 || (long)offset+size>data.length)throw new IOException("Invalid "+name);
         return Arrays.copyOfRange(data,offset,offset+size);
     }
     // Preserve each other member's sector alignment, including the Xbox texture bank.
-    private static byte[] replace(byte[] data,String name,byte[] replacement)throws IOException{
+    static byte[] replace(byte[] data,String name,byte[] replacement)throws IOException{
         int e=entry(data,name);ByteBuffer src=ByteBuffer.wrap(data);
         int offset=src.getInt(e),oldSize=src.getInt(e+4);
         if(offset<0 || oldSize<1 || (long)offset+oldSize>data.length)throw new IOException("Invalid "+name);
@@ -137,7 +137,7 @@ final class RetailMenu {
             byte[] tail=new byte[stamp.length];file.seek(file.length()-VERSION.length-stamp.length);file.readFully(tail);
             if(Arrays.equals(tail,stamp))return;
             String installed=new String(tail,StandardCharsets.US_ASCII);
-            composed=installed.equals("FNR3-THOR-CONTROLS-4") || (installed.startsWith("FNR3-THOR-CONTROLS-") && installed.length()==20 && "TDP".indexOf(installed.charAt(19))>=0);
+            composed=installed.equals("FNR3-THOR-CONTROLS-4") || (installed.startsWith("FNR3-THOR-CONTROLS-") && installed.length()==20 && ThorLoadingGuide.Device.of(installed.charAt(19))!=null);
             v3=installed.equals("FNR3-THOR-CONTROLS-3");
             priorGuide=composed || v3 || installed.equals("FNR3-THOR-CONTROLS-1") || installed.equals("FNR3-THOR-CONTROLS-2");
         }
@@ -173,31 +173,36 @@ final class RetailMenu {
         little(result).putInt(4,result.length);
         writeArchive(archive,result);
     }
-    private static void writeArchive(Path archive,byte[] result)throws IOException{
+    static void writeArchive(Path archive,byte[] result)throws IOException{
         Path temp=Files.createTempFile(archive.getParent(),"thor-art-",".tmp");
         try{
             try(FileOutputStream out=new FileOutputStream(temp.toFile())){out.write(result);out.getFD().sync();}
             Files.move(temp,archive,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
         }finally{Files.deleteIfExists(temp);}
     }
-    static synchronized void installThorSelector(Path game,byte[] artwork)throws IOException{
-        if(artwork.length!=128*64)throw new IOException("Invalid Thor selector artwork");
+    static void installThorSelector(Path game,byte[] artwork)throws IOException{installSelector(game,artwork,ThorLoadingGuide.Device.THOR);}
+    /** The corner-select controller icon becomes the player's device. The stamp's last character names the device
+     *  ("1" is the Thor icon from earlier builds); switching devices re-paints the same texels in place. */
+    static synchronized void installSelector(Path game,byte[] artwork,ThorLoadingGuide.Device device)throws IOException{
+        if(artwork.length!=128*64)throw new IOException("Invalid selector artwork");
         Path archive=game.resolve("GUI/custom.viv");
         if(!Files.isRegularFile(archive))archive=game.resolve("gui/custom.viv");
-        byte[] stamp=ascii("FNR3-THOR-SELECT-1");
+        byte[] stamp=ascii("FNR3-THOR-SELECT-"+device.code);
+        boolean painted;
         try(RandomAccessFile file=new RandomAccessFile(archive.toFile(),"r")){
             if(file.length()<1024 || file.length()>48L*1024*1024)throw new IOException("Unrecognized selector archive");
             byte[] tail=new byte[stamp.length];file.seek(file.length()-tail.length);file.readFully(tail);
             if(Arrays.equals(tail,stamp))return;
+            painted=new String(tail,StandardCharsets.US_ASCII).startsWith("FNR3-THOR-SELECT-");
         }
         byte[] outer=Files.readAllBytes(archive);
-        // The pre-fight and pause menus import distinct controllerXBox symbols.
+        // The pre-fight and pause menus import distinct controllerXBox symbols. A repaint skips the retail check.
         byte[] updated=replaceSelector(outer,"cstCtrlParts",2800,
-                "1461dd7a2ee8f44f37f9981b2cf97eddf6003d783af5b1649f97bbd3d741fb6b",artwork);
+                painted?null:"1461dd7a2ee8f44f37f9981b2cf97eddf6003d783af5b1649f97bbd3d741fb6b",artwork);
         updated=replaceSelector(updated,"cstCtrlPartsBe",8560,
-                "5973254d9ea1a534f64088cbaf17d30069359398c724e7a93f24e3d4c9e459c3",artwork);
-        byte[] result=Arrays.copyOf(updated,updated.length+stamp.length);
-        System.arraycopy(stamp,0,result,updated.length,stamp.length);
+                painted?null:"5973254d9ea1a534f64088cbaf17d30069359398c724e7a93f24e3d4c9e459c3",artwork);
+        byte[] result=painted?updated:Arrays.copyOf(updated,updated.length+stamp.length);
+        System.arraycopy(stamp,0,result,result.length-stamp.length,stamp.length);
         little(result).putInt(4,result.length);
         writeArchive(archive,result);
     }
@@ -205,7 +210,8 @@ final class RetailMenu {
         String parts="controls/"+stem+".big",texture=stem+".xsh";
         byte[] group=TraxArt.inflate(member(outer,parts),2*1024*1024);
         byte[] bank=TraxArt.inflate(member(group,texture),2*1024*1024);
-        verify(bank,expected);
+        if(expected!=null)verify(bank,expected);
+        else if(offset+16+artwork.length>bank.length)throw new IOException("Unrecognized selector texture");
         System.arraycopy(artwork,0,bank,offset+16,artwork.length);
         return replace(outer,parts,replace(group,texture,bank));
     }

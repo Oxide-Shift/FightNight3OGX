@@ -57,6 +57,8 @@ void xbox_FramebufferWindowPresent(uint32_t address, uint32_t pitch) {
     fight_score_sample();
     fight_timing_flip(before,after,fight_now_ns());
     unsigned count = atomic_fetch_add(&presentations, 1) + 1;
+    extern void fight_worker_watch(uint32_t frame);
+    fight_worker_watch(count);
     if (count <= 2 || count % 60 == 0)
         fprintf(stderr, "[Fight Night] framebuffer submission %u\n", count);
 #ifdef __ANDROID__

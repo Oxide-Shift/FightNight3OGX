@@ -22,6 +22,7 @@ final class FightMenu extends LinearLayout {
     private final LinearLayout panel,details,graphicsDetails;
     private final TextView heading,state,qualityHint;
     private final ProgressBar progress;
+    private final BuildStages stages;
     private final TextView progressDetail;
     private static final java.util.regex.Pattern COUNTS=java.util.regex.Pattern.compile("(\\d+) / (\\d+)");
     private final Button play,disc,save,exportSave,settings,advanced;
@@ -59,11 +60,25 @@ final class FightMenu extends LinearLayout {
         settingsPane=new ScrollView(c);settingsPane.setFillViewport(true);addView(settingsPane);
         panel=column();panel.setGravity(Gravity.CENTER_VERTICAL);
         panel.setPadding(dp(22),dp(13),dp(22),dp(13));settingsPane.addView(panel);
+        // Sections opening and closing, and rows that come and go with the session, move instead of jumping.
+        android.animation.LayoutTransition moves=new android.animation.LayoutTransition();
+        moves.enableTransitionType(android.animation.LayoutTransition.CHANGING);
+        moves.setDuration(180);panel.setLayoutTransition(moves);
+        // The rail lives on the panel's overlay and follows controller focus (touch mode hides it).
+        panel.getOverlay().add(rail);
+        panel.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->rail.setBounds(0,0,r-l,b-t));
+        getViewTreeObserver().addOnGlobalFocusChangeListener((oldFocus,newFocus)->{
+            if(newFocus!=null && !newFocus.isInTouchMode() && isDescendant(newFocus))rail.moveTo(newFocus);
+            else rail.fade(0f);
+        });
+        getViewTreeObserver().addOnTouchModeChangeListener(touch->{if(touch)rail.fade(0f);});
         settingsPane.setBackground(setupArt);
         LinearLayout title=row();title.setGravity(Gravity.CENTER_VERTICAL);
         heading=label("Fight setup",31,PAPER);heading.setTypeface(faces.stencil);title.addView(heading,new LayoutParams(0,-2,1));
         if(!version.isEmpty())title.addView(label(version,13,MUTED));
         state=label("",15,MUTED);state.setPadding(0,0,0,dp(8));panel.addView(state);
+          stages=new BuildStages(c);stages.setVisibility(GONE);
+          LayoutParams stageSlot=new LayoutParams(-1,dp(44));stageSlot.bottomMargin=dp(6);panel.addView(stages,stageSlot);
           progress=new ProgressBar(c,null,android.R.attr.progressBarStyleHorizontal);
           progress.setMax(1000);progress.setProgressTintList(ColorStateList.valueOf(GOLD));
           progress.setIndeterminateTintList(ColorStateList.valueOf(GOLD));progress.setVisibility(GONE);
@@ -222,7 +237,74 @@ final class FightMenu extends LinearLayout {
         b.setMinHeight(dp(48));b.setMinimumHeight(dp(48));
         b.setTextSize(primary?20:16);b.setTypeface(primary?faces.stencil:faces.body);
         b.setPadding(dp(19),dp(3),dp(12),dp(4));b.setTextColor(PAPER);
+        b.setStateListAnimator(pressAndLift());
         if(action!=null)b.setOnClickListener(v->action.run());return b;
+    }
+    /** Pressed rows dip, controller-focused rows lift slightly, everything else rests (the framework skips the
+     *  animation when animations are off). */
+    static android.animation.StateListAnimator pressAndLift(){
+        android.animation.StateListAnimator states=new android.animation.StateListAnimator();
+        states.addState(new int[]{android.R.attr.state_pressed},scaleTo(.975f,70));
+        states.addState(new int[]{android.R.attr.state_focused},scaleTo(1.018f,140));
+        states.addState(new int[0],scaleTo(1f,110));
+        return states;
+    }
+    private static android.animation.Animator scaleTo(float scale,long ms){
+        android.animation.ObjectAnimator a=android.animation.ObjectAnimator.ofPropertyValuesHolder((Object)null,
+                android.animation.PropertyValuesHolder.ofFloat("scaleX",scale),android.animation.PropertyValuesHolder.ofFloat("scaleY",scale));
+        a.setDuration(ms);a.setInterpolator(SheetMotion.settle());return a;
+    }
+    /** A gold rail on the left edge that glides to whichever row has controller focus. */
+    private final FocusRail rail=new FocusRail();
+    private final class FocusRail extends Drawable {
+        final Paint pen=new Paint(Paint.ANTI_ALIAS_FLAG);
+        final RectF at=new RectF(),from=new RectF(),to=new RectF();
+        float shown;android.animation.ValueAnimator glide;
+        void moveTo(View row){
+            if(row==null || row.getParent()==null){fade(0f);return;}
+            Rect r=new Rect();row.getDrawingRect(r);
+            try{panel.offsetDescendantRectToMyCoords(row,r);}catch(IllegalArgumentException notInside){fade(0f);return;}
+            to.set(r.left-dp(9),r.top+dp(4),r.left-dp(5),r.bottom-dp(4));
+            if(shown<=0f || !SheetMotion.on()){at.set(to);fade(1f);invalidateSelf();return;}
+            from.set(at);
+            if(glide!=null)glide.cancel();
+            glide=android.animation.ValueAnimator.ofFloat(0f,1f).setDuration(170);
+            glide.setInterpolator(SheetMotion.settle());
+            glide.addUpdateListener(a->{float f=(float)a.getAnimatedValue();
+                at.set(from.left+(to.left-from.left)*f,from.top+(to.top-from.top)*f,from.right+(to.right-from.right)*f,from.bottom+(to.bottom-from.bottom)*f);
+                invalidateSelf();});
+            glide.start();fade(1f);
+        }
+        void fade(float target){shown=target;invalidateSelf();}
+        @Override public void draw(Canvas c){
+            if(shown<=0f || at.isEmpty())return;
+            pen.setShader(new LinearGradient(0,at.top,0,at.bottom,0xfff6bf55,0xffaf3927,Shader.TileMode.CLAMP));
+            c.drawRoundRect(at,dp(2),dp(2),pen);pen.setShader(null);
+        }
+        @Override public void setAlpha(int a){}
+        @Override public void setColorFilter(ColorFilter f){}
+        @Override public int getOpacity(){return PixelFormat.TRANSLUCENT;}
+    }
+    private boolean isDescendant(View v){
+        for(android.view.ViewParent p=v.getParent();p!=null;p=p.getParent())if(p==panel)return true;
+        return false;
+    }
+    private boolean entered;
+    /** First time the setup screen is on screen: rows rise in, top to bottom (capped so the last ones are not late). */
+    @Override protected void onAttachedToWindow(){
+        super.onAttachedToWindow();
+        if(entered || !SheetMotion.on())return;
+        entered=true;
+        post(()->{
+            int k=0;
+            for(int i=0;i<panel.getChildCount();i++){
+                View child=panel.getChildAt(i);
+                if(child.getVisibility()!=VISIBLE)continue;
+                child.setAlpha(0f);child.setTranslationY(dp(14));
+                child.animate().alpha(1f).translationY(0).setStartDelay(30L*Math.min(k++,12)+60)
+                        .setDuration(SheetMotion.ENTER_MS).setInterpolator(SheetMotion.settle()).start();
+            }
+        });
     }
     private void arrange(boolean wide){
         landscape=wide;setOrientation(wide?HORIZONTAL:VERTICAL);
@@ -286,9 +368,10 @@ final class FightMenu extends LinearLayout {
     void showBuildProgress(String message,long started){
         int visibility=started>0?VISIBLE:GONE;
         if(progress.getVisibility()!=visibility){
-            progress.setVisibility(visibility);progressDetail.setVisibility(visibility);
+            progress.setVisibility(visibility);progressDetail.setVisibility(visibility);stages.setVisibility(visibility);
         }
         if(started==0)return;
+        stages.font(faces.stencil);stages.stage(BuildStages.stageOf(buildPhase(message)));
         java.util.regex.Matcher counts=COUNTS.matcher(message);
         String amount="";
         if(counts.find() && Long.parseLong(counts.group(2))>0){
@@ -419,7 +502,9 @@ final class FightMenu extends LinearLayout {
 
     private final class Poster extends View {
         final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG|Paint.FILTER_BITMAP_FLAG);
-        final Matrix transform=new Matrix();
+        final Matrix transform=new Matrix(),drift=new Matrix();
+        static final long LIVE_MS=20000;
+        long shownAt,lastFrame,heldAt=-1;
         Bitmap artwork;
         LinearGradient topFade,bottomFade;
         float artTop,artBottom;
@@ -442,7 +527,33 @@ final class FightMenu extends LinearLayout {
             int w=getWidth(),h=getHeight();
             c.drawColor(0xff211912);
             if(artwork!=null && topFade!=null){
-                paint.setColor(-1);paint.setShader(null);c.drawBitmap(artwork,transform,paint);
+                paint.setColor(-1);paint.setShader(null);
+                long t=android.os.SystemClock.uptimeMillis();
+                // Plays for LIVE_MS each time Fight Setup comes back on screen, then holds, so the window can go idle
+                // (Thor sweeps read the screen through uiautomator, which waits for idle).
+                if(t-lastFrame>1000)shownAt=t;
+                lastFrame=t;
+                boolean moving=SheetMotion.on() && isShown() && t-shownAt<LIVE_MS;
+                if(!moving && heldAt<0)heldAt=t;
+                if(moving)heldAt=-1;
+                else t=heldAt;
+                if(SheetMotion.on()){
+                    // A slow push-in and drift over 22 s, centred on the title (frozen where it was once held).
+                    float phase=(float)(.5-.5*Math.cos(2*Math.PI*(t%22000)/22000.0));
+                    drift.set(transform);
+                    drift.postScale(1f+.045f*phase,1f+.045f*phase,w*.5f,(artTop+artBottom)*.5f);
+                    drift.postTranslate(-w*.012f*phase,0);
+                    c.drawBitmap(artwork,drift,paint);
+                }else c.drawBitmap(artwork,transform,paint);
+                // Every 7 s a band of light crosses the title art.
+                float sweep=moving?(t%7000)/1300f:2f;
+                if(sweep<1f){
+                    float band=w*.22f,x=-band+sweep*(w+band*2);
+                    paint.setShader(new LinearGradient(x-band,artTop,x+band,artBottom,
+                            new int[]{0x00fff3d6,0x38fff3d6,0x00fff3d6},null,Shader.TileMode.CLAMP));
+                    c.drawRect(0,Math.max(0,artTop),w,Math.min(h,artBottom),paint);paint.setShader(null);
+                }
+                if(moving)postInvalidateOnAnimation();
                 if(artTop>0){paint.setShader(topFade);c.drawRect(0,artTop,w,Math.min(h,artTop+dp(60)),paint);}
                 if(artBottom<h){paint.setShader(bottomFade);c.drawRect(0,Math.max(0,artBottom-dp(60)),w,artBottom,paint);}
                 paint.setShader(null);

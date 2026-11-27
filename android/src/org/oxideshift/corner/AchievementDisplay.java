@@ -103,7 +103,8 @@ final class AchievementDisplay {
     private void open(boolean music){
         open(music,false);
     }
-    private void open(boolean music,boolean returning){
+    private void open(boolean music,boolean returning){open(music,returning,false);}
+    private void open(boolean music,boolean returning,boolean fightRecord){
         if(galleryPage!=null)return;
         neutralPad.run();musicHome=music;
         android.content.SharedPreferences prefs=activity.getSharedPreferences("fight-setup",Activity.MODE_PRIVATE);
@@ -127,7 +128,8 @@ final class AchievementDisplay {
             }
             public boolean paused(){return session.musicPaused();}
         }:null;
-        AchievementGallery page=new AchievementGallery(activity,fonts,awards,top.getWidth(),artwork.get(),this::leave,this::play,options);
+        AchievementGallery page=new AchievementGallery(activity,fonts,awards,top.getWidth(),artwork.get(),this::leave,this::play,
+                fightRecord?null:options,fightRecord?session.record:null);
         FrameLayout layers=new FrameLayout(activity);
         layers.addView(page);
         // Keep the original game surface in its visible window throughout the handoff.
@@ -301,6 +303,8 @@ final class AchievementDisplay {
         promptOverlay=galleryPage.new LowerPage(host.getContext());
         promptOverlay.update(session.song());
         host.addView(promptOverlay,new FrameLayout.LayoutParams(-1,-1));
+        // Lifted views on the lower screen (the career card's focus lift, fades) must never draw over this page.
+        promptOverlay.setTranslationZ(AchievementGallery.dp(host.getContext(),64));
     }
     boolean showingAward(){return banner!=null && banner.getVisibility()==View.VISIBLE;}
     void refresh(FrameLayout lower){
@@ -308,6 +312,7 @@ final class AchievementDisplay {
         session.checkPlaylistArrival();
         if(galleryPage==null && session.takeMusicRequest())open(true,session.takePlaylistReturn());
         else if(galleryPage==null && session.takeCabinetRequest())open(false);
+        else if(galleryPage==null && session.record!=null && session.takeRecordRequest())open(false,false,true);
         if(galleryPage!=null)routePrompts(galleryPage.getVisibility()==View.VISIBLE?lower:null);
         // The award's clock only runs while it can be seen: a fight cue pauses it instead of letting it expire unseen.
         if(session.fightCueVisible()){

@@ -473,21 +473,24 @@ public class CornerActivity extends Activity implements DisplayManager.DisplayLi
             next.installMenuFrom(disc);
             next.musicAssets=getAssets();
             next.musicOptions(prefs.getBoolean("fightMusic",false),prefs.getBoolean("expandedMusic",false));
-            String model=android.os.Build.MODEL+" "+android.os.Build.DEVICE+" "+android.os.Build.PRODUCT;
-            // The loading guide (Thor, RP Duo or phone, picked at random each launch) installs on every device;
-            // the Thor icon on the corner selector stays Thor-only.
+            // The loading controls guide and the corner-select icon show the drawn device closest to this one.
             android.content.res.AssetManager assets=getAssets();
             next.thorGuide=(name,length)->{
                 byte[] bytes=new byte[length];
                 try(java.io.DataInputStream in=new java.io.DataInputStream(assets.open(name))){in.readFully(bytes);}
                 return bytes;
             };
-            next.thorSelector=model.toLowerCase(java.util.Locale.ROOT).contains("thor");
+            next.playerDevice=DeviceMatch.detect(this);
             CrashReports reports=crashReports;
             final int fpsLimit=DisplayCadence.target(menu.pacing.index());
             next.onCrash((exit,pc,event,round,pixels,soft,state)->reports.record("game",exit,pc,event,round,pixels,soft?"software":"vulkan",state,fpsLimit));
             SharedPreferences medals=getSharedPreferences("achievements",MODE_PRIVATE);
             next.achievements=new Achievements(key->medals.getBoolean(key,false),key->{medals.edit().putBoolean(key,true).apply();backups.snapshot(save);});
+            SharedPreferences ledger=getSharedPreferences("fight-record",MODE_PRIVATE);
+            next.record=new FightRecord(new FightRecord.Store(){
+                public long get(String key){return ledger.getLong(key,0);}
+                public void put(String key,long value){ledger.edit().putLong(key,value).apply();}
+            });
             next.setFrameFile(frame);
             String kit=discBuild==null?"embedded":discBuild.playableModule().getParentFile().getName();
             next.journalLaunch(base,kit,recoverGraphics);

@@ -355,9 +355,10 @@ int fight_career_property(uint32_t key,uint32_t value) {
             return !strcmp(page,"fnr3/open?")?open:!open;
         }
 #ifdef __ANDROID__
-        if(page && (!strcmp(page,"fnr3/achievements") || !strcmp(page,"fnr3/music")))fight_bind_menu_thread();
+        if(page && (!strcmp(page,"fnr3/achievements") || !strcmp(page,"fnr3/music") || !strcmp(page,"fnr3/record")))fight_bind_menu_thread();
 #endif
         if(page && !strcmp(page,"fnr3/achievements")){puts("FNR3/1 CABINET OPEN");fflush(stdout);}
+        else if(page && !strcmp(page,"fnr3/record")){puts("FNR3/1 RECORD OPEN");fflush(stdout);}
         else if(page && !strcmp(page,"fnr3/music")){puts("FNR3/1 MUSICMENU OPEN");fflush(stdout);}
         else {
             static int previous=-1;
@@ -497,6 +498,50 @@ static void sample_fighters(int round) {
         career_records(blueRecord,redRecord,NULL);
         snprintf(line,sizeof line,"FNR3/1 FIGHTERS %s %s %s %s",blue,red,blueRecord,redRecord);
     }
+    if(strcmp(line,previous)){strcpy(previous,line);puts(line);fflush(stdout);}
+}
+/* The roster row behind a selection ID: its column count and a pointer to its signed 16-bit cells. */
+static const uint8_t *roster_row(uint32_t id,unsigned *cols_out){
+    uint32_t node=0x59d1d4;
+    for(unsigned bank=0;bank<16 && node;bank++){
+        const uint8_t *desc=guest(node,20);
+        if(!desc)return NULL;
+        unsigned size=word(desc+4);
+        if(size<32 || size>8u*1024*1024)return NULL;
+        const uint8_t *table=guest(word(desc+8),size);
+        if(!table)return NULL;
+        unsigned cols=word(table),rows=word(table+4);
+        if(cols<3 || cols>1024 || rows>65535)return NULL;
+        if(id>=rows){id-=rows;node=word(desc+16);continue;}
+        unsigned end=word(table+8);
+        uint64_t rowBytes=((uint64_t)rows*cols*2+2)&~UINT64_C(3);
+        if(rowBytes>end || end>size)return NULL;
+        unsigned row=end-(unsigned)rowBytes+id*cols*2;
+        if(row+cols*2>size)return NULL;
+        *cols_out=cols;return table+row;
+    }
+    return NULL;
+}
+/* Outside a round the selection manager's two IDs follow the boxers highlighted on the Play Now select screens.
+ * Report both rows (names, record and every 16-bit cell, for the lower-screen tale of the tape) and the manager's
+ * neighbouring words (venue and corner choices live beside the IDs). Printed only when something changes. */
+static void sample_selection(int round){
+    static char previous[1400];
+    if(round)return;
+    char line[1400];int n=snprintf(line,sizeof line,"FNR3/1 SELECTION");
+    for(int side=0;side<2;side++){
+        uint32_t id=word(XBOX_HOST(side?0x59dcb0:0x59dcac));
+        char name[129],record[32];unsigned cols=0;
+        const uint8_t *row=roster_row(id,&cols);
+        if(!row || !roster_name(id,name,record)){n+=snprintf(line+n,sizeof line-n," - - -");continue;}
+        n+=snprintf(line+n,sizeof line-n," %u %s ",id,name);
+        if(cols>64)cols=64;
+        for(unsigned c=0;c<cols && n<(int)sizeof line-8;c++){
+            int16_t v;memcpy(&v,row+c*2,2);n+=snprintf(line+n,sizeof line-n,c?",%d":"%d",v);
+        }
+    }
+    n+=snprintf(line+n,sizeof line-n," m");
+    for(uint32_t at=0x59dc90;at<0x59dcd0 && n<(int)sizeof line-12;at+=4)n+=snprintf(line+n,sizeof line-n,",%x",word(XBOX_HOST(at)));
     if(strcmp(line,previous)){strcpy(previous,line);puts(line);fflush(stdout);}
 }
 static float real32(const uint8_t *p) {
@@ -905,6 +950,7 @@ void fight_score_sample(void) {
     sample_bout(root,clock,round);
     if(flip % 12)return;
     sample_fighters(round);
+    sample_selection(round);
     used=snprintf(line,sizeof line,"FNR3/1 CARD %d",round);
     if(round && judges){
         const uint8_t *cards[3];

@@ -32,8 +32,8 @@ def main():
         javac=args.jdk/"bin/javac.exe"
         java=args.jdk/"bin/java.exe"
         java_suites=["GraphicsStartupSmoke","LaunchRecoveryTest","CornerControlsSmoke","FightBroadcastSmoke","RingsidePromptSmoke","CutmanStrokeSmoke",
-               "HakuSaveSmoke","ProfileSavesSmoke","DisplayCadenceSmoke","MenuStripSmoke","ControllerInputSmoke","FightEventsSmoke","CommandPipeSmoke","SessionSleepSmoke","ReleaseVersionSmoke","ReleaseAssetSmoke","DiscTraxSmoke","AchievementsSmoke","CalloutRumbleSmoke","BetweenRoundsSmoke","DiagnosticTailSmoke"]
-        paths=[TESTS/(name+".java") for name in java_suites+["LinkSmoke","DiscInstallSmoke","RetailMenuStartupSmoke"]]
+               "HakuSaveSmoke","ProfileSavesSmoke","DisplayCadenceSmoke","MenuStripSmoke","ControllerInputSmoke","FightEventsSmoke","CommandPipeSmoke","SessionSleepSmoke","ReleaseVersionSmoke","ReleaseAssetSmoke","DiscTraxSmoke","AchievementsSmoke","CalloutRumbleSmoke","BetweenRoundsSmoke","DiagnosticTailSmoke","LoadingCardSmoke","FightRecordSmoke","PlayNowPickSmoke","DeviceMatchSmoke","VenueCaptionSmoke"]
+        paths=[TESTS/(name+".java") for name in java_suites+["LinkSmoke","DiscInstallSmoke","RetailMenuStartupSmoke","CareerMenuSmoke"]]
         run([javac,"--release","8","-encoding","UTF-8","-cp",args.android_jar,"-d",out,*JAVA.glob("*.java"),*paths])
         cp=os.pathsep.join(map(str,(out,args.android_jar)))
         frames=[f for d in args.frames for f in sorted(d.glob("*.raw")) if f.name.startswith(("boxer","main","round","career-central","contract-","editor-"))]
@@ -42,6 +42,7 @@ def main():
         run([java,"-cp",cp,"org.oxideshift.corner.DiscInstallSmoke",args.build/"default.xbe"])
         for n,archive in enumerate(args.menu_archive):
             run([java,"-cp",cp,"org.oxideshift.corner.RetailMenuStartupSmoke",archive,out/("menu-"+str(n))])
+            run([java,"-cp",cp,"org.oxideshift.corner.CareerMenuSmoke",Path(archive).parent.parent,out/("career-"+str(n))])
         run([sys.executable,TESTS/"guest_object_cache.py"])
         run([sys.executable,TESTS/"shader_constants.py"])
         run([sys.executable,TESTS/"thor_health.py"])
@@ -130,7 +131,7 @@ def main():
             run([args.cc,"-O2","-I",args.vulkan_include,TESTS/"gpu_compatibility.c","-o",gpu])
             run([gpu])
         names=["menu_dpad","flip_pacing","corner_camera","menu_cancel","audio_ring","audio_route","audio_control","audio_startup","voice_list","voice_rate","fight_texture_layout","frame_publish",
-               "mesh_cache","front_surfaces","pushbuffer_wrap","texture_hash","controller_bus","ring_events","trax_filter"]
+               "mesh_cache","front_surfaces","pushbuffer_wrap","texture_hash","controller_bus","ring_events","trax_filter","worker_watch","xid_guard"]
         for name in names:
             exe=out/(name+".exe")
             extra={"audio_control":["-pthread","-static"],"menu_cancel":["-I",args.toolkit/"templates/runtime"],"audio_route":["-I",TESTS/"route_mock","-pthread","-static"],"pushbuffer_wrap":[host/"nv2a_pb_scan.o"],"controller_bus":[host/"usb_gamepad.o",ROOT/"native/pad_input.c",private_poll,"-I",args.build/"gen","-lxinput"]}.get(name,[])

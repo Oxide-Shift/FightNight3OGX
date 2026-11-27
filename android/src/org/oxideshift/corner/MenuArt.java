@@ -63,7 +63,7 @@ final class MenuArt {
             if(known && value==on)return;
             boolean animate=known && SheetMotion.on() && isShown();
             on=value;known=true;slide.cancel();
-            if(animate){slide.setFloatValues(knob,on?1f:0f);slide.setInterpolator(SheetMotion.settle());slide.start();}
+            if(animate){slide.setFloatValues(knob,on?1f:0f);slide.setDuration(260);slide.setInterpolator(new android.view.animation.OvershootInterpolator(2f));slide.start();}
             else{knob=on?1f:0f;invalidate();}
         }
         @Override protected void onDraw(Canvas c){

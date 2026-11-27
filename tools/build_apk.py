@@ -153,9 +153,10 @@ def main():
                 shutil.copyfile(app / "res/raw/corner_unlock.wav", res / "raw/corner_unlock.wav")
                 shutil.copyfile(app / "assets/achievement-badges.webp", assets / "achievement-badges.webp")
                 shutil.copyfile(app / "assets/crash-inbox.pem",assets / "crash-inbox.pem")
-                for guide in ("thor-guide.dxt3","duo-guide.dxt3","phone-guide.dxt3"):
-                    shutil.copyfile(app / "assets" / guide,assets / guide)
-                shutil.copyfile(app / "assets/thor-selector.dxt3",assets / "thor-selector.dxt3")
+                for kind in ("thor","duo","rp6","odin","phone","tablet"):
+                    for part in ("guide","selector"):
+                        name=kind+"-"+part+".dxt3"
+                        shutil.copyfile(app / "assets" / name,assets / name)
                 shutil.copyfile(app / "assets/corner.html", assets / "corner.html")
             run(sdk / "aapt2.exe", "compile", "--dir", res, "-o", resources)
             link.extend(["-A", assets, resources])

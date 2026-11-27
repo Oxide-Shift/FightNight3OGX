@@ -124,6 +124,9 @@ public final class CornerSession {
     boolean allowGpuScanout(){return !software && !generalShaders;}
     boolean useSharedFrames(){return sharedFrames && allowGpuScanout();}
     private boolean widescreen=true;
+    /** The boxers highlighted on the Play Now select screens (latest SELECTION report). */
+    private volatile PlayNowPick pick;
+    PlayNowPick pick(){return pick;}
     private volatile FightBroadcast.Fighters fighters;
     FightBroadcast.Fighters fighters(){return fighters;}
     private volatile int recovery=-1;
@@ -202,12 +205,19 @@ public final class CornerSession {
     private Runnable cabinetListener;
     synchronized void onCabinet(Runnable listener){cabinetListener=listener;}
     synchronized boolean takeCabinetRequest(){boolean pending=cabinetRequested;cabinetRequested=false;return pending;}
+    /** Fight Record, opened from the career menu (FNR3/1 RECORD OPEN). */
+    private boolean recordRequested;
+    synchronized boolean takeRecordRequest(){boolean pending=recordRequested;recordRequested=false;return pending;}
     private File menuDisc;
     interface Guide { byte[] load(String name,int length)throws IOException; }
     Guide thorGuide;
-    boolean thorSelector;
+    /** The drawn device closest to this one (DeviceMatch), for the corner icon and the loading controls guide. */
+    ThorLoadingGuide.Device playerDevice;
     void installMenuFrom(File disc){menuDisc=disc;}
     Achievements achievements;
+    /** Lifetime fight record (career and all bouts). careerContext: the last menus seen were the career hub. */
+    FightRecord record;
+    private boolean careerContext;
     private int achievementRound,trainingDrill;
     final CareerDesk career=new CareerDesk();
     private volatile FightBroadcast.Camp camp;
@@ -395,6 +405,7 @@ public final class CornerSession {
     }
 
     public synchronized void stop() {
+        if(record!=null)record.finishPending();   // a drawn bout settles when the session ends
         if (!active()) return;
         cancelled = true;
         if (process != null) process.destroyForcibly();
@@ -529,7 +540,9 @@ public final class CornerSession {
                 line.startsWith("[Fight Night] dropped offscreen ") || line.startsWith("[Fight Night] drop_offscreen ") ||
                 line.startsWith("[Fight Night] offscreen sampled ") || line.startsWith("[Fight Night] dumped offscreen ") ||
                 line.startsWith("[Fight Night] crowd ") || line.startsWith("[Fight Night] pad read ") ||
-                line.startsWith("[Fight Night] Current color target sampled at "))){
+                line.startsWith("[Fight Night] Current color target sampled at ") ||
+                // Crash-family diagnostics (worker watch, controller report length guard): visible in logcat too.
+                line.startsWith("FNR3/1 WORKER ") || line.startsWith("FNR3/1 XIDLEN"))){
             timingLog.accept(line);
         }
         if(line.startsWith("FNR3/1 MAINHOVER ")){
@@ -539,8 +552,9 @@ public final class CornerSession {
             return;
         }
         if(line.equals("FNR3/1 FRONT 0")){front(FRONT_OTHER);return;}
-        if(line.equals("FNR3/1 FRONT 3")){leaveResults();front(FRONT_PLAYNOW);return;}
+        if(line.equals("FNR3/1 FRONT 3")){careerContext=false;leaveResults();front(FRONT_PLAYNOW);return;}
         if(line.equals("FNR3/1 FRONT 1")){
+            careerContext=false;
             boolean leftPlaylist=playlist==Playlist.RETAIL ||
                     (playlist==Playlist.DISPATCHED && frontPage==FRONT_OTHER);
             browsingTrax=false;
@@ -568,6 +582,10 @@ public final class CornerSession {
         if(line.equals("FNR3/1 MUSICMENU OPEN")){
             if(!browsingTrax && !atRoot())front(FRONT_ROOT);
             if(playlist==Playlist.IDLE && !cabinetOpen && !cabinetRequested && !musicRequested){musicRequested=true;if(cabinetListener!=null)cabinetListener.run();}
+            return;
+        }
+        if(line.equals("FNR3/1 RECORD OPEN")){
+            if(record!=null && !cabinetOpen && !cabinetRequested && !recordRequested){recordRequested=true;if(cabinetListener!=null)cabinetListener.run();}
             return;
         }
         if(line.equals("FNR3/1 CABINET OPEN")){
@@ -611,7 +629,7 @@ public final class CornerSession {
             return;
         }
         // Logged locally (FightNightTiming) so the damage scale can be tuned from real fight amounts.
-        if(line.startsWith("FNR3/1 DAMAGE ")){damage.line(line);if(timingLog!=null)timingLog.accept(line);return;}
+        if(line.startsWith("FNR3/1 DAMAGE ")){damage.line(line);if(record!=null)record.damage(line);if(timingLog!=null)timingLog.accept(line);return;}
         if(line.startsWith("FNR3/1 SHOT ")){
             if(!hasResult() && bout!=null && bout.seconds==0 && judging!=null && judging.last()==bout.round)startShot(15000);
             return;
@@ -627,6 +645,7 @@ public final class CornerSession {
             resultsDismissed=false;lastScored=null;lastTotals=null;lastNames=fighters;
             announcements.reset();lastPulse=null;achievementRound=0;
             if(achievements!=null)achievements.beginBout();
+            if(record!=null)record.begin(careerContext);
             return;
         }
         if(line.startsWith("FNR3/1 EVENTWIN ")){
@@ -645,6 +664,7 @@ public final class CornerSession {
             }catch(NumberFormatException e){side=-1;}
             if((side!=0 && side!=1) || scored<0 || suffered<0 || haymakers<0)side=-1;
             playerSide=side;playerKnockdowns=side<0?null:new int[]{scored,suffered};
+            if(record!=null && boutNumber>0)record.playerStats(side,scored,suffered,haymakers);
             if(achievements!=null && boutNumber>0){
                 achievements.playerStats(side,scored,suffered,haymakers);
                 achievements.result(result,finish,achievementRound);
@@ -662,6 +682,10 @@ public final class CornerSession {
             if(achievements!=null && boutNumber>0 && (event.equals("WON") || event.equals("KO") || event.equals("TKO")))
                 achievements.result(result,finish,achievementRound);
             if(achievements!=null && boutNumber>0 && event.equals("STAGGER"))achievements.stagger();
+            if(record!=null && boutNumber>0){
+                if(event.equals("STAGGER"))record.stagger();
+                else{record.round(achievementRound);record.callout(event);}
+            }
             if(announcements.event(event,uptime.getAsLong())){
                 if(songObserver!=null)songObserver.run();
                 if(!lowerCallouts && !retailRumble && motors!=null &&
@@ -697,6 +721,7 @@ public final class CornerSession {
                 line.startsWith("FNR3/1 TRAINCHOICE ") || line.startsWith("FNR3/1 TRAINSTATS ") || line.startsWith("FNR3/1 SHOP ") || line.startsWith("FNR3/1 TRAINER ") || line.startsWith("FNR3/1 TROPHY ") || line.startsWith("FNR3/1 CASE ")){
             int split=line.indexOf(' ',7);
             career.accept(line.substring(7,split),line.substring(split+1));
+            careerContext=true;
             CareerDesk.Page page=career.page;
             if(line.startsWith("FNR3/1 CAREERPAGE ")){
                 if(page!=null && page.is("drill"))trainingDrill=page.index;
@@ -711,6 +736,12 @@ public final class CornerSession {
         if(line.startsWith("FNR3/1 CAMP ")){
             camp=FightBroadcast.Camp.parse(line.substring(12));
             if(achievements!=null)achievements.record(camp);
+            return;
+        }
+        if(line.startsWith("FNR3/1 SELECTION ")){
+            PlayNowPick next=PlayNowPick.parse(line.substring("FNR3/1 SELECTION ".length()));
+            if(next!=null)pick=next;
+            if(timingLog!=null)timingLog.accept(line);
             return;
         }
         if(line.startsWith("FNR3/1 FIGHTERS ")){
@@ -766,6 +797,7 @@ public final class CornerSession {
                 if(update.seconds>0 && !hasResult())cameraShot=0;
                 achievementRound=Math.max(achievementRound,update.round);
                 if(achievements!=null && boutNumber>0)achievements.punches(update);
+                if(record!=null && boutNumber>0)record.punches(update.punches,update.round);
                 bout=update;
                 if(update.punches!=null)lastTotals=update;
             }
@@ -885,15 +917,21 @@ public final class CornerSession {
             catch(IOException e){String problem="Main menu extensions unavailable: "+e.getMessage();synchronized(this){record(problem);}if(timingLog!=null)timingLog.accept(problem);}
             if(menuDisc!=null)try{AndroidDeviceText.install(menuDisc.toPath());}
         catch(IOException e){synchronized(this){record("Device text unavailable: "+e.getMessage());}}
+            // FIGHT RECORD in Career Central (only with the native screen hook that reports it).
+            if(menuDisc!=null && record!=null)try{CareerMenu.active=CareerMenu.install(menuDisc.toPath());}
+            catch(IOException e){String problem="Fight Record menu unavailable: "+e.getMessage();synchronized(this){record(problem);}if(timingLog!=null)timingLog.accept(problem);}
             if(menuDisc!=null && thorGuide!=null)try{
-                ThorLoadingGuide.Device device=ThorLoadingGuide.Device.random();
+                ThorLoadingGuide.Device device=playerDevice!=null?playerDevice:ThorLoadingGuide.Device.random();
                 long t0=System.nanoTime();
                 RetailMenu.installThorGuide(menuDisc.toPath(),thorGuide.load(device.art,ThorLoadingGuide.ART_BYTES),device);
                 if(timingLog!=null)timingLog.accept("controls guide "+device+" ready in "+(System.nanoTime()-t0)/1000000+" ms");
             }
             catch(IOException e){synchronized(this){record("Thor controls guide unavailable: "+e.getMessage());}}
-            if(menuDisc!=null && thorGuide!=null && thorSelector)try{RetailMenu.installThorSelector(menuDisc.toPath(),thorGuide.load("thor-selector.dxt3",128*64));}
-            catch(IOException e){synchronized(this){record("Thor side selector unavailable: "+e.getMessage());}}
+            // The corner-select controller becomes the player's device (any device, not only the Thor).
+            if(menuDisc!=null && thorGuide!=null && playerDevice!=null)try{
+                RetailMenu.installSelector(menuDisc.toPath(),thorGuide.load(playerDevice.selector,128*64),playerDevice);
+            }
+            catch(IOException e){synchronized(this){record("Corner selector unavailable: "+e.getMessage());}}
             ProcessBuilder builder=new ProcessBuilder(command).directory(directory);
             if(command.length>0 && frameFile!=null){
                 File shaders=new File(new File(command[0]).getParentFile(),"libfight_shader.so");

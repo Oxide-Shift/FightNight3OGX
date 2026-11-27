@@ -91,7 +91,12 @@ final class RingsideView extends LinearLayout {
     private boolean careerGuide;
     private boolean careerBranch;
     private int careerFocus=-1;
-    private static final String[] CENTRAL_HEADINGS={"Fight preparation","Fight store","Trophy case","Edit boxer","Career options"};
+    static final String[] CENTRAL_HEADINGS={"Fight preparation","Fight store","Trophy case","Edit boxer","Career options","Fight record"};
+    /** The heading for a focused Career Central row: with FIGHT RECORD added, row 1 is the record and the rest move down. */
+    static int centralRow(int focus,boolean sixRows){
+        if(!sixRows)return Math.min(focus,4);
+        return focus==0?0:focus==1?5:Math.min(focus-1,4);
+    }
     private static final String[][] CENTRAL_NOTES={
         {"Lead with the jab and see how your opponent answers before you throw the rear hand.",
          "A high knockout count tells you how often a win ended early. Check how many bouts that boxer has fought.",
@@ -106,7 +111,9 @@ final class RingsideView extends LinearLayout {
         {"Use the shoulder controls shown in the editor to move between pages.",
          "Check your stance before leaving the editor. It determines which hand leads your jab."},
         {"Check your round length here before the next bell.",
-         "If the crowd drowns out your coach, open Audio and adjust Speech and Crowd separately."}
+         "If the crowd drowns out your coach, open Audio and adjust Speech and Crowd separately."},
+        {"Every bout you finish lands in your record: knockouts, staggers and every punch type.",
+         "Switch to All bouts to count your Play Now fights alongside your career."}
     };
     private static final String[] CAMP_TIPS={
         "The record sheet follows your career boxer, including a legend you rebuilt.",
@@ -145,6 +152,8 @@ final class RingsideView extends LinearLayout {
     private final TextView[] numbers=new TextView[4];
     private final ProgressBar[] meters=new ProgressBar[4];
     private final int[] levels={-1,-1,-1,-1};
+    /** The value each readout last showed, to notice a drop. */
+    private final int[] meterShown={-1,-1,-1,-1};
     private Bitmap cornerArt;
     int traxInset(){
         return desk.getVisibility()==VISIBLE?Math.max(0,getHeight()-desk.getBottom()):dp(48);
@@ -281,8 +290,15 @@ final class RingsideView extends LinearLayout {
     }
     private void drawMeter(int i){
         if(meters[i]==null)return;
-        int v=levels[i];meters[i].setProgress(Math.max(0,v));
+        int v=levels[i];meters[i].setProgress(Math.max(0,v),SheetMotion.on());
+        // A real drop (a hard shot, a tiring round) jolts the readout.
+        int shown=meterShown[i];meterShown[i]=v;
         numbers[i].setText(v<0?"—":v+"%");
+        if(shown>=0 && v>=0 && shown-v>=5 && SheetMotion.on() && numbers[i].isShown()){
+            TextView n=numbers[i];n.animate().cancel();n.setTranslationX(dp(5));
+            n.animate().translationX(0).setDuration(300).setInterpolator(new android.view.animation.CycleInterpolator(2.5f)).start();
+            SheetMotion.pulse(n);
+        }
     }
     private void scoreRow(String[] values,boolean heading){
         LinearLayout row=new LinearLayout(getContext());judgePanel.addView(row);
@@ -303,11 +319,14 @@ final class RingsideView extends LinearLayout {
     private FightBroadcast.Card scorecard(){
         return session==null?null:scene==Scene.FINAL?session.scored():session.judging();
     }
+    private int cardShown=-1;
     private void drawScorecard(){
         if(judgePanel==null)return;
         judgePanel.removeAllViews();
         FightBroadcast.Card card=scorecard();lastCard=card;
         int last=card==null?-1:card.last();
+        boolean newRound=last>=0 && last!=cardShown;cardShown=last;
+        if(newRound)judgePanel.post(()->SheetMotion.enter(judgePanel));
         scoreHeading.setVisibility(last<0?GONE:VISIBLE);
         judgePanel.setVisibility(last<0?GONE:VISIBLE);
         if(last<0)return;
@@ -334,8 +353,26 @@ final class RingsideView extends LinearLayout {
             int landed=count[side*2],thrown=count[side*2+1];
             int key=side*2;
             if(landed==lastPunches[key] && thrown==lastPunches[key+1])continue;
+            boolean fresh=lastPunches[key]<0;
+            boolean climbed=!fresh && landed>lastPunches[key];
             lastPunches[key]=landed;lastPunches[key+1]=thrown;
-            view.setText(landed+" / "+thrown);
+            // A panel that appears outside a live round (between rounds, totals, final) counts up from zero.
+            Object running=view.getTag(SheetMotion.R_ROLL);
+            if(running instanceof android.animation.ValueAnimator)((android.animation.ValueAnimator)running).cancel();
+            if(fresh && scene!=Scene.ROUND && SheetMotion.on() && (landed>0 || thrown>0)){
+                android.animation.ValueAnimator roll=android.animation.ValueAnimator.ofFloat(0f,1f).setDuration(650);
+                roll.setInterpolator(SheetMotion.settle());roll.setStartDelay(120L*side+150);
+                roll.addUpdateListener(a->{float f=(float)a.getAnimatedValue();
+                    view.setText(Math.round(landed*f)+" / "+Math.round(thrown*f));});
+                roll.addListener(new android.animation.AnimatorListenerAdapter(){
+                    @Override public void onAnimationEnd(android.animation.Animator a){view.setText(landed+" / "+thrown);SheetMotion.pulse(view);}
+                });
+                view.setText("0 / 0");view.setTag(SheetMotion.R_ROLL,roll);roll.start();
+            }else{
+                view.setText(landed+" / "+thrown);
+                // A landed punch during the round: the count swells as it ticks.
+                if(climbed)SheetMotion.pulse(view);
+            }
             view.setContentDescription((side==0?"Blue":"Red")+" corner: "+landed+" of "+thrown+" punches landed");
         }
     }
@@ -484,10 +521,11 @@ final class RingsideView extends LinearLayout {
     }
     private void build(){
         if(editorDesk!=null){desk.removeView(editorDesk);editorDesk=null;}
+        if(loadingCard!=null && loadingCard.getParent()!=null)desk.removeView(loadingCard);
         scroll.setVisibility(VISIBLE);
         if(cutman!=null){cutman.release();removeView(cutman);cutman=null;}
         menuDock.removeAllViews();menuDock.setVisibility(scene==Scene.MENU && screen!=null?VISIBLE:GONE);
-        content.removeAllViews();damageMap=null;rootIllustration=null;scroll.scrollTo(0,0);menuHint=null;menuLead=null;scouting=null;contract=null;training=null;ledger=null;judgePanel=null;punchPanel=null;java.util.Arrays.fill(punchCounts,null);
+        content.removeAllViews();damageMap=null;rootIllustration=null;playNow=null;scroll.scrollTo(0,0);menuHint=null;menuLead=null;scouting=null;contract=null;training=null;ledger=null;judgePanel=null;punchPanel=null;java.util.Arrays.fill(punchCounts,null);
         resultHeading="";hero.career=false;careerActions.removeAllViews();careerActions.setVisibility(GONE);compactCareer=false;careerPage=null;careerDetails=false;careerRevision=-1;
         boolean showingHome=screen==null;
         launchHint.setVisibility(showingHome?VISIBLE:GONE);
@@ -524,7 +562,7 @@ final class RingsideView extends LinearLayout {
                 training.show(session.career,careerPage);careerRevision=session.career.revision;
             }else{
                 hero.title="Loading";
-                quietHint("Waiting for the next screen…");
+                showLoading("Loading");
             }
         }else if(scene==Scene.ROUND){
             hero.title="In your corner";
@@ -549,7 +587,7 @@ final class RingsideView extends LinearLayout {
             addScorecard();
         }else if(scene==null){
             hero.title="Fight Night Round 3";
-            quietHint("Starting the game…");
+            showLoading("Starting");
         }else{
             boolean menu=scene==Scene.MENU;
             hero.title=menu?((footerMask&4)!=0?"Boxer options":"Menu options"):"Ringside";
@@ -604,6 +642,28 @@ final class RingsideView extends LinearLayout {
         }
     }
     private OptionsSheet optionsSheet;
+    private PlayNowStage playNow;
+    private PlayNowPick shownPick;
+    /** The venue highlighted on venue select (VenueCaption), or null. */
+    private String venue;private int venueMisses;
+    /** Which Play Now stage this menu page gets, or null. */
+    private PlayNowStage.Mode playNowMode(boolean root,CareerDesk.Page page){
+        if(root || page!=null || session==null || scene!=Scene.MENU)return null;
+        if(currentPage!=null && "Select Venue".equals(currentPage.title))return PlayNowStage.Mode.POSTER;
+        if(currentPage!=null && "Select Corner".equals(currentPage.title))return PlayNowStage.Mode.CORNER;
+        PlayNowPick pick=session.pick();
+        boolean boxers=currentPage!=null && "Select Boxer".equals(currentPage.title);
+        boolean ratingsKey=(footerMask&4)!=0 && currentPage==null && !careerBranch;
+        return (boxers || ratingsKey) && pick!=null && pick.has(0) && pick.has(1)?PlayNowStage.Mode.TAPE:null;
+    }
+    /** One card for every loading hold; rebuilds re-add the same instance so its motion carries on. */
+    private LoadingCard loadingCard;
+    private void showLoading(String title){
+        hero.setVisibility(GONE);rule.setVisibility(GONE);scroll.setVisibility(GONE);
+        if(loadingCard==null)loadingCard=new LoadingCard(getContext());
+        loadingCard.fonts(headline,usedFonts==null?null:usedFonts.body);loadingCard.title(title);
+        desk.addView(loadingCard,new FrameLayout.LayoutParams(-1,-1));
+    }
     private void quietHint(String text){
         menuHint=type(text,15,PAPER);menuHint.setTypeface(headline);
         menuHint.setGravity(Gravity.CENTER);menuHint.setPadding(dp(6),dp(4),dp(6),dp(8));
@@ -631,7 +691,8 @@ final class RingsideView extends LinearLayout {
         }
         String[] choices=currentPage!=null?currentPage.tips:deeper?CAMP_TIPS:CORNER_TIPS;
         if(central && careerFocus>=0){
-            title=CENTRAL_HEADINGS[careerFocus];choices=CENTRAL_NOTES[careerFocus];
+            int row=centralRow(careerFocus,CareerMenu.active);
+            title=CENTRAL_HEADINGS[row];choices=CENTRAL_NOTES[row];
         }
         if(central && careerFocus<0)title="Career Central";
         boolean dedicated=page!=null && !central;
@@ -642,6 +703,18 @@ final class RingsideView extends LinearLayout {
         displayedCamp=camp;
         boolean scout=central || (deeper && !dedicated);
         careerPanels(page,scout);
+        // Play Now: boxer select (its footer offers Ratings) gets the tale of the tape, venue select the fight poster.
+        PlayNowStage.Mode stage=playNowMode(root,page);
+        if(stage!=null){
+            if(playNow==null){
+                playNow=new PlayNowStage(getContext(),usedFonts==null?DiscFonts.FALLBACK:usedFonts);
+                content.addView(playNow,0,new LayoutParams(-1,0,1f));
+            }
+            playNow.setVisibility(VISIBLE);playNow.show(stage,session.pick(),hint,venue);
+            if(stage==PlayNowStage.Mode.TAPE)title="Tale of the tape";
+            if(stage==PlayNowStage.Mode.CORNER)title="Choose your corner";
+        }else if(playNow!=null)playNow.setVisibility(GONE);
+        if(rootIllustration!=null)rootIllustration.setVisibility(stage!=null?GONE:VISIBLE);
         if(contract!=null)contract.show(page,offers?desk.selectedOffer():null);
         boolean atTraining=TrainingSheet.handles(page);
         boolean shop=page!=null && page.is("fightstore");
@@ -650,7 +723,7 @@ final class RingsideView extends LinearLayout {
         if(training!=null)training.show(desk,page);
         boolean atLedger=ledger!=null && ledger.show(desk,page);
         boolean atOptions=optionsSheet!=null && optionsSheet.show(page);
-        menuHint.setVisibility(offers || atTraining || atOptions || (atLedger && !careerDetails)?GONE:VISIBLE);
+        menuHint.setVisibility(offers || atTraining || atOptions || stage!=null || (atLedger && !careerDetails)?GONE:VISIBLE);
         hero.setVisibility(offers || atTraining || shop?GONE:VISIBLE);rule.setVisibility(hero.getVisibility());
         if(scouting!=null)scouting.show(scout?camp:null);
         boolean guide=dedicated || (central && camp==null) || setup;
@@ -793,6 +866,8 @@ final class RingsideView extends LinearLayout {
         FightBroadcast.Fighters names=session.fighters();
         if(names!=fighters){fighters=names;drawNames();}
         if(damageMap!=null)damageMap.show(session.damage,fighters,boxerHealth());
+        // A new boxer highlighted on the select screen (or the page's stage appearing) refreshes the Play Now card.
+        if(scene==Scene.MENU && session.pick()!=shownPick){shownPick=session.pick();describeMenu();}
         menuDock.setAlpha(session.cabinetOpen?0f:1f);
         openingSlate.movie(session.introMovie());
         if((scene==Scene.RINGSIDE || scene==Scene.MENU) && (tips.due(SystemClock.uptimeMillis()) || displayedCamp!=session.camp() || careerRevision!=session.career.revision))describeMenu();
@@ -855,6 +930,8 @@ final class RingsideView extends LinearLayout {
             if(root)page=MenuContext.rootSelection(page,currentPage,front);
             if(page!=null && "Career Central".equals(page.title))focus=menuContext.careerRow(f);
         }
+        // Venue select: the highlighted venue, read from the top screen's caption (null until it reads cleanly).
+        String venueRead=readMenu && page!=null && "Select Venue".equals(page.title)?VenueCaption.read(f):venue;
         if(!screen.current(f))return;
         boolean editorChanged=editorPage!=editor;
         editorPage=editor;
@@ -876,7 +953,14 @@ final class RingsideView extends LinearLayout {
                     sampled-lastRecognizedAt>=(MenuContext.isMain(currentPage)?900:700)){
                 currentPage=null;
             }
-            if(currentPage!=previous || careerFocus!=previousFocus)describeMenu();
+            // Keep the last clean venue read through a few unreadable frames (scratches, the slide between venues),
+            // then drop it, so a stale name never stays on a venue that cannot be read; drop it when the page changes.
+            boolean onVenues=currentPage!=null && "Select Venue".equals(currentPage.title);
+            venueMisses=venueRead!=null || !onVenues?0:venueMisses+1;
+            String nextVenue=!onVenues?null:venueRead!=null?venueRead:venueMisses>=4?null:venue;
+            boolean venueChanged=nextVenue==null?venue!=null:!nextVenue.equals(venue);
+            venue=nextVenue;
+            if(currentPage!=previous || careerFocus!=previousFocus || venueChanged)describeMenu();
         }else if(!showingMenu){tips.leave();currentPage=null;careerFocus=-1;careerBranch=false;missingPageReads=0;}
         long now=SystemClock.uptimeMillis();
         if(f.sequence!=sequence || forceCapture)lastSeen=now;
@@ -900,7 +984,7 @@ final class RingsideView extends LinearLayout {
         if(sceneChanged || editorChanged){
             boolean buttonsOnly=!editorChanged && scene==Scene.MENU && deskScene.shown==scene && editor==null;
             scene=deskScene.shown;footerMask=deskScene.prompts;
-            if(buttonsOnly)buildMenuDock();else build();
+            if(buttonsOnly){buildMenuDock();describeMenu();}else build();
         }
         screen.timing.observe(next,session==null?0:session.boutNumber(),card==null?0:card.round,
                 card!=null && card.round>0 && card.last()==card.round,layout==Scene.FINAL);
@@ -973,25 +1057,32 @@ final class RingsideView extends LinearLayout {
         }
         @Override protected void onDraw(Canvas c){
             int h=getHeight();c.drawColor(career?0xeb43160e:0xec301913);ink.setColor(career?0xffca4029:GOLD);c.drawPath(stripe,ink);
+            String text=title.toUpperCase(java.util.Locale.ROOT);
+            // Any new heading slides in and fades up (career pages also call revealTitle directly).
+            if(!text.equals(shownTitle)){
+                boolean first=shownTitle==null;shownTitle=text;
+                if(!first && SheetMotion.on())titleStarted=SystemClock.uptimeMillis();
+            }
             float progress=1;
+            if(titleStarted>0){
+                progress=Math.min(1,(SystemClock.uptimeMillis()-titleStarted)/220f);
+                if(progress<1 && isShown())postInvalidateOnAnimation();
+                else titleStarted=0;
+            }
             if(career){
                 ink.setColor(0xff81412b);c.drawPath(cornerRules,ink);
-                if(titleStarted>0){
-                    progress=Math.min(1,(SystemClock.uptimeMillis()-titleStarted)/220f);
-                    if(progress<1 && isShown())postInvalidateOnAnimation();
-                    else titleStarted=0;
-                }
                 ink.setTypeface(headline);ink.setTextSize(dp(11));ink.setColor(GameInk.GOLD);
                 c.drawText("CAREER",dp(23),dp(13),ink);
             }
             ink.setTypeface(headline);ink.setTextSize(dp(career?24:28));ink.setColor(PAPER);
-            String text=title.toUpperCase(java.util.Locale.ROOT);
+            ink.setAlpha(Math.round(255*(.25f+.75f*progress)));
             float space=Math.max(1,getWidth()-dp(67)),width=ink.measureText(text);
             if(width>space)ink.setTextSize(ink.getTextSize()*space/width);
             float baseline=career?h-dp(6):(h-ink.ascent()-ink.descent())*.5f;
             float left=dp(23)+dp(10)*(1-progress)*(1-progress);
             titleRight=(int)Math.ceil(left+Math.min(width,space));
-            c.drawText(text,left,baseline,ink);
+            c.drawText(text,left,baseline,ink);ink.setAlpha(255);
         }
+        private String shownTitle;
     }
 }
