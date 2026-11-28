@@ -1,0 +1,63 @@
+diff --git a/vkr.c b/vkr.c
+index d66e8bf..9387b5e 100644
+--- a/vkr.c
++++ b/vkr.c
+@@ -1957,20 +1957,35 @@ static void end_pass(VkrContext *c)
+ 
+ /* Draws and clears stay inside the NV2A clip rectangle; the target stays the
+  * whole surface (a smaller clip must not recreate it mid-frame). */
++/* A European (PAL) title draws 576-line frames into the 480-line main target (fight_gpu.c): vertical guest
++ * coordinates and clip rectangles are squeezed by 480/576, so readback, presentation and the 4:3 picture are
++ * unchanged. 0 = the target's own height (every US frame and every offscreen target). */
++static uint32_t s_guest_lines;
++static uint32_t guest_lines(const VkrContext *c) { return s_guest_lines ? s_guest_lines : c->h; }
++static void apply_scissor(VkrContext *c);
++void vkr_set_guest_lines(VkrContext *c, uint32_t lines)
++{
++    if (s_guest_lines == lines) return;
++    s_guest_lines = lines;
++    apply_scissor(c);
++}
++
+ static void apply_scissor(VkrContext *c)
+ {
+     uint32_t x = c->gsc[0], y = c->gsc[1], w = c->gsc[2], h = c->gsc[3];
+-    if (x >= c->w || y >= c->h) { x = y = 0; w = h = 0; }
++    const uint32_t gh = guest_lines(c);
++    const float sy = c->scale * (float)c->h / (float)gh;
++    if (x >= c->w || y >= gh) { x = y = 0; w = h = 0; }
+     if (x + w > c->w) w = c->w - x;
+-    if (y + h > c->h) h = c->h - y;
+-    if (c->scale != 1.0f || c->scale_x != 1.0f) {   /* guest pixels -> target pixels */
++    if (y + h > gh) h = gh - y;
++    if (c->scale != 1.0f || c->scale_x != 1.0f || gh != c->h) {   /* guest pixels -> target pixels */
+         /* Pillarbox: the guest frame is the 4:3 middle of the target. */
+         float sx = c->squeeze_all > 0.5f ? c->scale : c->scale_x;
+         float ox = c->squeeze_all > 0.5f ? ((float)c->sw - (float)c->w * c->scale) * 0.5f : 0.0f;
+         uint32_t x1 = (uint32_t)(ox + (float)(x + w) * sx + 0.5f);
+-        uint32_t y1 = (uint32_t)((float)(y + h) * c->scale + 0.5f);
++        uint32_t y1 = (uint32_t)((float)(y + h) * sy + 0.5f);
+         x = (uint32_t)(ox + (float)x * sx + 0.5f);
+-        y = (uint32_t)((float)y * c->scale + 0.5f);
++        y = (uint32_t)((float)y * sy + 0.5f);
+         if (x1 > c->sw) x1 = c->sw;
+         if (y1 > c->sh) y1 = c->sh;
+         w = x1 > x ? x1 - x : 0;
+@@ -2573,7 +2588,7 @@ int vkr_draw(VkrContext *c, const VkrVertex *v, uint32_t nverts,
+         vkCmdBindPipeline(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+         c->fight_bound_pipeline = pipe;
+     }
+-    pcv[0] = 1.0f / (float)c->w; pcv[1] = 1.0f / (float)c->h;
++    pcv[0] = 1.0f / (float)c->w; pcv[1] = 1.0f / (float)guest_lines(c);
+     pcv[2] = 1.0f / c->zmax;
+     pcv[3] = st->u.fog_enable ? st->u.fog_param[2] : 0.0f;
+     pcv[4] = st->u.fog_param[0]; pcv[5] = st->u.fog_param[1];
+@@ -2733,7 +2748,7 @@ int vkr_draw_mesh(VkrContext *c, const float *in, uint32_t nverts, uint32_t nin,
+         vkCmdBindPipeline(c->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+         c->fight_bound_pipeline = pipe;
+     }
+-    pcv[0] = 1.0f / (float)c->w; pcv[1] = 1.0f / (float)c->h;
++    pcv[0] = 1.0f / (float)c->w; pcv[1] = 1.0f / (float)guest_lines(c);
+     pcv[2] = 1.0f / c->zmax;
+     pcv[3] = st->u.fog_enable ? st->u.fog_param[2] : 0.0f;
+     pcv[4] = st->u.fog_param[0]; pcv[5] = st->u.fog_param[1];

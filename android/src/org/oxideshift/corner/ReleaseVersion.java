@@ -21,6 +21,21 @@ final class ReleaseVersion implements Comparable<ReleaseVersion> {
                 order,m.group(5)==null?0:Integer.parseInt(m.group(5)),m.group(6)==null?-1:Integer.parseInt(m.group(6))});
     }
     String asset(){return "FightNight3OGX-"+name+".apk";}
+    /** First release tagged in the plain scheme: v84.0.0 is "Alpha 84", v84.1.0 its first hotfix "Alpha 84.1".
+     *  Installed apps up to Alpha 83 only accept three-number tags, and 84.0.0 sorts above every 0.4.0-alpha.NN. */
+    static final int PLAIN_SCHEME=84;
+    /** The name players see: "Alpha 84", "Alpha 84.1"; older tags read "Alpha 83", "Alpha 82.1". */
+    String display(){
+        if(parts[3]==0)return "Alpha "+parts[4]+(parts[5]>=0?"."+parts[5]:"");
+        if(parts[3]==3 && parts[0]>=PLAIN_SCHEME)
+            return "Alpha "+parts[0]+(parts[1]>0||parts[2]>0?"."+parts[1]:"")+(parts[2]>0?"."+parts[2]:"");
+        return name;
+    }
+    /** Display name for an installed versionName, falling back to the raw text. */
+    static String display(String versionName){
+        ReleaseVersion v=parse(versionName);
+        return v==null?versionName:v.display();
+    }
     @Override public int compareTo(ReleaseVersion other){
         for(int i=0;i<parts.length;i++){
             int result=Integer.compare(parts[i],other.parts[i]);

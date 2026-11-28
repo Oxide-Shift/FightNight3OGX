@@ -13,6 +13,17 @@ final class ReleaseVersionSmoke {
         if(version.compareTo(ReleaseVersion.parse("0.4.0-alpha.23"))!=0 ||
                 !version.asset().equals("FightNight3OGX-0.4.0-alpha.23.apk"))
             throw new AssertionError("Thor release asset");
-        System.out.println("Release tag order and Thor APK filename passed");
+        // Plain scheme from Alpha 84: three numbers so installed updaters accept it, sorting above every older tag.
+        String[] plain={"0.4.0-alpha.83","v84.0.0","84.1.0","84.2.0","85.0.0"};
+        for(int i=1;i<plain.length;i++)
+            if(ReleaseVersion.parse(plain[i-1]).compareTo(ReleaseVersion.parse(plain[i]))>=0)
+                throw new AssertionError(plain[i]);
+        String[][] names={{"v84.0.0","Alpha 84"},{"84.1.0","Alpha 84.1"},{"85.0.0","Alpha 85"},{"0.4.0-alpha.83","Alpha 83"},
+                {"0.4.0-alpha.82.1","Alpha 82.1"},{"0.4.0-beta.1","0.4.0-beta.1"},{"1.0.0","1.0.0"}};
+        for(String[] n:names)
+            if(!ReleaseVersion.parse(n[0]).display().equals(n[1]))throw new AssertionError(n[0]+" -> "+ReleaseVersion.parse(n[0]).display());
+        if(!ReleaseVersion.display("dev-build").equals("dev-build") || !ReleaseVersion.parse("v84.0.0").asset().equals("FightNight3OGX-84.0.0.apk"))
+            throw new AssertionError("raw fallback and plain asset name");
+        System.out.println("Release tag order, display names and Thor APK filename passed");
     }
 }

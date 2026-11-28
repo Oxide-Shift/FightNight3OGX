@@ -24,6 +24,7 @@ def main():
         build.add_argument("--setup", action="store_true", help="Build the standalone PC downloader")
     build.add_argument("--disc-kit", type=Path, help="Build one game app that prepares its executable from the imported ISO")
     build.add_argument("--host", type=Path, help="Private Android PIE compiled from your own disc")
+    parser.add_argument("--disc-kit-pal", type=Path, help="Also carry the build kit for the European (PAL) executable")
     parser.add_argument("--emulator", action="store_true", help="Package a private x86-64 Android test host")
     parser.add_argument("--benchmark", action="store_true", help="Time a full uncached disc preparation on each new app process")
     parser.add_argument("--profile", action="store_true", help="Allow Android shell CPU profiling on a private disc build")
@@ -36,6 +37,8 @@ def main():
         verify_expanded_tracks()
     if args.benchmark and not args.disc_kit:
         parser.error("--benchmark requires --disc-kit")
+    if args.disc_kit_pal and not args.disc_kit:
+        parser.error("--disc-kit-pal requires --disc-kit")
     if args.profile and not args.disc_kit:
         parser.error("--profile requires --disc-kit")
     if args.offline_qa and not args.disc_kit:
@@ -172,6 +175,13 @@ def main():
                         archive.write(args.disc_kit / name, f"lib/{abi}/{name}")
                     archive.write(args.disc_kit / "disc-kit.zip", "assets/disc-kit.zip", compress_type=zipfile.ZIP_STORED)
                     archive.write(args.disc_kit / "disc-kit.id", "assets/disc-kit.id")
+                    if args.disc_kit_pal:
+                        # Natives are shared; only the kit archive differs for the PAL executable.
+                        for name in NATIVES:
+                            if (args.disc_kit_pal / name).read_bytes() != (args.disc_kit / name).read_bytes():
+                                raise SystemExit("PAL kit native " + name + " differs from the US kit")
+                        archive.write(args.disc_kit_pal / "disc-kit.zip", "assets/disc-kit-pal.zip", compress_type=zipfile.ZIP_STORED)
+                        archive.write(args.disc_kit_pal / "disc-kit.id", "assets/disc-kit-pal.id")
                 else:
                     archive.write(args.host, f"lib/{abi}/libfightnight_host.so")
                     archive.write(args.host.parent / "libframe_reader.so", f"lib/{abi}/libframe_reader.so")

@@ -1,0 +1,14 @@
+--- a/vkr.c
++++ b/vkr.c
+@@ -1376,8 +1376,10 @@ VkrContext *vkr_create(void)
+         if (vkAllocateCommandBuffers(c->dev, &cai, &fr->cmd) != VK_SUCCESS) goto fail;
+         if (vkAllocateCommandBuffers(c->dev, &cai, &fr->uploads) != VK_SUCCESS) goto fail;
+         if (vkCreateFence(c->dev, &fi, NULL, &fr->fence) != VK_SUCCESS) goto fail;
++        /* Texture uploads copy from this buffer: vkCmdCopyBufferToImage needs TRANSFER_SRC (validation, Alpha 84). */
+         VkBufferUsageFlags stages = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+-                                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
++                                    VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
++                                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+         if (make_buffer(c, VKR_BUF_BYTES + (256u << 15), stages, &fr->buf, &fr->buf_mem, &map)) {
+             c->has_mesh_room[f] = 1;
+         } else {

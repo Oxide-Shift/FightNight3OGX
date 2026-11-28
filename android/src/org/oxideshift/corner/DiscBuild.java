@@ -10,16 +10,41 @@ import java.util.zip.ZipInputStream;
 /** Prepare the player's game locally with the tools in the signed launcher. */
 final class DiscBuild {
     private final Context app;
-    private final File nativeDir, folder;
+    private final File nativeDir;
     final File runner;
     final boolean benchmark;
+    private final boolean palBundled;
+    private final java.util.function.Supplier<File> installed;
+    private final Map<String,String> kitIds=new java.util.HashMap<>();
     private static volatile String completedBenchmark;
-    File playableModule(){return preparedModule(folder);}
+    /** The signed kit for the installed executable: US, or the PAL kit when the APK carries one. */
+    private String kit(File xbe){return DiscRegion.kit(xbe,palBundled);}
+    private File folder(String kit)throws IOException{
+        String id;
+        synchronized(kitIds){
+            id=kitIds.get(kit);
+            if(id==null){
+                try(InputStream in=app.getAssets().open(kit+".id");
+                    BufferedReader reader=new BufferedReader(new InputStreamReader(in,"US-ASCII"))){
+                    id=reader.readLine();
+                }
+                if(id==null || !id.matches("[0-9a-f]{64}"))throw new IOException("Invalid disc build kit");
+                kitIds.put(kit,id);
+            }
+        }
+        return new File(new File(app.getFilesDir(),"disc-build"),id);
+    }
+    private File folder(){
+        try{return folder(kit(installed.get()));}
+        catch(IOException e){throw new UncheckedIOException(e);}
+    }
+    File playableModule(){return preparedModule(folder());}
     private File inspected;
     private long inspectedLength,inspectedTime;
     private boolean loadableLayout;
     synchronized boolean needsPreparation(){
-        File module=playableModule();
+        File folder=folder();
+        File module=preparedModule(folder);
         long length=module.length(),time=module.lastModified();
         if(!module.equals(inspected) || length!=inspectedLength || time!=inspectedTime){
             inspected=module;inspectedLength=length;inspectedTime=time;loadableLayout=arm64Module(module);
@@ -51,17 +76,14 @@ final class DiscBuild {
         }catch(IOException e){return false;}
     }
 
-    DiscBuild(Context context) throws IOException {
+    DiscBuild(Context context,java.util.function.Supplier<File> installedXbe) throws IOException {
         app=context.getApplicationContext();
         nativeDir=new File(app.getApplicationInfo().nativeLibraryDir);
         runner=new File(nativeDir,"libdisc_runner.so");
-        String id;
-        try(InputStream in=app.getAssets().open("disc-kit.id");
-            BufferedReader reader=new BufferedReader(new InputStreamReader(in,"US-ASCII"))){
-            id=reader.readLine();
-        }
-        if(id==null || !id.matches("[0-9a-f]{64}"))throw new IOException("Invalid disc build kit");
-        folder=new File(new File(app.getFilesDir(),"disc-build"),id);
+        installed=installedXbe;
+        palBundled=DiscRegion.palBundled(app);
+        folder(DiscRegion.US_KIT);   // the US kit must always be readable
+        if(palBundled)folder(DiscRegion.PAL_KIT);
         benchmark=java.util.Arrays.asList(app.getAssets().list("")).contains("benchmark-preparation");
     }
 
@@ -88,10 +110,10 @@ final class DiscBuild {
         return current;
     }
 
-    private void unpack(File kit, GameLibrary.Status status) throws IOException {
+    private void unpack(File kit, String kitName, GameLibrary.Status status) throws IOException {
         Path base=kit.toPath();
         Files.createDirectories(base);
-        try(android.content.res.AssetFileDescriptor asset=app.getAssets().openFd("disc-kit.zip");
+        try(android.content.res.AssetFileDescriptor asset=app.getAssets().openFd(kitName+".zip");
             InputStream stream=asset.createInputStream()){
             final long size=asset.getLength();
             final long totalKiB=(size+1023)/1024;
@@ -134,6 +156,8 @@ final class DiscBuild {
 
     private String prepareLocked(File xbe, GameLibrary.Status status)throws Exception{
         if(!needsPreparation())return "Xbox game ready";
+        final String kitName=kit(xbe);
+        final File folder=folder(kitName);
         final long started=android.os.SystemClock.elapsedRealtime();
         long translating=0,compiling=0;
         File trial=new File(folder,"timed-build");
@@ -148,7 +172,7 @@ final class DiscBuild {
         File ready=new File(kit,".ready");
         if(!ready.isFile()){
             status.update("Preparing build tools");
-            unpack(kit,status);
+            unpack(kit,kitName,status);
             Files.write(ready.toPath(),new byte[]{1});
         }
         ProcessBuilder builder=new ProcessBuilder(new File(nativeDir,"libpyrun.so").getAbsolutePath(),
@@ -249,7 +273,8 @@ final class DiscBuild {
         return false;
     }
     File sealedModule(){
-        File module=playableModule();
+        File folder=folder();
+        File module=preparedModule(folder);
         return module.getParentFile().equals(folder)?module:null;
     }
     interface ModuleCheck {boolean canLoad(File module)throws Exception;}

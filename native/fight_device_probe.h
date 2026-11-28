@@ -19,11 +19,14 @@ typedef struct {
 static FightGpuCheck fight_check_device(VkPhysicalDevice phys, FightGpuDevice *out) {
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(phys, &props);
-    if (props.apiVersion < VK_API_VERSION_1_3) return FIGHT_GPU_API;
-    VkPhysicalDeviceVulkan13Features f13 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
-    VkPhysicalDeviceFeatures2 features = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &f13 };
-    vkGetPhysicalDeviceFeatures2(phys, &features);
-    if (!f13.dynamicRendering || !f13.synchronization2) return FIGHT_GPU_FEATURES;
+    /* Alpha 84: Vulkan 1.1 drivers run through fight_vk_compat.h (extensions or emulation). */
+    if (props.apiVersion < VK_API_VERSION_1_1) return FIGHT_GPU_API;
+    if (props.apiVersion >= VK_API_VERSION_1_3) {
+        VkPhysicalDeviceVulkan13Features f13 = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+        VkPhysicalDeviceFeatures2 features = { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &f13 };
+        vkGetPhysicalDeviceFeatures2(phys, &features);
+        if (!f13.dynamicRendering || !f13.synchronization2) return FIGHT_GPU_FEATURES;
+    }
 
     uint32_t count = 0;
     if (vkEnumerateDeviceExtensionProperties(phys, NULL, &count, NULL) != VK_SUCCESS ||

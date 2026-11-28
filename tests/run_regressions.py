@@ -32,7 +32,7 @@ def main():
         javac=args.jdk/"bin/javac.exe"
         java=args.jdk/"bin/java.exe"
         java_suites=["GraphicsStartupSmoke","LaunchRecoveryTest","CornerControlsSmoke","FightBroadcastSmoke","RingsidePromptSmoke","CutmanStrokeSmoke",
-               "HakuSaveSmoke","ProfileSavesSmoke","DisplayCadenceSmoke","MenuStripSmoke","ControllerInputSmoke","FightEventsSmoke","CommandPipeSmoke","SessionSleepSmoke","ReleaseVersionSmoke","ReleaseAssetSmoke","DiscTraxSmoke","AchievementsSmoke","CalloutRumbleSmoke","BetweenRoundsSmoke","DiagnosticTailSmoke","LoadingCardSmoke","FightRecordSmoke","PlayNowPickSmoke","DeviceMatchSmoke","VenueCaptionSmoke"]
+               "HakuSaveSmoke","ProfileSavesSmoke","DisplayCadenceSmoke","MenuStripSmoke","ControllerInputSmoke","FightEventsSmoke","CommandPipeSmoke","SessionSleepSmoke","ReleaseVersionSmoke","ReleaseAssetSmoke","DiscTraxSmoke","AchievementsSmoke","CalloutRumbleSmoke","BetweenRoundsSmoke","DiagnosticTailSmoke","LoadingCardSmoke","FightRecordSmoke","PlayNowPickSmoke","DeviceMatchSmoke","VenueCaptionSmoke","VulkanSupportSmoke"]
         paths=[TESTS/(name+".java") for name in java_suites+["LinkSmoke","DiscInstallSmoke","SevenZipSmoke","RetailMenuStartupSmoke","CareerMenuSmoke"]]
         vendored=sorted((ROOT/"android/src/org/tukaani").rglob("*.java"))
         run([javac,"--release","8","-encoding","UTF-8","-cp",args.android_jar,"-d",out,*JAVA.glob("*.java"),*vendored,*paths])
@@ -50,6 +50,7 @@ def main():
         run([sys.executable,TESTS/"thor_health.py"])
         run([sys.executable,TESTS/"usb_sweep.py"])
         run([sys.executable,TESTS/"crash_inbox.py"])
+        run([sys.executable,TESTS/"region_variant.py"])
         run(["node",TESTS/"scorecard.cjs"])
         # Exercise the original translated ring wait with the same register
         # writer the Android runtime builds. This requires no retail process.

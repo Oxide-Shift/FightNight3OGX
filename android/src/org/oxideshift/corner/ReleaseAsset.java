@@ -15,6 +15,8 @@ final class ReleaseAsset {
     final ReleaseVersion version;
     final String tag,digest;
     final long bytes;
+    /** The release's title and a short plain-text "what's new" from its notes, for the update offer. */
+    String title="",notes="";
     private ReleaseAsset(ReleaseVersion version,String tag,long bytes,String digest){
         this.version=version;this.tag=tag;this.bytes=bytes;this.digest=digest;
     }
@@ -39,10 +41,31 @@ final class ReleaseAsset {
                 if(a==null || !"uploaded".equals(a.optString("state")))continue;
                 ReleaseAsset file=parse(tag,a.optLong("size"),a.optString("digest"));
                 if(file!=null && file.version.compareTo(current)>0 && (best==null || file.version.compareTo(best.version)>0)
-                        && file.version.asset().equals(a.optString("name")) && file.url().equals(a.optString("browser_download_url")))best=file;
+                        && file.version.asset().equals(a.optString("name")) && file.url().equals(a.optString("browser_download_url"))){
+                    best=file;
+                    file.title=row.optString("name","");
+                    file.notes=highlights(row.optString("body",""));
+                }
             }
         }
         return best;
+    }
+    /** The bold lead-ins of the release notes' bullet points ("7z archives work.", ...), as plain lines.
+     *  Falls back to the first paragraph. Markdown is stripped; never more than about 400 characters. */
+    static String highlights(String body){
+        if(body==null)return "";
+        StringBuilder out=new StringBuilder();
+        java.util.regex.Matcher m=java.util.regex.Pattern.compile("(?m)^\\s*[-*]\\s+\\*\\*(.{2,90}?)\\*\\*").matcher(body);
+        while(m.find() && out.length()<400){
+            String line=m.group(1).trim();
+            if(line.endsWith("."))line=line.substring(0,line.length()-1);
+            out.append(out.length()==0?"":"\n").append("• ").append(line);
+        }
+        if(out.length()==0){
+            String first=body.trim().split("\\r?\\n\\s*\\r?\\n",2)[0].replaceAll("[*_`#>\\[\\]]","").trim();
+            out.append(first.length()>400?first.substring(0,397)+"…":first);
+        }
+        return out.toString();
     }
     void copyVerified(InputStream in,OutputStream out,IntConsumer progress) throws Exception{
         MessageDigest hash=MessageDigest.getInstance("SHA-256");

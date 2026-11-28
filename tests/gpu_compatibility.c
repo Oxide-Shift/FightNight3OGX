@@ -43,8 +43,13 @@ VKAPI_ATTR void VKAPI_CALL vkDestroyDescriptorPool(VkDevice d,VkDescriptorPool p
     assert(p); destroys++;
 }
 int main(void) {
-    FightGpuDevice result={0}; api=VK_API_VERSION_1_2;
+    FightGpuDevice result={0}; api=VK_API_VERSION_1_0;
     assert(fight_check_device(0,&result)==FIGHT_GPU_API);
+    /* Alpha 84: Vulkan 1.1/1.2 run through fight_vk_compat.h; the 1.3 feature struct is never queried there. */
+    api=VK_API_VERSION_1_1; assert(fight_check_device(0,&result)==FIGHT_GPU_QUEUE);
+    queueBits=VK_QUEUE_GRAPHICS_BIT; api=VK_API_VERSION_1_2;
+    assert(fight_check_device(0,&result)==FIGHT_GPU_OK && !result.push);
+    queueBits=0;
     api=VK_API_VERSION_1_3; dynamic=1; assert(fight_check_device(0,&result)==FIGHT_GPU_FEATURES);
     sync2=1; assert(fight_check_device(0,&result)==FIGHT_GPU_QUEUE);
     queueBits=VK_QUEUE_GRAPHICS_BIT;

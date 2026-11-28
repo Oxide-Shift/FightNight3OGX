@@ -30,7 +30,7 @@ def prepare(reference, out, compiler, ndk, android, profiles=True):
     }
     for symbol, (source, defines) in shaders.items():
         spv = generated / (symbol + ".spv")
-        subprocess.run([glslc, "--target-env=vulkan1.3", "-O", *["-D" + d for d in defines],
+        subprocess.run([glslc, "--target-env=vulkan1.1", "-O", *["-D" + d for d in defines],
                         vk / "shaders" / source, "-o", spv], check=True)
         data = spv.read_bytes()
         lines = [",".join(str(b) for b in data[i:i + 32]) + "," for i in range(0, len(data), 32)]

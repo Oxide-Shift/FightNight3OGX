@@ -55,6 +55,11 @@ public final class CornerSession {
     synchronized boolean deviceLost(){return gpuDeviceLost && childExit==75;}
     synchronized boolean startupTimedOut(){return noStartupFrame;}
     synchronized boolean unsupportedGraphics() { return noAdapter && gpuInitFailed && childExit==74; }
+    private boolean compatPath;
+    /** The Vulkan 1.1 compatibility path was in use and the game stopped before its first picture. */
+    synchronized boolean compatStartupFailed(){
+        return compatPath && reaped && terminal && !cancelled && !software && !bootDrawn && lastFrame==null && childExit!=0;
+    }
     private ScheduledExecutorService clock;
     private ScheduledFuture<?> heartbeat;
 
@@ -524,6 +529,8 @@ public final class CornerSession {
             softTargets=line.substring("[Fight Night] soft targets ".length(),colon<0?line.length():colon).trim();
         }
         if(line.equals("FNR3/1 GPU_NO_ADAPTER")){noAdapter=true;return;}
+        // Alpha 84: a Vulkan 1.1 driver running through the compatibility path (or a note from that path).
+        if(line.startsWith("FNR3/1 GPU_COMPAT ")){if(line.matches("FNR3/1 GPU_COMPAT 1\\.[0-2] .*"))compatPath=true;record(line.substring(7));return;}
         if(line.equals("FNR3/1 GPU_INIT_FAILED")){gpuInitFailed=true;reason="Vulkan initialization failed";return;}
         if(line.equals("FNR3/1 GPU_DEVICE_LOST")){gpuDeviceLost=true;reason="GPU driver reset (Vulkan device lost)";record(reason);return;}
         if(line.startsWith("FNR3/1 GPU_PROBE ") || line.startsWith("FNR3/1 GPU_CREATE_RESULT ") ||

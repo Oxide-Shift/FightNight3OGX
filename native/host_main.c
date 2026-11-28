@@ -68,6 +68,16 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Unsupported Fight Night executable.\n");
         return 2;
     }
+    if (cert <= size - 0xA4) {
+        /* The kernel reports a console of the title's region (certificate: US 1, Europe 4). */
+        char region[16];
+        snprintf(region, sizeof region, "0x%X", read32(image + cert + 0xA0));
+#ifdef _WIN32
+        _putenv_s("RECOMP_TITLE_REGION", region);
+#else
+        setenv("RECOMP_TITLE_REGION", region, 1);
+#endif
+    }
     /* D3D's wait at 0x0043B817 reads *(*(device + 0x30)) and compares it
        with the submitted sequence in device + 0x2c. Register before threads. */
     if (xbox_Nv2aMirrorFence(0x004461B8,0x2c,0x30) < 0) return 3;

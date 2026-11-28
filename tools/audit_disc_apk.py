@@ -19,13 +19,24 @@ def audit(apk):
     required.update({"res/drawable-nodpi-v4/corner_glove.png","res/mipmap-xxxhdpi-v4/fight_night.png","res/mipmap-anydpi-v26/fight_night.xml"})
     required.update("lib/arm64-v8a/" + name for name in NATIVES)
     signatures = {"META-INF/CORNER.RSA", "META-INF/CORNER.SF", "META-INF/MANIFEST.MF"}
+    optional = {"assets/benchmark-preparation", "assets/disc-kit-pal.zip", "assets/disc-kit-pal.id"}
     with zipfile.ZipFile(apk) as app:
         names = set(app.namelist())
-        if len(names) != len(app.infolist()) or not required <= names or names - required - signatures - {"assets/benchmark-preparation"}:
+        if len(names) != len(app.infolist()) or not required <= names or names - required - signatures - optional:
             raise ValueError("Unexpected files in the game APK: " + repr(names ^ required))
-        if not re.fullmatch(rb"[0-9a-f]{64}\s*", app.read("assets/disc-kit.id")):
+        kits = ["disc-kit"]
+        if "assets/disc-kit-pal.zip" in names or "assets/disc-kit-pal.id" in names:
+            if not {"assets/disc-kit-pal.zip", "assets/disc-kit-pal.id"} <= names:
+                raise ValueError("PAL build kit is missing its archive or identifier")
+            kits.append("disc-kit-pal")
+        for kit_name in kits:
+            audit_kit(app, kit_name)
+
+
+def audit_kit(app, kit_name):
+        if not re.fullmatch(rb"[0-9a-f]{64}\s*", app.read(f"assets/{kit_name}.id")):
             raise ValueError("Invalid build kit identifier")
-        with zipfile.ZipFile(io.BytesIO(app.read("assets/disc-kit.zip"))) as kit:
+        with zipfile.ZipFile(io.BytesIO(app.read(f"assets/{kit_name}.zip"))) as kit:
             exact = {"runtime.a", "guest-build.id", "tools/device_build.py", "tools/bringup.py", "tools/compile_objects.py",
                      "tools/compact_dispatch.py", "tools/guest_hotpaths.py", "native/matrix_stream.h",
                      "native/texel_offset.h", "native/title_hooks.c", "native/observed_functions.json",

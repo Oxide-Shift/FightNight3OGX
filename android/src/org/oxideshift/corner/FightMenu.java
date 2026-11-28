@@ -33,6 +33,8 @@ final class FightMenu extends LinearLayout {
     final Spinner rumble;
     final Spinner renderer,resolution,aspect,displayRoute;
     Runnable displayRouteChanged;
+    /** Android's reported Vulkan driver version (0 when unreported). */
+    int vulkanVersion;
     /** Runs after the player changes the button map; the new map is already in prefs ("padMap"). */
     Runnable padMapChanged;
     final PresetStrip quality,pacing;
@@ -117,6 +119,8 @@ final class FightMenu extends LinearLayout {
 
         graphicsDetails=column();advanced=disclosure("Advanced graphics",graphicsDetails);
         LinearLayout backend=new LinearLayout(c);graphicsDetails.addView(backend);
+        vulkanVersion=VulkanSupport.systemVersion(c.getPackageManager());
+        VulkanSupport.chooseDefault(prefs,vulkanVersion);
         renderer=choice(backend,"Renderer",new String[]{"Vulkan","Software (480p)","Vulkan (general shaders)","Vulkan (shared GPU frames)"},"renderer",0);
         LinearLayout route=new LinearLayout(c);graphicsDetails.addView(route);
         displayRoute=choice(route,"Companion display",new String[]{"Use second screen when available","Use main screen only"},"displayRoute",0);
@@ -222,11 +226,13 @@ final class FightMenu extends LinearLayout {
         antiAlias.setEnabled(!sessionActive && !software && preset.tier!=0);
         antiAlias.setChecked(!software && preset.samples==2);
         String hint;
-        if(software)hint="Software renderer \u00b7 480p";
+        String driver=VulkanSupport.notice(vulkanVersion,software);
+        if(software)hint=VulkanSupport.tooOld(vulkanVersion)?driver:"Software renderer \u00b7 480p";
         else if(preset==GraphicsPreset.LOW)hint="Nearest-neighbor scaling \u00b7 edge smoothing off";
         else hint=(preset.tier==2?"Sharpened image \u00b7 4\u00d7 filtering":"Linear scaling \u00b7 2\u00d7 filtering")
                 +(preset.samples==2?" \u00b7 2\u00d7 MSAA":" \u00b7 edge smoothing off");
         if(renderer.getSelectedItemPosition()==3)hint+=" \u00b7 Experimental shared presentation";
+        if(!software && driver!=null)hint+=" \u00b7 "+driver;
         if(!hint.contentEquals(qualityHint.getText()))qualityHint.setText(hint);
     }
     private GradientDrawable surface(int fill,int outline){

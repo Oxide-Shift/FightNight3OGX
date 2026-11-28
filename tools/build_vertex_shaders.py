@@ -86,7 +86,7 @@ def build(template, output, glslc, profile, counts):
         base = output / f"fight_{key:08x}"
         source, binary = base.with_suffix(".vert"), base.with_suffix(".spv")
         source.write_text(specialize(shader, code))
-        subprocess.run([glslc, "--target-env=vulkan1.3", "-O", source, "-o", binary], check=True)
+        subprocess.run([glslc, "--target-env=vulkan1.1", "-O", source, "-o", binary], check=True)
         return key, code, binary.read_bytes()
     header = ["/* Generated from this private build's optional vertex profile. */"]
     table = []

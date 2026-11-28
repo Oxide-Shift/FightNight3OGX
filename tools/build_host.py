@@ -93,6 +93,9 @@ def main():
                     str(patches / "runtime-update.patch")], cwd=patched, check=True)
     subprocess.run(["git", "apply", "--no-index", "--whitespace=nowarn", "-"], cwd=patched, check=True,
                    input=(patches / "fight-voice.patch").read_bytes().replace(b"\r\n", b"\n"))
+    # A European (PAL) title checks the factory AV region and needs PAL display modes; US answers are unchanged.
+    subprocess.run(["git", "apply", "--no-index", "--whitespace=nowarn", "-"], cwd=patched, check=True,
+                   input=(patches / "fight-region.patch").read_bytes().replace(b"\r\n", b"\n"))
     if use_vulkan:
         shutil.copyfile(args.android_reference / "src/vk/vkr.h", patched / "vkr.h")
         subprocess.run(["git", "apply", "--no-index", "--whitespace=nowarn",
@@ -127,10 +130,15 @@ def main():
                        input=(patches / "fight-target-feedback.patch").read_bytes().replace(b"\r\n", b"\n"))
         subprocess.run(["git", "apply", "--no-index", "--whitespace=nowarn", "-"], cwd=patched, check=True,
                        input=(patches / "fight-texture-allocation.patch").read_bytes().replace(b"\r\n", b"\n"))
+        subprocess.run(["git", "apply", "--no-index", "--whitespace=nowarn", "-"], cwd=patched, check=True,
+                       input=(patches / "fight-buffer-usage.patch").read_bytes().replace(b"\r\n", b"\n"))
         if args.runtime_only:
             for patch in ("fight-device-probe.patch", "fight-ordinary-descriptors.patch"):
                 subprocess.run(["git", "apply", "--no-index", "--whitespace=nowarn", "-"], cwd=patched, check=True,
                                input=(patches / patch).read_bytes().replace(b"\r\n", b"\n"))
+        # PAL frames are 576 lines: squeezed into the 480-line target (no effect while fight_gpu leaves it at 0).
+        subprocess.run(["git", "apply", "--no-index", "--whitespace=nowarn", "-"], cwd=patched, check=True,
+                       input=(patches / "fight-pal-lines.patch").read_bytes().replace(b"\r\n", b"\n"))
         gpu_src, gpu_flags, gpu_libs = prepare(args.android_reference.resolve(), out, cc, ndk, android,
                                                 profiles=not args.runtime_only)
         sources.extend([*gpu_src, native / "fight_gpu.c"])
@@ -177,7 +185,9 @@ def main():
                 raise ValueError("Check NV2A tracing against the pinned kernel revision")
             source = out / source.name
             source.write_text(original.replace(trace, ";"), encoding="utf-8")
-        dispatch = ["-include", native / "vulkan_android_dispatch.h"] if android and source.name == "vkr.c" else []
+        # Android resolves 1.3 commands at run time; Windows renderer tests share it to exercise the
+        # Vulkan 1.1 path (FNR3_VULKAN11=1) on a PC.
+        dispatch = ["-include", native / "vulkan_android_dispatch.h"] if use_vulkan and source.name == "vkr.c" else []
         if args.runtime_only and source.name == "host_main.c":
             dispatch = [*dispatch, "-Dmain=fightnight_main"]
         result = subprocess.run([cc, *flags, *dispatch, "-c", source, "-o", obj], capture_output=True)

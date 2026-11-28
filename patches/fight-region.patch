@@ -1,0 +1,64 @@
+diff --git a/kernel_hal.c b/kernel_hal.c
+index eaee04f..1bb1afa 100644
+--- a/kernel_hal.c
++++ b/kernel_hal.c
+@@ -12,6 +12,7 @@
+  */
+ 
+ #include "kernel.h"
++int fight_pal_title(void); /* kernel_xbox.c */
+ #include "guest_ptr.h"
+ #include "xbox_memory_layout.h"   /* RECOMP_TLS, g_fs_base */
+ #include <stdio.h>
+@@ -753,8 +754,8 @@ VOID __stdcall xbox_AvSendTVEncoderOption(
+          * NTSC-M and 60Hz are the North American retail default, and match
+          * the region reported by ExQueryNonVolatileSetting. */
+         *Result = AV_PACK_HDTV
+-                | (AV_STANDARD_NTSC_M << AV_STANDARD_SHIFT)
+-                | AV_REFRESH_60Hz | fight_video_flags();
++                | ((fight_pal_title() ? AV_STANDARD_PAL_I : AV_STANDARD_NTSC_M) << AV_STANDARD_SHIFT)
++                | (fight_pal_title() ? AV_REFRESH_50Hz : AV_REFRESH_60Hz) | fight_video_flags();
+         break;
+ 
+     case AV_OPTION_QUERY_MODE:
+diff --git a/kernel_xbox.c b/kernel_xbox.c
+index c28aecb..58b2c7d 100644
+--- a/kernel_xbox.c
++++ b/kernel_xbox.c
+@@ -127,6 +127,19 @@ NTSTATUS __stdcall xbox_XeUnloadSection(PXBE_SECTION_HEADER Section)
+  *   - DVD Region: Region 1 (North America)
+  * ============================================================================ */
+ 
++/* The loaded title's XBE certificate region (host_main sets RECOMP_TITLE_REGION). A European-only title
++ * (region 4) checks the factory AV region and returns to the dashboard unless the console is PAL. */
++int fight_pal_title(void)
++{
++    static int pal = -1;
++    if (pal < 0) {
++        const char *region = getenv("RECOMP_TITLE_REGION");
++        unsigned long value = region ? strtoul(region, NULL, 0) : 1;
++        pal = (value & 4u) && !(value & 1u);
++    }
++    return pal;
++}
++
+ /* Xbox EEPROM stores the XAPI video options in the upper word. */
+ ULONG fight_video_flags(void)
+ {
+@@ -197,6 +210,16 @@ NTSTATUS __stdcall xbox_ExQueryNonVolatileSetting(
+     xbox_log(XBOX_LOG_DEBUG, XBOX_LOG_XBOX,
+         "ExQueryNonVolatileSetting: index=0x%02X len=%u", ValueIndex, ValueLength);
+ 
++    if (ValueIndex == 0x103 && fight_pal_title()) {
++        /* XC_FACTORY_AV_REGION of a European console: PAL-I, 50 Hz native (PAL60 is in the video flags). */
++        if (ValueLength >= sizeof(ULONG)) {
++            *(PULONG)Value = 0x00800300u;
++            if (Type) *Type = 4;
++            if (ResultLength) *ResultLength = sizeof(ULONG);
++        }
++        return STATUS_SUCCESS;
++    }
++
+     switch (ValueIndex) {
+     case XC_LANGUAGE:
+         /* English = 1 */

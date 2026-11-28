@@ -16,6 +16,7 @@ import java.util.function.BooleanSupplier;
 
 final class ReleaseUpdates {
     static final int INSTALL_PERMISSION=4921;
+    static final long AUTO_INTERVAL_MS=60*60*1000L;
     private final Activity activity;
     private final GameUpdate transfer;
     private final BooleanSupplier inSetup;
@@ -53,7 +54,7 @@ final class ReleaseUpdates {
             case READY: label="Update game";break;
             case RETRY: label="Retry update download";break;
             case INSTALLING: label="Installing update…";break;
-            default: label=checking?"Checking for updates…":pending==null?"Check for updates":"Download "+pending.version.name;
+            default: label=checking?"Checking for updates…":pending==null?"Check for updates":"Download "+pending.version.display();
         }
         if(!label.contentEquals(button.getText()))button.setText(label);
         boolean idle=inSetup.getAsBoolean();
@@ -71,7 +72,9 @@ final class ReleaseUpdates {
         if(!user && pending!=null && !offered.equals(pending.tag)){offer();return;}
         if(checking){manual|=user;return;}
         long now=System.currentTimeMillis(),elapsed=now-lastCheck;
-        if(!user && (now<retryAfter || (elapsed>=0 && elapsed<6*60*60*1000L)))return;
+        // Automatic checks run whenever Fight Setup is showing, at most hourly (was every 6 hours, so a release
+        // could go unnoticed for most of a day in an app left open). GitHub allows 60 unauthenticated calls an hour.
+        if(!user && (now<retryAfter || (elapsed>=0 && elapsed<AUTO_INTERVAL_MS)))return;
         checking=true;manual=user;
         new Thread(()->{
             try{
@@ -106,13 +109,22 @@ final class ReleaseUpdates {
         else retryAfter=System.currentTimeMillis()+15*60*1000L;
         if(!inSetup.getAsBoolean())return;
         if(next!=null && (manual || !offered.equals(next.tag)))offer();
-        else if(manual)notice(success?"You're on the latest available Android build.":"Couldn't reach GitHub. Try again later.");
+        else if(manual)notice(success?"You're up to date"+installedName()+".":"Couldn't reach GitHub. Try again later.");
+    }
+    private String installedName(){
+        try{return " ("+ReleaseVersion.display(activity.getPackageManager().getPackageInfo(activity.getPackageName(),0).versionName)+")";}
+        catch(Exception e){return "";}
     }
     private void offer(){
         final ReleaseAsset next=pending;offered=next.tag;
-        new GameDialog(activity).setTitle("A new version is available")
-                .setMessage("Fight Night "+next.version.name+" is ready to download. Your career and settings carry over.")
+        new GameDialog(activity).setTitle(next.version.display()+" is available")
+                .setMessage(offerText(next))
                 .setNegativeButton("Later",null).setPositiveButton("Download",(d,w)->transfer.download(next)).show();
+    }
+    static String offerText(ReleaseAsset next){
+        String size=String.format(java.util.Locale.ROOT,"%.0f MB",next.bytes/1048576.0);
+        String text=next.notes.isEmpty()?"":"What's new:\n"+next.notes+"\n\n";
+        return text+"Download "+size+". Your career, saves and settings carry over.";
     }
     private void notice(String s){Toast.makeText(activity,s,Toast.LENGTH_LONG).show();}
 }

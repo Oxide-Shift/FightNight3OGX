@@ -26,6 +26,15 @@ void fight_render_hitch_stats(char *out, size_t size) {
 extern const uint32_t *fight_color_pixels(int stage);
 extern VkrTex *fight_upload_color(VkrContext *,uint64_t,uint32_t,uint32_t,const uint32_t *);
 extern VkrTex *fight_feedback_texture(VkrContext *);
+/* The European (PAL) release draws 640 x 576 frames; the renderer squeezes them into the 640 x 480 target
+ * (fight-pal-lines.patch), so readback, presentation and the lower screen see the same 4:3 picture. */
+extern int fight_pal_title(void);
+extern void vkr_set_guest_lines(VkrContext *c, uint32_t lines);
+static uint32_t frame_lines(void) {
+    static uint32_t lines;
+    if (!lines) lines = fight_pal_title() ? 576u : 480u;
+    return lines;
+}
 static unsigned draws;
 static int dirty;
 extern unsigned fight_texture_levels(int);
@@ -167,6 +176,7 @@ static int crowd_on_gpu(const Nv2aTarget *t){
     uint32_t key=t->color_offset&0x0fffffff;
     if(!vkr_offscreen_use(gpu,key,256,256,CROWD_GPU_SCALE,(float)t->zmax))return 0;
     crowd_key=key;crowd_gpu_draws++;
+    vkr_set_guest_lines(gpu,0);
     vkr_set_scissor(gpu,t->x,t->y,t->width,t->height);
     return 1;
 }
@@ -192,7 +202,7 @@ static void read_crowd_switch(void){
 }
 static int offscreen(const Nv2aTarget *t){
     return t->swizzled || t->bpp != 4 || t->pitch != 2560 || !t->width || !t->height ||
-           t->x >= 640 || t->width > 640-t->x || t->y >= 480 || t->height > 480-t->y;
+           t->x >= 640 || t->width > 640-t->x || t->y >= frame_lines() || t->height > frame_lines()-t->y;
 }
 /* 2: the crowd's off-screen GPU target; 1: the main target; 0: the executor draws it in software. */
 static int select_surface(const Nv2aTarget *t) {
@@ -219,6 +229,7 @@ static int select_surface(const Nv2aTarget *t) {
         active_depth=t->zmax;
     }
     active_address=t->color_offset;
+    vkr_set_guest_lines(gpu,frame_lines()==480u?0u:frame_lines());
     vkr_set_scissor(gpu,t->x,t->y,t->width,t->height);
     return 1;
 }
@@ -267,7 +278,7 @@ static void state(const Nv2aTarget *t,VkrDrawState *s, int loading_quad) {
          * color target before flip must see the draws already submitted. */
         VkrTex *tex=NULL;
         if(dirty && ti.offset==t->color_offset && ti.format==0x12 && !ti.cube &&
-           ti.width==640 && ti.height==480)
+           ti.width==640 && ti.height==frame_lines())
             tex=fight_feedback_texture(gpu);
         /* The crowd sheet drawn on the GPU: its image, not guest memory (which nothing writes any more). */
         if(!tex && crowd_key && gpu_crowd && !ti.cube && (ti.offset&0x0fffffff)==crowd_key)

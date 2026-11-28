@@ -5,13 +5,17 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.util.TypedValue;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.TextView;
 
-/** Optional upper-display readout. The game surface owns the frame measurement. */
+/** Optional upper-display readout. The game surface owns the frame measurement.
+ *  Alpha 84: shown whenever the game screen has a measurement. It used to hide by scene (pause menus, intros,
+ *  replays) from a pixel classifier, which players saw as the counter dropping out; with frames delivered on the
+ *  GPU path there may also be no CPU frame to classify, which hid it entirely. It still steps aside for the gallery. */
 final class TopFpsCounter extends TextView implements Runnable {
     private final GameScreen screen;
     private final CornerSession session;
-    private boolean running,pausedMenu;
+    private boolean running;
     private int previous=-1;
 
     TopFpsCounter(Context context,GameScreen screen,CornerSession session,Typeface face){
@@ -20,6 +24,7 @@ final class TopFpsCounter extends TextView implements Runnable {
         setTextSize(TypedValue.COMPLEX_UNIT_DIP,12);
         setTypeface(face);
         setTextColor(0xff39ff14);setBackgroundColor(Color.TRANSPARENT);
+        setShadowLayer(2f,1f,1f,0xff000000);   // readable over white rings and menus
         setIncludeFontPadding(false);setSingleLine(true);
         setFocusable(false);setClickable(false);
         setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -33,26 +38,20 @@ final class TopFpsCounter extends TextView implements Runnable {
     }
     @Override protected void onDetachedFromWindow(){running(false);super.onDetachedFromWindow();}
 
-    boolean showInScene(LiveFrame.Scene scene,boolean bout,boolean pauseTitle,boolean cameraShot){
-        boolean playing=scene==LiveFrame.Scene.ROUND || scene==LiveFrame.Scene.CORNER ||
-                scene==LiveFrame.Scene.TREATMENT;
-        if(pauseTitle || scene==LiveFrame.Scene.PAUSE)pausedMenu=true;
-        else if(playing || scene==LiveFrame.Scene.LOADING || (!bout && scene==LiveFrame.Scene.MENU))pausedMenu=false;
-        // A pause subpage can lose the pause title and the round HUD together.
-        return !pausedMenu && (!bout || playing || (scene==LiveFrame.Scene.RINGSIDE && cameraShot));
-    }
+    /** Visible whenever there is a measurement (0 when frames stall, which is worth seeing too), except over the
+     *  achievements / EA Trax gallery, which covers the game. */
+    static boolean visibleFor(int fps,boolean galleryOpen){return fps>=0 && !galleryOpen;}
+
     @Override public void run(){
         if(!running)return;
         int value=screen.displayedFps();
-        LiveFrame frame=screen.latestFrame();
-        boolean visible=false;
-        if(value>=0 && frame!=null && !session.cabinetOpen){
-            boolean bout=session.inLiveBout();
-            LiveFrame.Scene scene=frame.scene(bout);
-            visible=showInScene(scene,bout,frame.pauseRow()>=0,session.cameraShot()!=0);
-            if(!screen.current(frame))visible=getVisibility()==VISIBLE;
-        }
+        boolean visible=visibleFor(value,session!=null && session.cabinetOpen);
         if(visible && value!=previous){setText(Integer.toString(value));previous=value;}
+        if(visible){
+            // Overlays added after the counter (achievements, EA Trax card) must not cover it.
+            ViewGroup parent=getParent() instanceof ViewGroup?(ViewGroup)getParent():null;
+            if(parent!=null && parent.indexOfChild(this)!=parent.getChildCount()-1)bringToFront();
+        }
         setVisibility(visible?VISIBLE:INVISIBLE);
         postDelayed(this,125);
     }

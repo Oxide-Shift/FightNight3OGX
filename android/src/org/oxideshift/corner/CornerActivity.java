@@ -111,7 +111,8 @@ public class CornerActivity extends Activity implements DisplayManager.DisplayLi
         displays=(DisplayManager)getSystemService(DISPLAY_SERVICE);
         host=new File(getApplicationInfo().nativeLibraryDir,"libfightnight_host.so");
         if(new File(getApplicationInfo().nativeLibraryDir,"libdisc_runner.so").isFile()){
-            try{discBuild=new DiscBuild(this);host=discBuild.runner;}
+            DiscImage.palSupported=DiscRegion.palBundled(this);
+            try{discBuild=new DiscBuild(this,()->new File(game(),"default.xbe"));host=discBuild.runner;}
             catch(IOException e){startupExit=-3;startupIssue="The signed compiler kit could not be read. Install the complete APK over this app to repair it.";}
         }
         if(startupIssue.isEmpty() && !host.canExecute())startupIssue="Android could not open the game runtime. Install the complete ARM64 APK over this app to repair it.";
@@ -128,7 +129,7 @@ public class CornerActivity extends Activity implements DisplayManager.DisplayLi
         String version="";
         try{version=getPackageManager().getPackageInfo(getPackageName(),0).versionName;}
         catch(android.content.pm.PackageManager.NameNotFoundException ignored){}
-        menu=new FightMenu(this,prefs,DiscFonts.load(game()),version==null?"":version,()->{if(active()){
+        menu=new FightMenu(this,prefs,DiscFonts.load(game()),version==null?"":ReleaseVersion.display(version),()->{if(active()){
             CornerSession current=engine.session;
             new GameDialog(this).setMessage("End this game session?")
                     .setNegativeButton("Cancel",null).setPositiveButton("End session",(dialog,which)->{
@@ -920,10 +921,18 @@ public class CornerActivity extends Activity implements DisplayManager.DisplayLi
                 }else if(session.retryGraphics()){
                     engine.note="Retrying Vulkan with general shaders";
                     launch(true);
+                }else if(session.compatStartupFailed()){
+                    // Vulkan 1.1 compatibility path (experimental): fall back to Software rather than retrying it.
+                    menu.renderer.setSelection(VulkanSupport.RENDERER_SOFTWARE);
+                    prefs.edit().putInt("renderer",VulkanSupport.RENDERER_SOFTWARE).apply();
+                    engine.note="The Vulkan renderer couldn't start with this device's older graphics driver. Switched to Software (480p): tap Enter the ring to play.";
                 }else if(session.startupTimedOut()){
                     engine.note="The selected renderer did not produce an advancing picture. Open Advanced graphics to choose another renderer.";
                 }else if(session.unsupportedGraphics()){
-                    engine.note="Vulkan is unavailable on this device. Choose Software (480p) under Graphics.";
+                    // The renderer's own probe found no Vulkan 1.3 device: switch to Software so the next tap just plays.
+                    menu.renderer.setSelection(VulkanSupport.RENDERER_SOFTWARE);
+                    prefs.edit().putInt("renderer",VulkanSupport.RENDERER_SOFTWARE).apply();
+                    engine.note="This device's graphics driver can't run the Vulkan renderer (it needs Vulkan 1.3). Switched to Software (480p): tap Enter the ring to play.";
                 }else if(session.deviceLost()){
                     engine.note="The graphics driver reset and the game stopped. Your saves are safe. Start the game again; if it repeats, choose another renderer in Advanced graphics.";
                 }

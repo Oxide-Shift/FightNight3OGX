@@ -4,10 +4,31 @@ from pathlib import Path
 import re
 
 
+def chunk(directory, preferred, *markers):
+    """The generated file holding a marker: the known split first, then every chunk (other releases split differently)."""
+    first = directory / preferred
+    for path in [first] + [p for p in sorted(directory.glob("recomp_*.c")) if p != first]:
+        if path.is_file():
+            text = path.read_text(encoding="utf-8")
+            if any(marker in text for marker in markers):
+                return path
+    return first
+
+
+# Verified bodies of the two weighted-transform loops: (US, PAL) by US label. tools/region_variant.py rewrites
+# the labels; the PAL bodies (Europe EA13401E) equal the US bodies once their addresses are mapped back.
+MATRIX_BODIES = {
+    "002AB8E0": ("12bfbd7e87e29c3beb346387c7f1cf60b7c011278364d64026ce849d7a3c9e4e",
+                 "9432a2dbc7605db7cc8f38ddace3187f2442d5938d507ca4466f543cc58a2cd1"),
+    "002ABA10": ("3ca6da5732e8fe61de2284f9d8a7b203ff185967eebb0d66b21129c99d7a07ee",
+                 "545f3d7a08eb823936bc970f6862991217047e0df085fa5d0531e97e469202b0"),
+}
+
+
 def gpu_flush(directory):
-    path = directory / "recomp_0241.c"
-    text = path.read_text(encoding="utf-8")
     poll = "    if (TEST_NZ(_fa, _fb)) goto loc_0043B540; /* jne: not equal / not zero */"
+    path = chunk(directory, "recomp_0241.c", poll, "fight_gpu_flush_wait(&MEM32")
+    text = path.read_text(encoding="utf-8")
     if "fight_gpu_flush_wait(&MEM32" in text:
         return
     if text.count(poll) != 1 or "loc_0043B540: ;" not in text:
@@ -28,21 +49,19 @@ def matrix_blend(directory):
     internal branches, no guest calls, and a single exit. Publish every register
     at that exit so the next yield and both retail callees see identical state.
     """
-    path = directory / "recomp_0087.c"
+    loops = (("002AB8E0", "esi"), ("002ABA10", "edx"))
+    path = chunk(directory, "recomp_0087.c", f"loc_{loops[0][0]}: ;\nRECOMP_LOOP_YIELD();", '#include "matrix_stream.h"')
     text = path.read_text(encoding="utf-8")
     if '#include "matrix_stream.h"' in text:
         return
-    loops = (
-        ("002AB8E0", "esi", "12bfbd7e87e29c3beb346387c7f1cf60b7c011278364d64026ce849d7a3c9e4e"),
-        ("002ABA10", "edx", "3ca6da5732e8fe61de2284f9d8a7b203ff185967eebb0d66b21129c99d7a07ee"),
-    )
-    for label, dest, fingerprint in loops:
+    for label, dest in loops:
+        fingerprints = MATRIX_BODIES[label]
         anchor = f"loc_{label}: ;\nRECOMP_LOOP_YIELD();"
         start = text.index(anchor) + len(anchor)
         last = f"XMM_STORE({dest} + 0x10, xmm2); /* movaps */"
         end = text.index(last, start) + len(last)
         body = text[start:end]
-        if hashlib.sha256(body.encode()).hexdigest() != fingerprint:
+        if hashlib.sha256(body.encode()).hexdigest() not in fingerprints:
             raise ValueError(f"Unexpected weighted transform instructions at {label}")
         registers = [f"xmm{i}" for i in range(6)]
         local = re.sub(r"\bxmm([0-5])\b", r"lane\1", body)

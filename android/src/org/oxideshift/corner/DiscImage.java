@@ -14,6 +14,8 @@ public final class DiscImage {
     private static final int US_BYTES = 5750784;
     private static final int US_LAST_SECTION_END = 5748960;
     private static final String PAL_XBE_MD5 = "4f65d6d6e3d1ba717e4a9cbf8afc0a7b";
+    /** Set at startup when the APK bundles the PAL build kit (DiscRegion.palBundled). */
+    static volatile boolean palSupported;
     private final FileChannel channel;
     private final long length, origin;
     private long base, total;
@@ -167,6 +169,13 @@ public final class DiscImage {
 
         MessageDigest sha = MessageDigest.getInstance("SHA-256");
         String originalHash;
+        if (palSupported && size == DiscRegion.PAL_BYTES) {
+            // Europe/PAL EA13401E: the APK carries a second build kit for this executable.
+            byte[] image = read(offset, DiscRegion.PAL_BYTES);
+            sourceDigest = sha.digest(image); originalHash = hex(sourceDigest);
+            facts.put("source_xbe_sha256", originalHash);
+            if (DiscRegion.PAL_HASH.equals(originalHash)) return selected(image, "exact");
+        }
         if (size >= US_LAST_SECTION_END && size <= US_BYTES) {
             // The retail file ends with 1,824 zero bytes after its final section.
             byte[] image = new byte[US_BYTES];
@@ -209,10 +218,14 @@ public final class DiscImage {
             // Catalog MD5 identifies the pressing for display only.
             edition = PAL_XBE_MD5.equals(hex(md5.digest())) ? "Europe/PAL, EA13401E" : "PAL";
             // The disc is a genuine copy, just a different build: say so plainly instead of calling it unrecognized.
+            String supported = palSupported
+                    ? "), but not the European executable this app supports (EA13401E, English/French). "
+                      + "It may be modified or a different pressing. Choose an unmodified copy of EA13401E or a USA/Canada copy."
+                    : "), but this app build only runs the North American (USA/Canada, NTSC-U) release. "
+                      + "Choose a USA/Canada copy to play.";
             throw new DiscImport.Failure(DiscImport.Reason.REVISION,"European (PAL) edition: this is a genuine Fight Night Round 3 disc ("
                     + edition + "; Xbox title 45410086, XBE version " + Integer.toUnsignedLong(certificate.getInt(0xac))
-                    + "), but the app only runs the North American (USA/Canada, NTSC-U) release so far. "
-                    + "PAL support isn't available yet. Choose a USA/Canada copy to play."
+                    + supported
                     + "\n\ndefault.xbe SHA-256\n" + originalHash).xbe(title,region,certificate.getInt(0xac),originalHash);
         }
         throw new DiscImport.Failure(DiscImport.Reason.REVISION,"Unrecognized disc revision: Fight Night Round 3 (" + edition + "), Xbox title 45410086, XBE version "

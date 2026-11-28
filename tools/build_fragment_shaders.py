@@ -39,7 +39,7 @@ def build(profile, generated, shader_tools):
                         "--freeze-spec-const", "--fold-spec-const-op-composite", "-O",
                         "--eliminate-dead-code-aggressive", "--compact-ids", module, "-o", output],
                        check=True)
-        subprocess.run([shader_tools / "spirv-val.exe", "--target-env", "vulkan1.3", output],
+        subprocess.run([shader_tools / "spirv-val.exe", "--target-env", "vulkan1.1", output],
                        check=True)
         code = [f"0x{word:08x}u" for (word,) in struct.iter_unpack("<I", output.read_bytes())]
         header.append(f"static const uint32_t {symbol}[] = {{")

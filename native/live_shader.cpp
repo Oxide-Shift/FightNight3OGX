@@ -54,7 +54,7 @@ size_t fight_compile_vertex(const uint32_t *words, unsigned count, unsigned inpu
     shaderc_compile_options_t options = shaderc_compile_options_initialize();
     size_t bytes = 0;
     if (compiler && options) {
-        shaderc_compile_options_set_target_env(options, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_3);
+        shaderc_compile_options_set_target_env(options, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_1);
         shaderc_compile_options_set_optimization_level(options, shaderc_optimization_level_performance);
         auto result = shaderc_compile_into_spv(compiler, source.data(), source.size(), shaderc_vertex_shader,
                                                 "disc.vert", "main", options);
@@ -72,7 +72,7 @@ extern "C" __attribute__((visibility("default")))
 size_t fight_compile_fragment(const uint32_t *source, size_t bytes, const uint32_t *words, uint32_t **out) {
     std::unordered_map<uint32_t, std::vector<uint32_t>> values;
     for (unsigned i = 0; i < 39; ++i) values[i] = {words[i]};
-    spvtools::Optimizer opt(SPV_ENV_VULKAN_1_3);
+    spvtools::Optimizer opt(SPV_ENV_VULKAN_1_1);
     opt.RegisterPass(spvtools::CreateSetSpecConstantDefaultValuePass(values));
     opt.RegisterPass(spvtools::CreateFreezeSpecConstantValuePass());
     opt.RegisterPass(spvtools::CreateFoldSpecConstantOpAndCompositePass());

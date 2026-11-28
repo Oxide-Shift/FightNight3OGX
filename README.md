@@ -66,18 +66,20 @@ In your career, the scouting report shows the purse, any bonus objective and a t
 
 <p align="center"><img src="docs/screenshots/menus-top-81.jpg" width="860" alt="Achievements and Music menus on the upper screen. Achievements: category tabs with progress meters, an overall 35 percent ring, and award cards with gold rims for earned ones. Music: On during fights switched on, FN3 Expanded off, and EA Trax Open. Rendered on a PC from the app's own screens."></p>
 
-## What's new in Alpha 82
+## What's new in Alpha 84
 
-- **Fight Record**, a new Career Central item with your lifetime record and punch stats (records start counting from this version).
-- **Play Now lower screens**: choose your corner, the tale of the tape and a fight poster for your venue.
-- **Your device in the game**: the corner-select icon and loading controls guide match your device (AYN Thor, Retroid Pocket Duo, Retroid Pocket 6, AYN Odin 3 Portal, phone or tablet).
-- **An animation pass across every screen**: callouts land with an impact ring, the damage map flashes on every hit, numbers count up, and the lower screen's LOADING plate matches the game's own.
-- **Launcher polish** and a heavy-bag loading screen with corner tips.
-- **Crash guard** for a controller-report crash seen on a Thor.
+- **More phones run the full renderer**: phones whose graphics driver is Vulkan 1.1 or 1.2 (many MediaTek/Mali and some Snapdragon models) now use a compatibility path instead of stopping at startup. Experimental: tested on a PC, not yet on such a phone.
+- **Automatic Software fallback**: if the driver is too old for Vulkan, or the compatibility path can't start, the app switches to the Software renderer (480p) and says so.
+- **European (PAL) discs, experimental**: the European release (`EA13401E`, English/French) installs and runs with its own build of the game. Brought up on a PC only so far.
+- **The FPS counter stays up**, **plain version names** (this is Alpha 84), and an update offer that lists what's new and checks hourly.
 - **Updating:** the game runtime changed, so Fight Setup asks to **Prepare game** once after updating. Saves and settings are kept.
 
 <details>
 <summary>Earlier releases</summary>
+
+**Alpha 83:** 7z archives import directly; a clearer message for European discs; an anonymous player count (Fight Setup → Privacy).
+
+**Alpha 82:** Fight Record; Play Now lower screens (corner, tale of the tape, fight poster); your device's art in the game; an animation pass across every screen; a heavy-bag loading screen; a crash guard for a controller-report crash.
 
 **Alpha 81:** button remapping (81.5); damage by region on the lower screen; handheld art on the Options page (81.4); a fix for stutter that built up during fights (81.4); the crowd drawn on the GPU for steadier 60 FPS (81.3); transitions mirrored on both screens; redesigned career, Achievements and Music screens; music keys on the lower screen; faster 60 FPS menus.
 
@@ -87,7 +89,7 @@ In your career, the scouting report shows the purse, any bonus objective and a t
 
 ## Getting started
 
-You need **64-bit ARM Android 11 or newer**, a controller (built-in or connected), and your own US disc image. The **AYN Thor** is the tested dual-screen handheld; on a single-screen device, menu prompts stay on the main display.
+You need **64-bit ARM Android 11 or newer**, a controller (built-in or connected), and your own US (or, experimentally, European) disc image. The **AYN Thor** is the tested dual-screen handheld; on a single-screen device, menu prompts stay on the main display.
 
 1. Install the APK from the [latest release](https://github.com/Oxide-Shift/FightNight3OGX/releases/latest).
 2. Open **Fight Setup** and choose a career backup folder you can find again after a reinstall.
@@ -102,10 +104,10 @@ Press **Android Back** in a game to open Fight Setup, then **Resume bout** or **
 | --- | --- |
 | Game | Fight Night Round 3 |
 | Platform | Original Xbox (not Xbox 360 or PS2) |
-| Region | USA / NTSC-U, disc `EA13402A`, title ID `45410086` |
+| Region | USA / NTSC-U, disc `EA13402A`, title ID `45410086`. Experimental: Europe / PAL, disc `EA13401E` (English/French) |
 | Formats | Full-size Xbox disc image (7.29 GiB) or compact XISO (2.24 GiB), or a ZIP or 7z holding one of them |
 
-SHA-256 of `default.xbe` inside the image: `cfaf2d2c1c338a6e4e7135466c8dcb80fdf7da63682e71cfecdcba65b3682064`
+SHA-256 of `default.xbe` inside the image: `cfaf2d2c1c338a6e4e7135466c8dcb80fdf7da63682e71cfecdcba65b3682064` (USA), `349ba807b93bd4ddef251b0129ef7970b5da1840ef794b4a2fa735e90c58394a` (Europe)
 
 <details>
 <summary>Disc formats, hashes and conversion</summary>
@@ -121,7 +123,7 @@ SHA-256 of `default.xbe` inside the image: `cfaf2d2c1c338a6e4e7135466c8dcb80fdf7
 
 See [xemu's disc image guide](https://xemu.app/docs/disc-images/) and [XISO Studio's format guide](https://purelogiccode.github.io/XISOStudio/Usage-Guide.html) for conversions.
 
-A full-size US disc is 7,825,162,240 bytes: CRC-32 `8f7ab94f`, MD5 `6fddb483d3de2723d088896919a5bb14`, SHA-1 `14ee949b26a77d071fc4776959e503b02f64114d`. XISO repacks vary in size and hash but contain the same 901 game files (combined SHA-256 `7c8ad7ead9c2dfd88d8d69fd3e1c066c2b80b53032294b4e64b6416208bbcefd`). The European PAL release (`EA13401E`) has a different executable and isn't supported yet. [Redump hashes](https://github.com/libretro/libretro-database/blob/master/metadat/redump/Microsoft%20-%20Xbox.dat) · [Original Xbox title database](https://mobcat.zip/XboxIDs/)
+A full-size US disc is 7,825,162,240 bytes: CRC-32 `8f7ab94f`, MD5 `6fddb483d3de2723d088896919a5bb14`, SHA-1 `14ee949b26a77d071fc4776959e503b02f64114d`. XISO repacks vary in size and hash but contain the same 901 game files (combined SHA-256 `7c8ad7ead9c2dfd88d8d69fd3e1c066c2b80b53032294b4e64b6416208bbcefd`). The European PAL release (`EA13401E`) has its own executable; the app prepares it with a separate build of the game (experimental, tested on a PC only). It draws 576-line frames, which the app shows in the same 4:3 picture, and runs at the same speed and frame pacing as the US release. [Redump hashes](https://github.com/libretro/libretro-database/blob/master/metadat/redump/Microsoft%20-%20Xbox.dat) · [Original Xbox title database](https://mobcat.zip/XboxIDs/)
 
 Fight Setup can restore a renamed dashboard title, edited disc-access or region flags, and trimmed padding in its own copy of the US executable, or use a verified original stored as `default.xbe_orig` or `default.xbe.bak`.
 
@@ -134,7 +136,7 @@ Fight Setup can restore a renamed dashboard title, edited disc-access or region 
 | --- | --- |
 | Android refuses to install the APK | Use the complete release APK on 64-bit ARM Android 11 (API 30) or later. Updates need the same signature; export your save before switching between differently signed builds. |
 | The disc can't be read | Choose a single supported image with Android's file picker. If your provider can't keep it available, copy it to local storage first. |
-| **Wrong platform**, **Different game**, **Unrecognized disc revision** or **Unsupported container** | Check the edition and the `default.xbe` hash above (a whole-image hash differs across valid repacks). Convert RAR, compressed or split images to one ISO/XISO. **European (PAL) edition** means a genuine disc from a release this app doesn't run yet; use a USA/Canada copy. **Copy details** shows the detected revision. |
+| **Wrong platform**, **Different game**, **Unrecognized disc revision** or **Unsupported container** | Check the edition and the `default.xbe` hash above (a whole-image hash differs across valid repacks). Convert RAR, compressed or split images to one ISO/XISO. **European (PAL) edition** means a genuine European disc that isn't the supported `EA13401E` executable (modified or a different pressing); use an unmodified `EA13401E` or a USA/Canada copy. **Copy details** shows the detected revision. |
 | Preparation stops or Fight Setup closes | Reopen it and tap **Prepare game**; it reuses the extracted disc. Free storage or close large apps if needed. |
 | Black screen or back to Fight Setup | Review the crash preview, note the last screen you saw, try Low quality at 480p, and send or copy the report. |
 | The lower screen is missing | Play on the main display. Dual-screen layouts are tested on the AYN Thor only. |

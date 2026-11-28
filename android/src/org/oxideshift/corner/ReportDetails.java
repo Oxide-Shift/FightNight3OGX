@@ -84,7 +84,9 @@ final class ReportDetails {
         }
         d.put("controllers",pads.length()==0?"none":pads.toString());
         JSONObject f=new JSONObject(failure);
-        try(BufferedReader in=new BufferedReader(new InputStreamReader(activity.getAssets().open("disc-kit.id"),StandardCharsets.US_ASCII))){
+        String kitAsset=DiscRegion.palBundled(activity) && "00000004".equals(facts.values.getProperty("region"))
+                ?DiscRegion.PAL_KIT:DiscRegion.US_KIT;
+        try(BufferedReader in=new BufferedReader(new InputStreamReader(activity.getAssets().open(kitAsset+".id"),StandardCharsets.US_ASCII))){
             String kit=in.readLine();if(kit!=null && kit.matches("[0-9a-f]{64}"))f.put("build_kit_sha256",kit);
         }catch(IOException | RuntimeException ignored){}
         for(String key:DiscFacts.KEYS){
